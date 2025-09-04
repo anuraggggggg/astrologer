@@ -1,0 +1,2 @@
+C:/DiployStudio/Astroway-astrologer-app/android/app/.cxx/RelWithDebInfo/3f4z1c1p/arm64-v8a/CMakeFiles/edit_cache.dir
+C:/DiployStudio/Astroway-astrologer-app/android/app/.cxx/RelWithDebInfo/3f4z1c1p/arm64-v8a/CMakeFiles/rebuild_cache.dir

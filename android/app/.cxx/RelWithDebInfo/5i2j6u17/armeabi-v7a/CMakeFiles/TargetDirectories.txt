@@ -1,0 +1,2 @@
+/Users/karanbisht/Documents/GitHub/Astroway-astrologer-app/android/app/.cxx/RelWithDebInfo/5i2j6u17/armeabi-v7a/CMakeFiles/edit_cache.dir
+/Users/karanbisht/Documents/GitHub/Astroway-astrologer-app/android/app/.cxx/RelWithDebInfo/5i2j6u17/armeabi-v7a/CMakeFiles/rebuild_cache.dir

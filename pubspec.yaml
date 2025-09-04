@@ -1,0 +1,124 @@
+name: astrowaypartner
+description: A new Flutter project Started.
+
+publish_to: "none"
+version: 2.2.1
+
+environment:
+  sdk: ">=3.5.0 <4.0.0"
+dependencies:
+  agora_rtc_engine: ^6.3.2
+  agora_rtm: ^2.2.2
+  wakelock_plus: ^1.3.2
+
+  audioplayers: ^6.0.0
+  cached_network_image: ^3.3.0
+  cloud_firestore: ^5.0.2
+  connectivity_plus: ^6.1.0
+  cupertino_icons: ^1.0.8
+  custom_clippers: ^2.0.0
+  date_format: ^2.0.7
+  device_info_plus: any
+  dotted_border: ^2.1.0
+  draggable_widget: ^2.0.0
+  easy_localization: ^3.0.7
+  file_picker: ^8.0.6
+  firebase_auth: ^5.1.1
+  firebase_core: ^3.1.1
+  firebase_messaging: ^15.0.2
+  firebase_storage: ^12.1.0
+  flutter:
+    sdk: flutter
+  flutter_countdown_timer: ^4.1.0
+  flutter_document_picker: ^5.2.3
+  flutter_google_places_sdk: ^0.3.9
+  flutter_holo_date_picker: ^1.1.3
+  flutter_html: ^3.0.0-alpha.5
+  flutter_inappwebview: ^6.0.0
+  flutter_keyboard_visibility: ^6.0.0
+  flutter_lints: ^4.0.0
+  flutter_local_notifications: ^17.2.1+1
+  flutter_phoenix: ^1.1.1
+  flutter_rating_bar: ^4.0.1
+  flutter_snake_navigationbar: ^0.6.1
+  flutter_svg: ^2.0.10+1
+  flutter_time_picker_spinner: ^2.0.0
+  flutter_easyloading: ^3.0.5
+  font_awesome_flutter: ^10.6.0
+  geocoding: ^3.0.0
+  get: ^4.6.6
+  get_storage: ^2.1.1
+  googleapis_auth: any
+  http: ^1.1.2
+  http_parser: any
+  image_cropper: any
+  image_picker: any
+  intl: any
+  intl_phone_number_input:
+    git:
+      url: https://github.com/Shahidbangash/intl_phone_number_input.git
+      ref: develop
+  flutter_callkit_incoming:
+    git:
+      url: https://sunilsinghchaudhary00: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@github.com/sunil-singh-chaudhary/flutter_callkit_incoming.git
+      ref: BitmapBugFixed
+
+  lecle_yoyo_player: ^0.0.8
+  lottie: any
+  multi_image_picker_view: ^2.0.0
+  otpless_flutter: ^2.2.1
+  package_info_plus: ^8.0.2
+  path_provider: ^2.1.3
+  pdf: ^3.11.0
+  percent_indicator: ^4.2.3
+  permission_handler: ^11.3.1
+  persistent_bottom_nav_bar: ^6.2.1
+  pinput: ^5.0.0
+  share_plus: ^8.0.3
+  shared_preferences: ^2.2.3
+  simple_speed_dial: ^0.1.7
+  sizer: ^2.0.15
+  smooth_page_indicator: ^1.2.0+3
+  story_view: ^0.16.5
+  swipe_to: ^1.0.6
+  syncfusion_flutter_gauges: any
+  syncfusion_flutter_pdfviewer: any
+  translator: ^1.0.3+1
+  url_launcher: ^6.3.0
+  uuid: ^4.4.0
+  video_player: ^2.9.1
+  video_compress: ^3.1.2
+  webview_flutter: ^4.4.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+dependency_overrides:
+  intl: ^0.19.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
+    - assets/images/drawericons/
+    - assets/translations/
+    - assets/animation/
+    - assets/images/profileicons/
+    - assets/images/bottombaricons/
+    - lib/utils/noti_service.json
+    - assets/ringtone.mp3
+    - assets/images/pdf.png
+    - assets/sounds/message_sound.mp3
+
+  fonts:
+    - family: Poppins
+      fonts:
+        - asset: assets/fonts/Poppins-Black.ttf
+        - asset: assets/fonts/Poppins-Bold.ttf
+        - asset: assets/fonts/Poppins-Medium.ttf
+        - asset: assets/fonts/Poppins-Regular.ttf
+        - asset: assets/fonts/Poppins-SemiBold.ttf
+        - asset: assets/fonts/Poppins-Thin.ttf
+        - asset: assets/fonts/Poppins-ExtraBold.ttf
+        - asset: assets/fonts/Poppins-ExtraLight.ttf
+        - asset: assets/fonts/Poppins-Light.ttf

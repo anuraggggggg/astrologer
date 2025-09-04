@@ -1,0 +1,115 @@
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+
+buildscript {
+    ext.kotlin_version = '2.0.10' // Set this to the latest Kotlin version you want to use
+
+    repositories {
+        google()
+        mavenCentral()
+    }
+
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.9.1'
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+        classpath 'com.google.gms:google-services:4.4.2'
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral() // Maven Central repository
+        maven { url 'https://jitpack.io' }
+    }
+
+    tasks.withType(JavaCompile) {
+        options.compilerArgs << '-Xlint:-options'
+    }
+
+    configurations.all {
+        exclude group: "io.agora.rtc", module: "full-screen-sharing"
+    }
+}
+
+rootProject.buildDir = '../build'
+
+subprojects {
+    project.buildDir = "${rootProject.buildDir}/${project.name}"
+}
+
+subprojects {
+    afterEvaluate { project ->
+        if (project.hasProperty('android')) {
+            project.android {
+                if (namespace == null || namespace.isEmpty()) {
+                    def defaultNamespace = project.group.toString().replace('.', '_')
+                    namespace = defaultNamespace
+                }
+
+                buildFeatures {
+                    buildConfig = true
+                }
+            }
+
+            // Task to ensure namespace and remove package attribute
+            project.tasks.register("fixManifestsAndNamespace") {
+                doLast {
+                    // Ensure namespace in build.gradle
+                    def buildGradleFile = file("${project.projectDir}/build.gradle")
+                    if (buildGradleFile.exists()) {
+                        def buildGradleContent = buildGradleFile.getText('UTF-8')
+                        def manifestFile = file("${project.projectDir}/src/main/AndroidManifest.xml")
+                        if (manifestFile.exists()) {
+                            def manifestContent = manifestFile.getText('UTF-8')
+                            def packageName = manifestContent.find(/package="([^"]+)"/) { match, p -> p }
+                            if (packageName && !buildGradleContent.contains("namespace")) {
+                                println "Setting namespace in ${buildGradleFile}"
+                                buildGradleContent = buildGradleContent.replaceFirst(
+                                        /android\s*\{/, "android {\n    namespace '${packageName}'"
+                                )
+                                buildGradleFile.write(buildGradleContent, 'UTF-8')
+                            }
+                        }
+                    }
+
+                    // Remove package attribute from AndroidManifest.xml
+                    def manifests = fileTree(dir: project.projectDir, includes: ['**/AndroidManifest.xml'])
+                    manifests.each { File manifestFile ->
+                        def manifestContent = manifestFile.getText('UTF-8')
+                        if (manifestContent.contains('package=')) {
+                            println "Removing package attribute from ${manifestFile}"
+                            manifestContent = manifestContent.replaceAll(/package="[^"]*"/, '')
+                            manifestFile.write(manifestContent, 'UTF-8')
+                        }
+                    }
+                }
+            }
+
+            // Ensure the task runs before the build process
+            project.tasks.matching { it.name.startsWith("preBuild") }.all {
+                dependsOn project.tasks.named("fixManifestsAndNamespace")
+            }
+        }
+        tasks.withType(KotlinCompile) {
+            if (project.plugins.hasPlugin("com.android.application") || project.plugins.hasPlugin("com.android.library")) {
+                kotlinOptions.jvmTarget = android.compileOptions.sourceCompatibility
+            } else {
+                kotlinOptions.jvmTarget = sourceCompatibility
+            }
+        }
+         if (project.plugins.hasPlugin("com.android.application") ||
+                project.plugins.hasPlugin("com.android.library")) {
+            project.android {
+                compileSdkVersion 35
+                buildToolsVersion "35.0.0"
+            }
+        }
+    }
+}
+subprojects {
+    project.evaluationDependsOn(':app')
+}
+
+tasks.register("clean", Delete) {
+    delete rootProject.buildDir
+}

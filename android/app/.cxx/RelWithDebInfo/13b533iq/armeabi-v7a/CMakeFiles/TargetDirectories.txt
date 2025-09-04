@@ -1,0 +1,2 @@
+C:/astro new/astrologer/android/app/.cxx/RelWithDebInfo/13b533iq/armeabi-v7a/CMakeFiles/edit_cache.dir
+C:/astro new/astrologer/android/app/.cxx/RelWithDebInfo/13b533iq/armeabi-v7a/CMakeFiles/rebuild_cache.dir
