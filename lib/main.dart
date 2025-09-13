@@ -4,6 +4,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:developer';
 import 'dart:io';
+import 'package:astrowaypartner/controllers/Provider/loginProvider.dart';
+import 'package:astrowaypartner/fastApi/fastApiServices.dart';
+import 'package:provider/provider.dart';
 import 'package:sizer/sizer.dart';
 import 'package:astrowaypartner/controllers/Authentication/signup_controller.dart';
 import 'package:astrowaypartner/controllers/HomeController/chat_controller.dart';
@@ -48,8 +51,8 @@ final localNotifications = FlutterLocalNotificationsPlugin();
 
 @pragma('vm:entry-point')
 Future<void> handleBackgroundMessage(
-    RemoteMessage message,
-    ) async {
+  RemoteMessage message,
+) async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   final liveAstrologerController = Get.put(LiveAstrologerController());
   final walletController = Get.put(WalletController());
@@ -157,14 +160,14 @@ Future<void> handleBackgroundMessage(
           if (messageData['notificationType'] != null) {
             switch (messageData['notificationType']) {
               case 7:
-              // get wallet api call
+                // get wallet api call
                 debugPrint('call in background');
 
                 await walletController.getAmountList(isLoading: 0);
                 break;
 
               case 8:
-              // get Chat api call
+                // get Chat api call
 
                 await chatController.getChatList(true, isLoading: 0);
                 chatController.update();
@@ -174,11 +177,11 @@ Future<void> handleBackgroundMessage(
                     .foregroundNotificatioCustomAuddio(message);
                 await FirebaseMessaging.instance
                     .setForegroundNotificationPresentationOptions(
-                    alert: true, badge: true, sound: true);
+                        alert: true, badge: true, sound: true);
                 break;
 
               case 2:
-              // in background
+                // in background
                 debugPrint('calling from :- 2');
                 await callController.getCallList(true, isLoading: 0);
                 callController.update();
@@ -201,7 +204,7 @@ Future<void> handleBackgroundMessage(
                 NotificationHandler().foregroundNotification(message);
                 await FirebaseMessaging.instance
                     .setForegroundNotificationPresentationOptions(
-                    alert: true, badge: true, sound: true);
+                        alert: true, badge: true, sound: true);
                 break;
 
               case 10:
@@ -214,7 +217,7 @@ Future<void> handleBackgroundMessage(
                 NotificationHandler().foregroundNotification(message);
                 await FirebaseMessaging.instance
                     .setForegroundNotificationPresentationOptions(
-                    alert: true, badge: true, sound: true);
+                        alert: true, badge: true, sound: true);
                 break;
 
               default:
@@ -222,7 +225,7 @@ Future<void> handleBackgroundMessage(
                 NotificationHandler().foregroundNotification(message);
                 await FirebaseMessaging.instance
                     .setForegroundNotificationPresentationOptions(
-                    alert: true, badge: true, sound: true);
+                        alert: true, badge: true, sound: true);
             }
           }
         }
@@ -250,11 +253,11 @@ void initforbackground() async {
 
     switch (event.event) {
       case Event.actionCallStart:
-      // Handle call accept action
+        // Handle call accept action
         print('actionCallStart call incoming');
         break;
       case Event.actionCallAccept:
-      // Handle call decline action
+        // Handle call decline action
         print('actionCallAccept call incoming');
         await prefs.setBool('is_accepted', true);
         String extraDataJson = jsonEncode(event.body['extra']);
@@ -332,7 +335,9 @@ void main() async {
       path: 'assets/translations',
       fallbackLocale: const Locale('en', 'US'),
       startLocale: const Locale('en', 'US'),
-      child: const MyApp(),
+      child: MultiProvider(providers: [
+        ChangeNotifierProvider(create: (_) => AuthProvider(FastApiServices())),
+      ], child: const MyApp()),
     ),
   );
 }
@@ -455,13 +460,13 @@ class _MyAppState extends State<MyApp> {
             if (messageData['notificationType'] != null) {
               switch (messageData['notificationType']) {
                 case 7:
-                // get wallet api call
+                  // get wallet api call
                   await walletController.getAmountList(isLoading: 0);
 
                   NotificationHandler().foregroundNotification(message);
                   await FirebaseMessaging.instance
                       .setForegroundNotificationPresentationOptions(
-                      alert: true, badge: true, sound: false);
+                          alert: true, badge: true, sound: false);
                   break;
 
                 case 8:
@@ -474,7 +479,7 @@ class _MyAppState extends State<MyApp> {
                       .foregroundNotificatioCustomAuddio(message);
                   await FirebaseMessaging.instance
                       .setForegroundNotificationPresentationOptions(
-                      alert: true, badge: true, sound: true);
+                          alert: true, badge: true, sound: true);
 
                   break;
 
@@ -494,7 +499,7 @@ class _MyAppState extends State<MyApp> {
                   NotificationHandler().foregroundNotification(message);
                   await FirebaseMessaging.instance
                       .setForegroundNotificationPresentationOptions(
-                      alert: true, badge: true, sound: true);
+                          alert: true, badge: true, sound: true);
                   break;
 
                 case 10:
@@ -506,14 +511,14 @@ class _MyAppState extends State<MyApp> {
                       .foregroundNotificatioCustomAuddio(message);
                   await FirebaseMessaging.instance
                       .setForegroundNotificationPresentationOptions(
-                      alert: true, badge: true, sound: true);
+                          alert: true, badge: true, sound: true);
                   break;
 
                 default:
                   NotificationHandler().foregroundNotification(message);
                   await FirebaseMessaging.instance
                       .setForegroundNotificationPresentationOptions(
-                      alert: true, badge: true, sound: true);
+                          alert: true, badge: true, sound: true);
               }
             } else {
               //FOR ADMIN NOTIFICATION
@@ -581,11 +586,11 @@ class _MyAppState extends State<MyApp> {
 
       switch (event.event) {
         case Event.actionCallStart:
-        // Handle call accept action
+          // Handle call accept action
           log('actionCallStart call incoming');
           break;
         case Event.actionCallAccept:
-        // Handle call decline action
+          // Handle call decline action
           final prefs = await SharedPreferences.getInstance();
 
           print('actionCallAccept call incoming');
@@ -594,7 +599,7 @@ class _MyAppState extends State<MyApp> {
           callAccept(event);
           break;
         case Event.actionCallDecline:
-        // Handle call end action
+          // Handle call end action
           final prefs = await SharedPreferences.getInstance();
 
           print('actionCall declined');
