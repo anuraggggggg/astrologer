@@ -7,6 +7,7 @@ import 'package:astrowaypartner/controllers/Authentication/signup_controller.dar
 import 'package:astrowaypartner/controllers/Provider/loginProvider.dart';
 import 'package:astrowaypartner/models/time_availability_model.dart';
 import 'package:astrowaypartner/models/week_model.dart';
+import 'package:astrowaypartner/views/Authentication/OtpScreens/login_otp_screen.dart';
 import 'package:astrowaypartner/views/Authentication/signup_screen.dart';
 import 'package:astrowaypartner/views/FastApi/signUp.dart';
 import 'package:astrowaypartner/views/HomeScreen/Drawer/Setting/privacy_policy_screen.dart';
@@ -149,6 +150,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                   final authProvider =
                                       Provider.of<AuthProvider>(context,
                                           listen: false);
+
                                   String phoneNumber = loginOtpController
                                       .cMobileNumber.text
                                       .trim();
@@ -160,9 +162,11 @@ class _LoginScreenState extends State<LoginScreen> {
                                     countryCode: countryCode,
                                   );
 
+                                  // Remove any old snackbars first
                                   ScaffoldMessenger.of(context)
                                       .removeCurrentSnackBar();
 
+                                  // Show success or failure message
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(
                                       content: Text(success
@@ -174,15 +178,20 @@ class _LoginScreenState extends State<LoginScreen> {
                                     ),
                                   );
 
+                                  // Navigate to OTP screen if successful
                                   if (success) {
-                                    Navigator.pushNamed(
-                                      context,
-                                      "/otp-screen",
-                                      arguments: {
-                                        "contactNo": phoneNumber,
-                                        "countryCode": countryCode
-                                      },
-                                    );
+                                    // Use Future.microtask or WidgetsBinding to avoid context issues
+                                    Future.microtask(() {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (context) => LoginOtpScreen(
+                                            mobileNumber: phoneNumber,
+                                            countryCode: countryCode,
+                                          ),
+                                        ),
+                                      );
+                                    });
                                   }
                                 }
                               },
@@ -203,9 +212,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                   child: Consumer<AuthProvider>(
                                     builder: (_, authProvider, __) {
                                       return authProvider.isLoading
-                                          ? CircularProgressIndicator(
-                                              color: Colors.white,
-                                            )
+                                          ? const CircularProgressIndicator(
+                                              color: Colors.white)
                                           : Row(
                                               mainAxisAlignment:
                                                   MainAxisAlignment.center,
@@ -218,7 +226,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                                     fontWeight: FontWeight.w600,
                                                   ),
                                                 ).tr(),
-                                                SizedBox(width: 10),
+                                                const SizedBox(width: 10),
                                                 Icon(
                                                   Icons.arrow_forward,
                                                   color: Colors.white,

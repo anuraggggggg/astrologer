@@ -11,6 +11,7 @@ class AuthProvider with ChangeNotifier {
   String? _successMessage;
   String? _accessToken;
   String? _userId;
+  
 
   // Getters
   bool get isLoading => _isLoading;
@@ -59,39 +60,37 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
-  /// 🔹 Step 2: Verify OTP and store token
-  Future<bool> verifyOtp({
-    required String contactNo,
-    required String countryCode,
-    required String otp,
-  }) async {
-    _setLoading(true);
-    print(
-        "📩 [AuthProvider] Verifying OTP for $contactNo with country code $countryCode, OTP: $otp");
+  // /// 🔹 Step 2: Verify OTP and store token
+  //   Future<void> verifyOtp({
+  //   required String contactNo,
+  //   required String countryCode,
+  //   required String otp,
+  // }) async {
+  //   try {
+  //     isLoading = true;
+  //     notifyListeners();
 
-    try {
-      final response = await apiService.verifyOtp(
-        contactNo: contactNo,
-        countryCode: countryCode,
-        otp: otp,
-      );
+  //     final response = await FastApiServices.verifyOtp(
+  //       contactNo: contactNo,
+  //       countryCode: countryCode,
+  //       otp: otp,
+  //     );
 
-      print("✅ [AuthProvider] OTP verification response: $response");
+  //     // ✅ Store token or user info
+  //     accessToken = response["access_token"];
+  //     print("✅ Access Token: $accessToken");
 
-      _accessToken = response['access_token'];
-      _userId = response['astro']?['id'];
-      _successMessage = "OTP verified successfully!";
-      return true;
-    } catch (e, stackTrace) {
-      print("❌ [AuthProvider] OTP verification failed!");
-      print("🛑 Error: $e");
-      print("📜 StackTrace: $stackTrace");
-      _errorMessage = "OTP verification failed: $e";
-      return false;
-    } finally {
-      _setLoading(false);
-    }
-  }
+  //     // You can also store user details if needed
+  //     // final astro = response["astro"];
+
+  //   } catch (e) {
+  //     print("❌ [AuthProvider] OTP verification failed: $e");
+  //     rethrow; // Let UI handle error message
+  //   } finally {
+  //     isLoading = false;
+  //     notifyListeners();
+  //   }
+  // }
 
   /// ✅ Helper to manage loading state
   void _setLoading(bool value) {

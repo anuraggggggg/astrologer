@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:astrowaypartner/fastApi/fastApiEndPoints.dart';
+import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -17,8 +18,8 @@ class FastApiServices {
       url,
       headers: {"Content-Type": "application/x-www-form-urlencoded"},
       body: {
-        "username": "Jincy@gmail.com",
-        "password": "Jincy@12345",
+        "username": "jinu@example.com",
+        "password": "123456",
       },
     );
 
@@ -49,6 +50,63 @@ class FastApiServices {
     final savedToken = prefs.getString("access_token");
     print("🔍 Retrieved Saved Token: ${savedToken ?? "❌ No token found"}");
     return savedToken;
+  }
+
+  Future<Map<String, dynamic>> getAstrologerById() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    // Fetch saved astro_id and token
+    final astroId = prefs.getString("astro_id"); // keep dashes
+    final token = prefs.getString("access_token");
+
+    print("🔍 SharedPreferences Data:");
+    print("   astro_id: ${astroId ?? "❌ Not Found"}");
+    print("   access_token: ${token ?? "❌ Not Found"}");
+
+    if (astroId == null || token == null) {
+      throw Exception("Missing astro_id or token. Please login again.");
+    }
+
+    final url = Uri.parse("$baseUrl/astro/astrologers/$astroId");
+    print("🌐 Constructed URL: $url");
+
+    // Print headers
+    final headers = {
+      "accept": "application/json",
+      "Authorization": "Bearer $token",
+    };
+    print("📝 Request Headers:");
+    headers.forEach((key, value) => print("   $key: $value"));
+
+    try {
+      print("📡 Sending GET request to fetch astrologer details...");
+      final response = await http.get(url, headers: headers);
+
+      print("⬅️ Response received");
+      print("   Status Code: ${response.statusCode}");
+      print("   Body: ${response.body}");
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        print("✅ Successfully fetched profile data:");
+        print(const JsonEncoder.withIndent('  ').convert(data));
+        return data;
+      } else if (response.statusCode == 401) {
+        print("🚨 Unauthorized: Invalid token");
+        await prefs.remove("access_token");
+        throw Exception("Unauthorized: Invalid token. Please login again.");
+      } else if (response.statusCode == 404) {
+        print("⚠️ Not Found: Check if astro_id is correct and exists in API");
+        throw Exception("Astrologer not found: ${response.body}");
+      } else {
+        print("❌ Failed to fetch astrologer details");
+        throw Exception("HTTP ${response.statusCode}: ${response.body}");
+      }
+    } catch (e, stackTrace) {
+      print("🚨 Exception during API call: $e");
+      print("📄 Stack trace:\n$stackTrace");
+      rethrow;
+    }
   }
 
   Future<String> _getOrLoginToken() async {
@@ -117,7 +175,6 @@ class FastApiServices {
   }
 
   // ---------------- ASTRO LOGIN & OTP ----------------
-  /// Hard-coded OTP request exactly as per API documentation
   Future<Map<String, dynamic>> astroLogin({
     required String contactNo,
     required String countryCode,
@@ -144,7 +201,7 @@ class FastApiServices {
         },
         body: {
           "contactNo": contactNo,
-          "countryCode": formattedCountryCode, // ✅ FIXED
+          "countryCode": formattedCountryCode,
           "send_whatsapp": sendWhatsapp.toString(),
           "send_sms": sendSms.toString(),
         },
@@ -164,22 +221,29 @@ class FastApiServices {
     }
   }
 
-  Future<Map<String, dynamic>> verifyOtp({
+  // ---------------- VERIFY OTP & SAVE USER ----------------
+  static Future<Map<String, dynamic>> verifyOtp({
     required String contactNo,
     required String countryCode,
     required String otp,
   }) async {
-    final url = Uri.parse("$baseUrl/auth/verify-otp");
+    final url = Uri.parse(
+        "https://fastapi.jyotishionline.com/api/v1/auth/astro-verify-otp");
 
-    print("➡️ Verifying OTP at $url");
-    print("📦 Body: contactNo=$contactNo, countryCode=$countryCode, otp=$otp");
+    final formattedCountryCode = countryCode.replaceAll('+', '');
+
+    print(
+        "📩 [FastApiServices] Verifying OTP for $contactNo with country code $formattedCountryCode, OTP: $otp");
 
     final response = await http.post(
       url,
-      headers: {"Content-Type": "application/x-www-form-urlencoded"},
+      headers: {
+        "accept": "application/json",
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
       body: {
         "contactNo": contactNo,
-        "countryCode": countryCode,
+        "countryCode": formattedCountryCode,
         "otp": otp,
       },
     );
@@ -188,9 +252,53 @@ class FastApiServices {
     print("⬅️ Response body: ${response.body}");
 
     if (response.statusCode == 200) {
-      return jsonDecode(response.body);
+      final data = jsonDecode(response.body);
+
+      // ✅ Save token & user details in SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      final token = data["access_token"];
+      final astro = data["astro"];
+
+      if (token != null && astro != null) {
+        await prefs.setString("access_token", token);
+        await prefs.setString("token_type", data["token_type"] ?? "");
+
+        // ✅ Store all astro details safely
+        await prefs.setString("user_id", astro["user_id"] ?? "");
+        await prefs.setString("astro_id", astro["astro_id"] ?? "");
+        await prefs.setString("contactNo", astro["contactNo"] ?? "");
+        await prefs.setString("countryCode", astro["countryCode"] ?? "");
+        await prefs.setString("name", astro["name"] ?? "");
+        await prefs.setString("profileImage", astro["profileImage"] ?? "");
+
+        print("✅ Saved User Data:");
+        print("   user_id: ${astro["user_id"]}");
+        print("   astro_id: ${astro["astro_id"]}");
+        print("   token: $token");
+      } else {
+        print("⚠️ Missing token or astro details in response.");
+      }
+
+      return data;
     } else {
       throw Exception("OTP verification failed: ${response.body}");
     }
+  }
+
+  // ---------------- HELPERS ----------------
+  static Future<String?> getUserId() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString("user_id");
+  }
+
+  static Future<String?> getAccessToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString("access_token");
+  }
+
+  static Future<void> clearUserData() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.clear();
+    print("🧹 Cleared all saved user data.");
   }
 }

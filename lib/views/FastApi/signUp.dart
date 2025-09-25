@@ -1,7 +1,11 @@
 // file: astrologer_signup_page.dart
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:path/path.dart' as p;
 
 /// AstrologerSignupPage
 /// Full multi-step signup form wired to:
@@ -19,7 +23,9 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
   int _currentPage = 0;
   bool isLoading = false;
 
-  // Required controllers (added email/password/contact/countryCode)
+  // ---------------------------
+  // Controllers
+  // ---------------------------
   final TextEditingController emailCtrl = TextEditingController();
   final TextEditingController passwordCtrl = TextEditingController();
   final TextEditingController countryCodeCtrl =
@@ -49,6 +55,10 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
 
   // Password visibility toggle
   bool _obscurePassword = true;
+
+  // Profile Image
+  File? profileImageFile;
+  final ImagePicker _picker = ImagePicker();
 
   @override
   void initState() {
@@ -91,6 +101,19 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
   }
 
   // ---------------------------
+  // Pick profile image
+  // ---------------------------
+  Future<void> _pickProfileImage() async {
+    final XFile? pickedFile =
+        await _picker.pickImage(source: ImageSource.gallery);
+    if (pickedFile != null) {
+      setState(() {
+        profileImageFile = File(pickedFile.path);
+      });
+    }
+  }
+
+  // ---------------------------
   // Helper: HTTP call to API
   // ---------------------------
   Future<Map<String, dynamic>> createAstrologer(
@@ -120,15 +143,12 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
           final parsed = jsonDecode(response.body);
           print(
               "📘 PARSED RESPONSE:\n${const JsonEncoder.withIndent('  ').convert(parsed)}");
-        } catch (_) {
-          // ignore parse error
-        }
+        } catch (_) {}
       }
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         return {"success": true, "data": jsonDecode(response.body)};
       } else {
-        // return server message if available
         final err = response.body.isNotEmpty
             ? response.body
             : "HTTP ${response.statusCode}";
@@ -174,94 +194,112 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
   // Submit form -> API
   // ---------------------------
   Future<void> submitForm() async {
-    // Validate entire form before submission
     if (!_formKey.currentState!.validate()) {
-      // If currently not on first page, navigate to it so user sees errors
       _pageController.jumpToPage(0);
       return;
     }
 
     setState(() => isLoading = true);
 
-    // Build request according to API schema
-    final nowIso = DateTime.now().toIso8601String();
-    final Map<String, dynamic> body = {
-      "email": emailCtrl.text.trim(),
-      "password": passwordCtrl.text.trim(),
-      "contactNo": contactNoCtrl.text.trim(),
-      "countryCode": countryCodeCtrl.text.trim(),
-      "name": nameCtrl.text.trim(),
-      "gender": selectedGender,
-      "isContactVerified": false,
-      "otpCode": "", // if you plan to support OTP remove or set accordingly
-      "otpExpiry": null,
-      "birthDate": nowIso,
-      "primarySkill": skillCtrl.text.trim(),
-      "languageKnown": languageCtrl.text.trim(),
-      "profileImage": "",
-      "charge": int.tryParse(chargeCtrl.text.trim()) ?? 0,
-      "experienceInYears": int.tryParse(expCtrl.text.trim()) ?? 0,
-      "currentCity": cityCtrl.text.trim(),
-      "highestQualification": qualificationCtrl.text.trim(),
-      "learnAstrology": learnAstroCtrl.text.trim(),
-      "astrologerCategoryId": "",
-      "instaProfileLink": instaCtrl.text.trim(),
-      "facebookProfileLink": fbCtrl.text.trim(),
-      "linkedInProfileLink": linkedinCtrl.text.trim(),
-      "youtubeChannelLink": youtubeCtrl.text.trim(),
-      "websiteProfileLink": websiteCtrl.text.trim(),
-      "minimumEarning": 0,
-      "maximumEarning": 0,
-      "monthlyEarning": "",
-      "totalOrder": 0,
-      "currentlyworkingfulltimejob": "",
-      "nameofplateform": "",
-      "referedPerson": "",
-      "loginBio": bioCtrl.text.trim(),
-      "goodQuality": "",
-      "whatwillDo": "",
-      "isVerified": isVerified,
-      "isActive": isActive,
-      "isDelete": false,
-      "chatStatus": "",
-      "chatWaitTime": "",
-      "callStatus": "",
-      "callWaitTime": "",
-      "videoCallRate": 0,
-      "reportRate": 0,
-      "createdBy": 0,
-      "modifiedBy": 0
-    };
+    final uri = Uri.parse(
+        "https://fastapi.jyotishionline.com/api/v1/users/signup/astrologer");
+    final request = http.MultipartRequest("POST", uri);
 
-    final result = await createAstrologer(body);
+    // Add all text fields
+    request.fields['email'] = emailCtrl.text.trim();
+    request.fields['password'] = passwordCtrl.text.trim();
+    request.fields['contactNo'] = contactNoCtrl.text.trim().isNotEmpty
+        ? contactNoCtrl.text.trim()
+        : "0000000000";
+    request.fields['countryCode'] = countryCodeCtrl.text.trim().isNotEmpty
+        ? countryCodeCtrl.text.trim()
+        : "91";
+    request.fields['name'] =
+        nameCtrl.text.trim().isNotEmpty ? nameCtrl.text.trim() : "Unknown";
+    request.fields['gender'] = selectedGender;
+    request.fields['birthDate'] =
+        DateTime.now().toIso8601String(); // Replace if needed
+    request.fields['primarySkill'] = skillCtrl.text.trim();
+    request.fields['languageKnown'] = languageCtrl.text.trim();
+    request.fields['charge'] = chargeCtrl.text.trim();
+    request.fields['experienceInYears'] = expCtrl.text.trim();
+    request.fields['currentCity'] = cityCtrl.text.trim();
+    request.fields['highestQualification'] = qualificationCtrl.text.trim();
+    request.fields['learnAstrology'] = learnAstroCtrl.text.trim();
+    request.fields['astrologerCategoryId'] = "";
+    request.fields['instaProfileLink'] = instaCtrl.text.trim();
+    request.fields['facebookProfileLink'] = fbCtrl.text.trim();
+    request.fields['linkedInProfileLink'] = linkedinCtrl.text.trim();
+    request.fields['youtubeChannelLink'] = youtubeCtrl.text.trim();
+    request.fields['websiteProfileLink'] = websiteCtrl.text.trim();
+    request.fields['minimumEarning'] = "0";
+    request.fields['maximumEarning'] = "0";
+    request.fields['monthlyEarning'] = "";
+    request.fields['totalOrder'] = "0";
+    request.fields['currentlyworkingfulltimejob'] = "";
+    request.fields['nameofplateform'] = "";
+    request.fields['referedPerson'] = "";
+    request.fields['loginBio'] = bioCtrl.text.trim();
+    request.fields['goodQuality'] = "";
+    request.fields['whatwillDo'] = "";
+    request.fields['isVerified'] = isVerified.toString();
+    request.fields['isActive'] = isActive.toString();
+    request.fields['isDelete'] = "false";
+    request.fields['chatStatus'] = "";
+    request.fields['chatWaitTime'] = "";
+    request.fields['callStatus'] = "";
+    request.fields['callWaitTime'] = "";
+    request.fields['videoCallRate'] = "0";
+    request.fields['reportRate'] = "0";
+    request.fields['createdBy'] = "0";
+    request.fields['modifiedBy'] = "0";
 
-    if (!mounted) return;
-    setState(() => isLoading = false);
+    // Add profile image file if available
+    if (profileImageFile != null) {
+      request.files.add(await http.MultipartFile.fromPath(
+        'profileImage',
+        profileImageFile!.path,
+        contentType: MediaType('image', 'jpeg'),
+        filename: p.basename(profileImageFile!.path), // use alias
+      ));
+    }
 
-    if (result["success"] == true) {
-      // Success -> Show message and reset form
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: Colors.green,
-          behavior: SnackBarBehavior.floating,
-          content: const Text("✅ Astrologer created successfully!"),
-        ),
-      );
-      _formKey.currentState?.reset();
-      // reset controllers as well
-      _resetControllers();
-      _pageController.jumpToPage(0);
-    } else {
-      // Error -> Show server message if available
-      final err = result["error"]?.toString() ?? "Unknown error";
+    try {
+      final streamedResponse = await request.send();
+      final responseStr = await streamedResponse.stream.bytesToString();
+
+      if (streamedResponse.statusCode == 200) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+            content: Text("✅ Astrologer created successfully!"),
+          ),
+        );
+        _formKey.currentState?.reset();
+        _resetControllers();
+        _pageController.jumpToPage(0);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+            content: Text("❌ Signup failed: $responseStr"),
+          ),
+        );
+      }
+    } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: Colors.red,
           behavior: SnackBarBehavior.floating,
-          content: Text("❌ Signup failed: $err"),
+          content: Text("❌ Signup failed: $e"),
         ),
       );
     }
+
+    if (!mounted) return;
+    setState(() => isLoading = false);
   }
 
   void _resetControllers() {
@@ -286,6 +324,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     selectedGender = "Male";
     isVerified = false;
     isActive = true;
+    profileImageFile = null;
   }
 
   // ---------------------------
@@ -401,6 +440,39 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
         children: [
           _buildSectionHeader(
               "Basic Information", "Please provide your essential details."),
+          Center(
+            child: Stack(
+              children: [
+                CircleAvatar(
+                  radius: 50,
+                  backgroundColor: Colors.grey[300],
+                  backgroundImage: profileImageFile != null
+                      ? FileImage(profileImageFile!)
+                      : null,
+                  child: profileImageFile == null
+                      ? const Icon(Icons.person, size: 50, color: Colors.white)
+                      : null,
+                ),
+                Positioned(
+                  bottom: 0,
+                  right: 0,
+                  child: InkWell(
+                    onTap: _pickProfileImage,
+                    child: Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFC107),
+                        shape: BoxShape.circle,
+                      ),
+                      child:
+                          const Icon(Icons.edit, size: 20, color: Colors.white),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
           _buildTextField(emailCtrl, "Email",
               required: true,
               keyboardType: TextInputType.emailAddress,
@@ -476,6 +548,9 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     );
   }
 
+  // ---------------------------
+  // Optional & Settings sections remain the same
+  // ---------------------------
   Widget _buildOptionalSection() {
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(vertical: 8.0),
@@ -501,13 +576,11 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
           const SizedBox(height: 12),
           _buildTextField(fbCtrl, "Facebook", icon: Icons.facebook),
           const SizedBox(height: 12),
-          _buildTextField(linkedinCtrl, "LinkedIn",
-              icon: Icons.business_center_outlined),
+          _buildTextField(linkedinCtrl, "LinkedIn", icon: Icons.linked_camera),
           const SizedBox(height: 12),
-          _buildTextField(youtubeCtrl, "YouTube",
-              icon: Icons.video_library_outlined),
+          _buildTextField(youtubeCtrl, "YouTube", icon: Icons.video_collection),
           const SizedBox(height: 12),
-          _buildTextField(websiteCtrl, "Website", icon: Icons.public_outlined),
+          _buildTextField(websiteCtrl, "Website", icon: Icons.web_outlined),
           const SizedBox(height: 24),
         ],
       ),
@@ -518,84 +591,19 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(vertical: 8.0),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildSectionHeader(
-              "Account Settings", "Configure your account preferences."),
-          Card(
-            elevation: 4,
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text("Verified Account",
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .titleLarge
-                                    ?.copyWith(fontWeight: FontWeight.w600)),
-                            const SizedBox(height: 4),
-                            Text("Get a verified badge on your profile",
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .bodyMedium
-                                    ?.copyWith(color: Colors.grey[600])),
-                          ],
-                        ),
-                      ),
-                      Switch(
-                        value: isVerified,
-                        onChanged: (v) => setState(() => isVerified = v),
-                        activeColor: const Color(0xFFFFC107),
-                      ),
-                    ],
-                  ),
-                  const Divider(height: 32),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text("Active Status",
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .titleLarge
-                                    ?.copyWith(fontWeight: FontWeight.w600)),
-                            const SizedBox(height: 4),
-                            Text("Make your profile visible to clients",
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .bodyMedium
-                                    ?.copyWith(color: Colors.grey[600])),
-                          ],
-                        ),
-                      ),
-                      Switch(
-                        value: isActive,
-                        onChanged: (v) => setState(() => isActive = v),
-                        activeColor: const Color(0xFFFFC107),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
+              "Settings", "Toggle your visibility and verification"),
+          SwitchListTile(
+            value: isVerified,
+            onChanged: (v) => setState(() => isVerified = v),
+            title: const Text("Verified"),
           ),
-          const SizedBox(height: 24),
-          Text("Note: You can update other settings later from profile.",
-              style: Theme.of(context)
-                  .textTheme
-                  .bodySmall
-                  ?.copyWith(color: Colors.grey[600])),
-          const SizedBox(height: 40),
+          SwitchListTile(
+            value: isActive,
+            onChanged: (v) => setState(() => isActive = v),
+            title: const Text("Active"),
+          ),
         ],
       ),
     );
@@ -606,178 +614,87 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(title,
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.bold, color: const Color(0xFF333333))),
-        const SizedBox(height: 6),
-        Text(subtitle,
             style: Theme.of(context)
                 .textTheme
-                .bodyMedium
-                ?.copyWith(color: Colors.grey[600])),
-        const SizedBox(height: 18),
+                .titleLarge
+                ?.copyWith(fontWeight: FontWeight.bold)),
+        const SizedBox(height: 4),
+        Text(subtitle, style: Theme.of(context).textTheme.bodyMedium),
+        const SizedBox(height: 16),
       ],
     );
   }
 
   // ---------------------------
-  // Bottom navigation buttons
+  // Main build
   // ---------------------------
-  Widget _buildBottomButtons() {
-    return Row(
-      children: [
-        if (_currentPage > 0)
-          Expanded(
-            child: OutlinedButton(
-              onPressed: isLoading
-                  ? null
-                  : () {
-                      _pageController.previousPage(
-                          duration: const Duration(milliseconds: 400),
-                          curve: Curves.easeInOut);
-                    },
-              style: OutlinedButton.styleFrom(
-                minimumSize: const Size(120, 56),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16)),
-                side: const BorderSide(color: Color(0xFFFFC107), width: 2),
-              ),
-              child: const Text("Back",
-                  style: TextStyle(
-                      color: Color(0xFFFFC107), fontWeight: FontWeight.bold)),
-            ),
-          )
-        else
-          const Spacer(),
-        const SizedBox(width: 12),
-        Expanded(
-          child: ElevatedButton(
-            onPressed: isLoading
-                ? null
-                : () {
-                    // If on first page, validate required fields for page1 only
-                    if (_currentPage == 0) {
-                      // validate page1 inputs specifically
-                      final page1Valid = _validatePage1();
-                      if (page1Valid) {
-                        _pageController.nextPage(
-                            duration: const Duration(milliseconds: 400),
-                            curve: Curves.easeInOut);
-                      }
-                    } else if (_currentPage < 2) {
-                      _pageController.nextPage(
-                          duration: const Duration(milliseconds: 400),
-                          curve: Curves.easeInOut);
-                    } else {
-                      submitForm();
-                    }
-                  },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFFFC107),
-              foregroundColor: Colors.white,
-              minimumSize: const Size(double.infinity, 56),
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16)),
-              elevation: 4,
-            ),
-            child: Text(_currentPage == 2 ? "Submit" : "Next",
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold, color: Colors.white)),
-          ),
-        ),
-      ],
-    );
-  }
-
-  // Validate only page 1 required fields before moving to next page
-  bool _validatePage1() {
-    // We run validators for page1 controllers only
-    final tmpKey = GlobalKey<FormState>();
-    // Instead of creating a temporary form, we can manually validate required fields:
-    final emailErr = _validateEmail(emailCtrl.text);
-    final passErr = _validatePassword(passwordCtrl.text);
-    final phoneErr = _validatePhone(contactNoCtrl.text);
-    final nameErr = _validateRequired(nameCtrl.text, "Full Name");
-    final skillErr = _validateRequired(skillCtrl.text, "Primary Skill");
-    final langErr = _validateRequired(languageCtrl.text, "Languages Known");
-    final cityErr = _validateRequired(cityCtrl.text, "Current City");
-    final chargeErr = _validateRequired(chargeCtrl.text, "Charge");
-    final expErr = _validateRequired(expCtrl.text, "Experience");
-    final bioErr = _validateRequired(bioCtrl.text, "Bio");
-
-    final errors = <String>[];
-    if (emailErr != null) errors.add(emailErr);
-    if (passErr != null) errors.add(passErr);
-    if (phoneErr != null) errors.add(phoneErr);
-    if (nameErr != null) errors.add(nameErr);
-    if (skillErr != null) errors.add(skillErr);
-    if (langErr != null) errors.add(langErr);
-    if (cityErr != null) errors.add(cityErr);
-    if (chargeErr != null) errors.add(chargeErr);
-    if (expErr != null) errors.add(expErr);
-    if (bioErr != null) errors.add(bioErr);
-
-    if (errors.isNotEmpty) {
-      // Show first error in snackbar
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(backgroundColor: Colors.red, content: Text(errors.first)),
-      );
-      return false;
-    }
-    return true;
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
       appBar: AppBar(
-        title: const Text("Astrologer Registration",
-            style: TextStyle(
-                fontWeight: FontWeight.bold, color: Color(0xFF333333))),
-        centerTitle: true,
-        backgroundColor: Colors.yellow[700],
-        elevation: 0,
-        leading: IconButton(
-            icon: const Icon(Icons.arrow_back, color: Colors.white),
-            onPressed: () => Navigator.of(context).pop()),
+        title: const Text("Astrologer Signup"),
+        backgroundColor: const Color(0xFFFFC107),
       ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
-          child: Form(
+      body: Stack(
+        children: [
+          Form(
             key: _formKey,
-            child: Column(
+            child: PageView(
+              controller: _pageController,
+              physics: const NeverScrollableScrollPhysics(),
               children: [
-                _buildPageIndicator(),
-                const SizedBox(height: 20),
-                Expanded(
-                  child: PageView(
-                    controller: _pageController,
-                    physics: const NeverScrollableScrollPhysics(),
-                    children: [
-                      _buildRequiredSection(),
-                      _buildOptionalSection(),
-                      _buildSettingsSection(),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 18),
-                isLoading
-                    ? Column(
-                        children: const [
-                          CircularProgressIndicator(
-                              valueColor:
-                                  AlwaysStoppedAnimation(Color(0xFFFFC107))),
-                          SizedBox(height: 12),
-                          Text("Creating your account...",
-                              style: TextStyle(color: Colors.grey)),
-                          SizedBox(height: 12),
-                        ],
-                      )
-                    : _buildBottomButtons(),
+                _buildRequiredSection(),
+                _buildOptionalSection(),
+                _buildSettingsSection(),
               ],
             ),
           ),
+          if (isLoading)
+            Container(
+              color: Colors.black45,
+              child: const Center(child: CircularProgressIndicator()),
+            ),
+        ],
+      ),
+      bottomNavigationBar: Padding(
+        padding: const EdgeInsets.all(12.0),
+        child: Row(
+          children: [
+            if (_currentPage > 0)
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: () {
+                    if (_currentPage > 0) {
+                      _pageController.previousPage(
+                          duration: const Duration(milliseconds: 300),
+                          curve: Curves.easeInOut);
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.grey[300]),
+                  child:
+                      const Text("Back", style: TextStyle(color: Colors.black)),
+                ),
+              ),
+            if (_currentPage > 0) const SizedBox(width: 12),
+            Expanded(
+              child: ElevatedButton(
+                onPressed: () {
+                  if (_currentPage < 2) {
+                    _pageController.nextPage(
+                        duration: const Duration(milliseconds: 300),
+                        curve: Curves.easeInOut);
+                  } else {
+                    submitForm();
+                  }
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFFFC107),
+                ),
+                child: Text(_currentPage < 2 ? "Next" : "Submit"),
+              ),
+            ),
+          ],
         ),
       ),
     );
