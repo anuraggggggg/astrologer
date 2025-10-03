@@ -6,6 +6,7 @@ import 'dart:developer';
 import 'dart:io';
 import 'package:astrowaypartner/controllers/Provider/loginProvider.dart';
 import 'package:astrowaypartner/fastApi/fastApiServices.dart';
+import 'package:astrowaypartner/fastApi/sessionController.dart';
 import 'package:provider/provider.dart';
 import 'package:sizer/sizer.dart';
 import 'package:astrowaypartner/controllers/Authentication/signup_controller.dart';
@@ -301,6 +302,7 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await EasyLocalization.ensureInitialized();
   await GetStorage.init();
+  Get.put(SessionController(), permanent: true);
 
   await Firebase.initializeApp(
       name: 'Astroway', options: DefaultFirebaseOptions.currentPlatform);

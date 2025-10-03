@@ -58,10 +58,12 @@ class FastApiServices {
     // Fetch saved astro_id and token
     final astroId = prefs.getString("astro_id"); // keep dashes
     final token = prefs.getString("access_token");
+    final userId = prefs.getString("user_id");
 
     print("🔍 SharedPreferences Data:");
     print("   astro_id: ${astroId ?? "❌ Not Found"}");
     print("   access_token: ${token ?? "❌ Not Found"}");
+    print("   user_id: ${userId ?? "❌ Not Found"}");
 
     if (astroId == null || token == null) {
       throw Exception("Missing astro_id or token. Please login again.");

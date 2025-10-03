@@ -1,5 +1,7 @@
 import 'dart:io';
 import 'package:astrowaypartner/views/HomeScreen/Profile/profile_screen.dart';
+import 'package:astrowaypartner/views/HomeScreen/tabs/homeTab/home_tab.dart';
+import 'package:astrowaypartner/views/HomeScreen/tabs/payment_tab.dart';
 import 'package:astrowaypartner/views/HomeScreen/tabs/profileTab.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -112,11 +114,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   Widget _buildSelectedTab() {
     switch (_selectedItemPosition) {
       case 0:
-        return const Center(child: Text("Home Tab"));
+        return const HomeTabScreen();
       case 1:
         return const Center(child: Text("Live Tab"));
       case 2:
-        return const Center(child: Text("History Tab"));
+        return const PaymentHistoryTab();
       case 3:
         return ProfileTabScreen();
       default:

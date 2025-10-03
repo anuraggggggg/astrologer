@@ -1,5 +1,8 @@
 import 'package:astrowaypartner/fastApi/fastApiServices.dart';
+import 'package:astrowaypartner/fastApi/sessionController.dart';
 import 'package:flutter/material.dart';
+import 'package:get/get.dart';
+import 'package:get/get_core/src/get_main.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ProfileTabScreen extends StatefulWidget {
@@ -13,6 +16,8 @@ class _ProfileTabScreenState extends State<ProfileTabScreen> {
   Map<String, dynamic>? profile;
   bool isLoading = true;
   String? errorMessage;
+  int _retryCount = 0;
+  final int _maxRetries = 2;
 
   @override
   void initState() {
@@ -20,37 +25,52 @@ class _ProfileTabScreenState extends State<ProfileTabScreen> {
     fetchProfile();
   }
 
-  Future<void> fetchProfile() async {
-    setState(() {
-      isLoading = true;
-      errorMessage = null;
-    });
+  Future<void> fetchProfile({bool isRetry = false}) async {
+    if (!isRetry) {
+      setState(() {
+        isLoading = true;
+        errorMessage = null;
+      });
+    }
 
     try {
       final api = FastApiServices();
       final prefs = await SharedPreferences.getInstance();
       String? token = prefs.getString("access_token");
 
-      if (token == null) {
+      // If token is null or we're retrying due to auth error, get new token
+      if (token == null || isRetry) {
         await api.loginAndGetToken();
         token = prefs.getString("access_token");
+        _retryCount++;
       }
 
       if (token == null) {
         throw Exception("Token missing even after login!");
       }
 
-      final astroId = prefs.getString("astro_id");
-      if (astroId == null) {
-        throw Exception("Astro ID missing. Cannot fetch profile.");
+      final userId = prefs.getString("user_id");
+      if (userId == null) {
+        throw Exception("User ID missing. Cannot fetch profile.");
       }
 
       final fetchedProfile = await api.getAstrologerById();
+
+      // Reset retry count on successful fetch
+      _retryCount = 0;
+
       setState(() {
         profile = fetchedProfile;
         isLoading = false;
       });
     } catch (e) {
+      // Handle unauthorized error specifically
+      if (e.toString().contains('Unauthorized') && _retryCount < _maxRetries) {
+        // Retry with new token
+        await fetchProfile(isRetry: true);
+        return;
+      }
+
       setState(() {
         errorMessage = e.toString();
         isLoading = false;
@@ -108,13 +128,13 @@ class _ProfileTabScreenState extends State<ProfileTabScreen> {
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: isVerified
-              ? [Colors.green.shade400, Colors.green.shade600]
-              : [Colors.orange.shade400, Colors.orange.shade600],
+              ? [Colors.yellow.shade600, Colors.orange.shade600]
+              : [Colors.grey.shade400, Colors.grey.shade600],
         ),
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: (isVerified ? Colors.green : Colors.orange).withOpacity(0.3),
+            color: (isVerified ? Colors.orange : Colors.grey).withOpacity(0.3),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -124,7 +144,7 @@ class _ProfileTabScreenState extends State<ProfileTabScreen> {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            isVerified ? Icons.verified_user : Icons.pending,
+            isVerified ? Icons.verified : Icons.pending,
             size: 16,
             color: Colors.white,
           ),
@@ -186,12 +206,13 @@ class _ProfileTabScreenState extends State<ProfileTabScreen> {
           ),
           child: CircleAvatar(
             radius: 56,
+            backgroundColor: Colors.yellow.shade100,
             backgroundImage: profile!['profileImage'] != null
                 ? NetworkImage(
                     "https://fastapi.jyotishionline.com${profile!['profileImage']}")
                 : null,
             child: profile!['profileImage'] == null
-                ? const Icon(Icons.person, size: 50, color: Colors.white)
+                ? Icon(Icons.person, size: 50, color: Colors.yellow.shade800)
                 : null,
           ),
         ),
@@ -217,7 +238,7 @@ class _ProfileTabScreenState extends State<ProfileTabScreen> {
               height: 28,
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  colors: [Colors.blue.shade600, Colors.blue.shade800],
+                  colors: [Colors.yellow.shade600, Colors.orange.shade600],
                 ),
                 shape: BoxShape.circle,
               ),
@@ -270,8 +291,8 @@ class _ProfileTabScreenState extends State<ProfileTabScreen> {
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                     colors: [
-                      Colors.blue.shade50,
-                      Colors.purple.shade50,
+                      Colors.yellow.shade50,
+                      Colors.orange.shade50,
                     ],
                   ),
                   borderRadius: BorderRadius.circular(24),
@@ -313,20 +334,20 @@ class _ProfileTabScreenState extends State<ProfileTabScreen> {
             "Years of Experience",
             "${profile!['experienceInYears'] ?? 0} years",
             Icons.work_history_rounded,
-            Colors.blue.shade700,
+            Colors.orange.shade700,
           ),
           _buildInfoCard(
             "Consultation Charge",
             "₹${profile!['charge'] ?? 0} per session",
             Icons.attach_money_rounded,
-            Colors.green.shade700,
+            Colors.yellow.shade700,
           ),
           if (profile!['primarySkill'] != null)
             _buildInfoCard(
               "Primary Skill",
               profile!['primarySkill']!,
               Icons.star_rounded,
-              Colors.orange.shade700,
+              Colors.amber.shade700,
             ),
 
           const SizedBox(height: 28),
@@ -337,21 +358,21 @@ class _ProfileTabScreenState extends State<ProfileTabScreen> {
             "City",
             profile!['currentCity'] ?? 'Not specified',
             Icons.location_city_rounded,
-            Colors.purple.shade700,
+            Colors.orange.shade600,
           ),
           if (profile!['languageKnown'] != null)
             _buildInfoCard(
               "Languages Known",
               profile!['languageKnown']!,
               Icons.language_rounded,
-              Colors.red.shade700,
+              Colors.yellow.shade600,
             ),
           if (profile!['highestQualification'] != null)
             _buildInfoCard(
               "Highest Qualification",
               profile!['highestQualification']!,
               Icons.school_rounded,
-              Colors.teal.shade700,
+              Colors.amber.shade600,
             ),
 
           const SizedBox(height: 32),
@@ -369,19 +390,19 @@ class _ProfileTabScreenState extends State<ProfileTabScreen> {
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
                     ),
-                    side: BorderSide(color: Colors.blue.shade400),
+                    side: BorderSide(color: Colors.yellow.shade700),
                   ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.edit, size: 20, color: Colors.blue.shade700),
+                      Icon(Icons.edit, size: 20, color: Colors.yellow.shade700),
                       const SizedBox(width: 8),
                       Text(
                         "Edit Profile",
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
-                          color: Colors.blue.shade700,
+                          color: Colors.yellow.shade700,
                         ),
                       ),
                     ],
@@ -397,9 +418,9 @@ class _ProfileTabScreenState extends State<ProfileTabScreen> {
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
                     ),
-                    backgroundColor: Colors.blue.shade700,
+                    backgroundColor: Colors.yellow.shade700,
                     elevation: 2,
-                    shadowColor: Colors.blue.shade300,
+                    shadowColor: Colors.yellow.shade300,
                   ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -422,6 +443,37 @@ class _ProfileTabScreenState extends State<ProfileTabScreen> {
           ),
 
           const SizedBox(height: 20),
+
+          ElevatedButton(
+            onPressed: () {
+              final sessionController = Get.find<SessionController>();
+              sessionController.logout();
+            },
+            style: ElevatedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              backgroundColor: Colors.yellow.shade700,
+              elevation: 2,
+              shadowColor: Colors.yellow.shade300,
+            ),
+            child: const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.exit_to_app, size: 20, color: Colors.white),
+                SizedBox(width: 8),
+                Text(
+                  "Logout",
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -430,7 +482,7 @@ class _ProfileTabScreenState extends State<ProfileTabScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey.shade50,
+      backgroundColor: Colors.yellow.shade50,
       body: isLoading
           ? Center(
               child: Column(
@@ -441,12 +493,12 @@ class _ProfileTabScreenState extends State<ProfileTabScreen> {
                     height: 60,
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: Colors.blue.shade50,
+                      color: Colors.yellow.shade50,
                       shape: BoxShape.circle,
                     ),
                     child: CircularProgressIndicator(
                       valueColor:
-                          AlwaysStoppedAnimation<Color>(Colors.blue.shade700),
+                          AlwaysStoppedAnimation<Color>(Colors.yellow.shade700),
                       strokeWidth: 3,
                     ),
                   ),
@@ -507,6 +559,7 @@ class _ProfileTabScreenState extends State<ProfileTabScreen> {
                           label: const Text("Try Again"),
                           onPressed: fetchProfile,
                           style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.yellow.shade700,
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 24, vertical: 12),
                             shape: RoundedRectangleBorder(
