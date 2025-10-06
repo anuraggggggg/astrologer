@@ -111,6 +111,26 @@ class FastApiServices {
     }
   }
 
+  // ---------------- FETCH ASTROLOGER REQUESTS ----------------
+  Future<List<Map<String, dynamic>>> getAstrologerRequests(
+      String astrologerId) async {
+    final url = Uri.parse(FastApiEndpoints.getAstrologerRequests(astrologerId));
+    final response = await http.get(
+      url,
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer $_accessToken",
+      },
+    );
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body) as List;
+      return List<Map<String, dynamic>>.from(data);
+    } else {
+      throw Exception("Failed to fetch requests: ${response.body}");
+    }
+  }
+
   Future<String> _getOrLoginToken() async {
     print("\n==============================");
     print("🔑 Checking for Existing Token...");
@@ -223,6 +243,42 @@ class FastApiServices {
     }
   }
 
+  Future<bool> respondToRequest({
+    required int requestId,
+    required String status, // "accepted" or "declined"
+  }) async {
+    if (status != "accepted" && status != "declined") {
+      throw Exception("Status must be either 'accepted' or 'declined'");
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString("access_token");
+
+    if (token == null) {
+      throw Exception("No access token found. Please login again.");
+    }
+
+    final url = Uri.parse("$baseUrl/$requestId");
+
+    final response = await http.patch(
+      url,
+      headers: {
+        "Content-Type": "application/json",
+        "accept": "application/json",
+        "Authorization": "Bearer $token",
+      },
+      body: jsonEncode({"status": status}),
+    );
+
+    if (response.statusCode == 200) {
+      print("✅ Request $requestId $status successfully.");
+      return true;
+    } else {
+      print("❌ Failed to respond: ${response.body}");
+      return false;
+    }
+  }
+
   // ---------------- VERIFY OTP & SAVE USER ----------------
   static Future<Map<String, dynamic>> verifyOtp({
     required String contactNo,
@@ -284,6 +340,39 @@ class FastApiServices {
       return data;
     } else {
       throw Exception("OTP verification failed: ${response.body}");
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> fetchAstrologerRequests() async {
+    final prefs = await SharedPreferences.getInstance();
+    final astroId = prefs.getString("astro_id");
+    final token = prefs.getString("access_token");
+
+    if (astroId == null || token == null) {
+      throw Exception("Astro ID or token not found. Please login first.");
+    }
+
+    // Using endpoint from FastApiEndpoints
+    final url = Uri.parse(FastApiEndpoints.getAstrologerRequests(astroId));
+    final headers = {
+      "accept": "application/json",
+      "Authorization": "Bearer $token",
+    };
+
+    print("🌐 Fetching astrologer requests from: $url");
+    print("📝 Headers: $headers");
+
+    final response = await http.get(url, headers: headers);
+
+    print("⬅️ Response Status: ${response.statusCode}");
+    print("⬅️ Response Body: ${response.body}");
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body) as List;
+      return List<Map<String, dynamic>>.from(data);
+    } else {
+      throw Exception(
+          "Failed to fetch requests: ${response.statusCode} ${response.body}");
     }
   }
 

@@ -14,7 +14,14 @@ class FastApiEndpoints {
   static const String getAstrologerById = "$fastApiBaseUrl/api/v1/astrologers/"; // + id
   static const String updateAstrologer = "$fastApiBaseUrl/api/v1/astrologers/"; // + id
   static const String deleteAstrologer = "$fastApiBaseUrl/api/v1/astrologers/"; // + id
+
+  // ---------------- CUSTOMER / USER ----------------
+  static const String customerDetails = "$fastApiBaseUrl/api/v1/customerdetails"; // + /userId
+
+  // ---------------- SESSION / CALL REQUEST ----------------
+  static const String createSession = "$fastApiBaseUrl/api/v1/create"; // POST: create session
+  static String getAstrologerRequests(String astrologerId) =>
+      "$fastApiBaseUrl/api/v1/astrologer/$astrologerId"; // GET: fetch requests
+  static const String updateSessionStatus =
+      "$fastApiBaseUrl/api/v1/session/update"; // PUT: update request status (accept/reject)
 }
-
-
-
