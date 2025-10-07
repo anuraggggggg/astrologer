@@ -1,6 +1,15 @@
+// file: astrologer_signup_page.dart
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:astrowaypartner/fastApi/fastApiServices.dart';
+import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:path/path.dart' as p;
 
+/// AstrologerSignupPage
+/// Full multi-step signup form wired to:
+/// POST https://fastapi.jyotishionline.com/api/v1/users/signup/astrologer
 class AstrologerSignupPage extends StatefulWidget {
   const AstrologerSignupPage({Key? key}) : super(key: key);
 
@@ -10,10 +19,18 @@ class AstrologerSignupPage extends StatefulWidget {
 
 class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
   final _formKey = GlobalKey<FormState>();
-  final _pageController = PageController();
+  final PageController _pageController = PageController();
   int _currentPage = 0;
+  bool isLoading = false;
 
-  // Controllers (Required)
+  // ---------------------------
+  // Controllers
+  // ---------------------------
+  final TextEditingController emailCtrl = TextEditingController();
+  final TextEditingController passwordCtrl = TextEditingController();
+  final TextEditingController countryCodeCtrl =
+      TextEditingController(text: "+91");
+  final TextEditingController contactNoCtrl = TextEditingController();
   final TextEditingController nameCtrl = TextEditingController();
   final TextEditingController skillCtrl = TextEditingController();
   final TextEditingController languageCtrl = TextEditingController();
@@ -22,7 +39,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
   final TextEditingController expCtrl = TextEditingController();
   final TextEditingController bioCtrl = TextEditingController();
 
-  // Optional Fields
+  // Optional fields
   final TextEditingController qualificationCtrl = TextEditingController();
   final TextEditingController learnAstroCtrl = TextEditingController();
   final TextEditingController instaCtrl = TextEditingController();
@@ -31,25 +48,38 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
   final TextEditingController youtubeCtrl = TextEditingController();
   final TextEditingController websiteCtrl = TextEditingController();
 
-  bool isLoading = false;
+  // Settings switches & selection
   bool isVerified = false;
   bool isActive = true;
+  String selectedGender = "Male"; // Male / Female / Other
 
-  final FastApiServices api = FastApiServices();
+  // Password visibility toggle
+  bool _obscurePassword = true;
+
+  // Profile Image
+  File? profileImageFile;
+  final ImagePicker _picker = ImagePicker();
 
   @override
   void initState() {
     super.initState();
     _pageController.addListener(() {
-      setState(() {
-        _currentPage = _pageController.page!.round();
-      });
+      final page = _pageController.page;
+      if (page != null) {
+        setState(() => _currentPage = page.round());
+      }
     });
   }
 
   @override
   void dispose() {
     _pageController.dispose();
+
+    // Required
+    emailCtrl.dispose();
+    passwordCtrl.dispose();
+    countryCodeCtrl.dispose();
+    contactNoCtrl.dispose();
     nameCtrl.dispose();
     skillCtrl.dispose();
     languageCtrl.dispose();
@@ -57,6 +87,8 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     chargeCtrl.dispose();
     expCtrl.dispose();
     bioCtrl.dispose();
+
+    // Optional
     qualificationCtrl.dispose();
     learnAstroCtrl.dispose();
     instaCtrl.dispose();
@@ -64,219 +96,464 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     linkedinCtrl.dispose();
     youtubeCtrl.dispose();
     websiteCtrl.dispose();
+
     super.dispose();
   }
 
+  // ---------------------------
+  // Pick profile image
+  // ---------------------------
+  Future<void> _pickProfileImage() async {
+    final XFile? pickedFile =
+        await _picker.pickImage(source: ImageSource.gallery);
+    if (pickedFile != null) {
+      setState(() {
+        profileImageFile = File(pickedFile.path);
+      });
+    }
+  }
+
+  // ---------------------------
+  // Helper: HTTP call to API
+  // ---------------------------
+  Future<Map<String, dynamic>> createAstrologer(
+      Map<String, dynamic> body) async {
+    final url = Uri.parse(
+        "https://fastapi.jyotishionline.com/api/v1/users/signup/astrologer");
+    try {
+      print("\n==============================");
+      print("📤 POST $url");
+      print(
+          "📝 Request body (pretty):\n${const JsonEncoder.withIndent('  ').convert(body)}");
+      print("==============================");
+
+      final response = await http.post(
+        url,
+        headers: {
+          "Content-Type": "application/json",
+          "accept": "application/json",
+        },
+        body: jsonEncode(body),
+      );
+
+      print("📡 STATUS: ${response.statusCode}");
+      print("📩 RAW RESPONSE: ${response.body}");
+      if (response.body.isNotEmpty) {
+        try {
+          final parsed = jsonDecode(response.body);
+          print(
+              "📘 PARSED RESPONSE:\n${const JsonEncoder.withIndent('  ').convert(parsed)}");
+        } catch (_) {}
+      }
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return {"success": true, "data": jsonDecode(response.body)};
+      } else {
+        final err = response.body.isNotEmpty
+            ? response.body
+            : "HTTP ${response.statusCode}";
+        return {"success": false, "error": err};
+      }
+    } catch (e, st) {
+      print("🚨 Exception while calling API: $e");
+      print(st);
+      return {"success": false, "error": e.toString()};
+    }
+  }
+
+  // ---------------------------
+  // Field validators
+  // ---------------------------
+  String? _validateRequired(String? v, String label) {
+    if (v == null || v.trim().isEmpty) return "$label is required";
+    return null;
+  }
+
+  String? _validateEmail(String? v) {
+    if (v == null || v.trim().isEmpty) return "Email is required";
+    final email = v.trim();
+    final emailRegex = RegExp(r"^[\w\.\-]+@([\w\-]+\.)+[a-zA-Z]{2,}$");
+    if (!emailRegex.hasMatch(email)) return "Enter a valid email";
+    return null;
+  }
+
+  String? _validatePassword(String? v) {
+    if (v == null || v.isEmpty) return "Password is required";
+    if (v.length < 6) return "Password must be at least 6 characters";
+    return null;
+  }
+
+  String? _validatePhone(String? v) {
+    if (v == null || v.trim().isEmpty) return "Contact number is required";
+    final digits = v.replaceAll(RegExp(r'\D'), '');
+    if (digits.length < 6) return "Enter a valid contact number";
+    return null;
+  }
+
+  // ---------------------------
+  // Submit form -> API
+  // ---------------------------
   Future<void> submitForm() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (!_formKey.currentState!.validate()) {
+      _pageController.jumpToPage(0);
+      return;
+    }
 
     setState(() => isLoading = true);
 
-    final now = DateTime.now().toIso8601String();
+    final uri = Uri.parse(
+        "https://fastapi.jyotishionline.com/api/v1/users/signup/astrologer");
+    final request = http.MultipartRequest("POST", uri);
 
-    final body = {
-      "id": "",
-      "availabilitiesId": 0,
-      "birthDate": now,
-      "primarySkill": skillCtrl.text.trim(),
-      "languageKnown": languageCtrl.text.trim(),
-      "profileImage": "",
-      "charge": int.tryParse(chargeCtrl.text) ?? 0,
-      "experienceInYears": int.tryParse(expCtrl.text) ?? 0,
-      "currentCity": cityCtrl.text.trim(),
-      "highestQualification": qualificationCtrl.text.trim(),
-      "learnAstrology": learnAstroCtrl.text.trim(),
-      "astrologerCategoryId": "",
-      "instaProfileLink": instaCtrl.text.trim(),
-      "facebookProfileLink": fbCtrl.text.trim(),
-      "linkedInProfileLink": linkedinCtrl.text.trim(),
-      "youtubeChannelLink": youtubeCtrl.text.trim(),
-      "websiteProfileLink": websiteCtrl.text.trim(),
-      "minimumEarning": 0,
-      "maximumEarning": 0,
-      "loginBio": bioCtrl.text.trim(),
-      "currentlyworkingfulltimejob": "",
-      "goodQuality": "",
-      "whatwillDo": "",
-      "isVerified": isVerified,
-      "totalOrder": 0,
-      "country": "",
-      "isActive": isActive,
-      "isDelete": false,
-      "created_at": now,
-      "updated_at": now,
-      "createdBy": 0,
-      "modifiedBy": 0,
-      "nameofplateform": "",
-      "monthlyEarning": "",
-      "referedPerson": "",
-      "chatStatus": "",
-      "chatWaitTime": "",
-      "callStatus": "",
-      "callWaitTime": "",
-      "videoCallRate": 0,
-      "reportRate": 0,
-      "deleted_at": null
-    };
+    // Add all text fields
+    request.fields['email'] = emailCtrl.text.trim();
+    request.fields['password'] = passwordCtrl.text.trim();
+    request.fields['contactNo'] = contactNoCtrl.text.trim().isNotEmpty
+        ? contactNoCtrl.text.trim()
+        : "0000000000";
+    request.fields['countryCode'] = countryCodeCtrl.text.trim().isNotEmpty
+        ? countryCodeCtrl.text.trim()
+        : "91";
+    request.fields['name'] =
+        nameCtrl.text.trim().isNotEmpty ? nameCtrl.text.trim() : "Unknown";
+    request.fields['gender'] = selectedGender;
+    request.fields['birthDate'] =
+        DateTime.now().toIso8601String(); // Replace if needed
+    request.fields['primarySkill'] = skillCtrl.text.trim();
+    request.fields['languageKnown'] = languageCtrl.text.trim();
+    request.fields['charge'] = chargeCtrl.text.trim();
+    request.fields['experienceInYears'] = expCtrl.text.trim();
+    request.fields['currentCity'] = cityCtrl.text.trim();
+    request.fields['highestQualification'] = qualificationCtrl.text.trim();
+    request.fields['learnAstrology'] = learnAstroCtrl.text.trim();
+    request.fields['astrologerCategoryId'] = "";
+    request.fields['instaProfileLink'] = instaCtrl.text.trim();
+    request.fields['facebookProfileLink'] = fbCtrl.text.trim();
+    request.fields['linkedInProfileLink'] = linkedinCtrl.text.trim();
+    request.fields['youtubeChannelLink'] = youtubeCtrl.text.trim();
+    request.fields['websiteProfileLink'] = websiteCtrl.text.trim();
+    request.fields['minimumEarning'] = "0";
+    request.fields['maximumEarning'] = "0";
+    request.fields['monthlyEarning'] = "";
+    request.fields['totalOrder'] = "0";
+    request.fields['currentlyworkingfulltimejob'] = "";
+    request.fields['nameofplateform'] = "";
+    request.fields['referedPerson'] = "";
+    request.fields['loginBio'] = bioCtrl.text.trim();
+    request.fields['goodQuality'] = "";
+    request.fields['whatwillDo'] = "";
+    request.fields['isVerified'] = isVerified.toString();
+    request.fields['isActive'] = isActive.toString();
+    request.fields['isDelete'] = "false";
+    request.fields['chatStatus'] = "";
+    request.fields['chatWaitTime'] = "";
+    request.fields['callStatus'] = "";
+    request.fields['callWaitTime'] = "";
+    request.fields['videoCallRate'] = "0";
+    request.fields['reportRate'] = "0";
+    request.fields['createdBy'] = "0";
+    request.fields['modifiedBy'] = "0";
+
+    // Add profile image file if available
+    if (profileImageFile != null) {
+      request.files.add(await http.MultipartFile.fromPath(
+        'profileImage',
+        profileImageFile!.path,
+        contentType: MediaType('image', 'jpeg'),
+        filename: p.basename(profileImageFile!.path), // use alias
+      ));
+    }
 
     try {
-      final result = await api.createAstrologer(body);
+      final streamedResponse = await request.send();
+      final responseStr = await streamedResponse.stream.bytesToString();
 
-      if (!mounted) return;
-      setState(() => isLoading = false);
-
-      if (result["success"]) {
+      if (streamedResponse.statusCode == 200) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+          const SnackBar(
             backgroundColor: Colors.green,
             behavior: SnackBarBehavior.floating,
-            content: Text("✅ Astrologer Created: ${result["data"]["id"]}"),
+            content: Text("✅ Astrologer created successfully!"),
           ),
         );
-        _formKey.currentState!.reset();
+        _formKey.currentState?.reset();
+        _resetControllers();
+        _pageController.jumpToPage(0);
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
-            content: Text("❌ Error: ${result["error"]}"),
+            content: Text("❌ Signup failed: $responseStr"),
           ),
         );
       }
     } catch (e) {
-      if (!mounted) return;
-      setState(() => isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: Colors.red,
           behavior: SnackBarBehavior.floating,
-          content: Text("❌ An unexpected error occurred: $e"),
+          content: Text("❌ Signup failed: $e"),
         ),
       );
     }
+
+    if (!mounted) return;
+    setState(() => isLoading = false);
   }
 
-  Widget _buildTextField(TextEditingController controller, String label,
-      {bool required = false,
-      TextInputType keyboardType = TextInputType.text,
-      IconData? icon,
-      int maxLines = 1}) {
+  void _resetControllers() {
+    emailCtrl.clear();
+    passwordCtrl.clear();
+    countryCodeCtrl.text = "+91";
+    contactNoCtrl.clear();
+    nameCtrl.clear();
+    skillCtrl.clear();
+    languageCtrl.clear();
+    cityCtrl.clear();
+    chargeCtrl.clear();
+    expCtrl.clear();
+    bioCtrl.clear();
+    qualificationCtrl.clear();
+    learnAstroCtrl.clear();
+    instaCtrl.clear();
+    fbCtrl.clear();
+    linkedinCtrl.clear();
+    youtubeCtrl.clear();
+    websiteCtrl.clear();
+    selectedGender = "Male";
+    isVerified = false;
+    isActive = true;
+    profileImageFile = null;
+  }
+
+  // ---------------------------
+  // UI helpers
+  // ---------------------------
+  Widget _buildTextField(
+    TextEditingController controller,
+    String label, {
+    bool required = false,
+    TextInputType keyboardType = TextInputType.text,
+    IconData? icon,
+    int maxLines = 1,
+    String? Function(String?)? validator,
+    bool obscure = false,
+    Widget? suffix,
+  }) {
     return TextFormField(
       controller: controller,
       keyboardType: keyboardType,
       maxLines: maxLines,
+      obscureText: obscure,
+      validator:
+          validator ?? (required ? (v) => _validateRequired(v, label) : null),
       decoration: InputDecoration(
         labelText: label,
         prefixIcon: icon != null
             ? Icon(icon, size: 20, color: const Color(0xFFFFC107))
             : null,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: Color(0xFFFFC107)),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: Colors.grey[300]!, width: 1.5),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: Color(0xFFFFC107), width: 2),
-        ),
+        suffixIcon: suffix,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
         filled: true,
         fillColor: Colors.yellow[50],
       ),
-      validator: required
-          ? (v) {
-              if (v == null || v.isEmpty) {
-                return "$label is required";
-              }
-              return null;
-            }
-          : null,
     );
   }
 
   Widget _buildPageIndicator() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
-      children: List.generate(3, (index) {
+      children: List.generate(3, (i) {
+        final active = _currentPage == i;
         return AnimatedContainer(
-          duration: const Duration(milliseconds: 300),
-          width: _currentPage == index ? 24 : 8,
+          duration: const Duration(milliseconds: 250),
+          margin: const EdgeInsets.symmetric(horizontal: 6),
+          width: active ? 28 : 8,
           height: 8,
-          margin: const EdgeInsets.symmetric(horizontal: 4),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(4),
-            color: _currentPage == index
-                ? const Color(0xFFFFC107) // Yellow primary color
-                : Colors.grey[300],
+            color: active ? const Color(0xFFFFC107) : Colors.grey[300],
+            borderRadius: BorderRadius.circular(6),
           ),
         );
       }),
     );
   }
 
-  Widget _buildSectionHeader(String title, String subtitle) {
+  Widget _buildGenderSelector() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          title,
-          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: const Color(0xFF333333),
+        Text("Gender",
+            style: Theme.of(context)
+                .textTheme
+                .titleSmall
+                ?.copyWith(fontWeight: FontWeight.w600)),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: RadioListTile<String>(
+                value: "Male",
+                groupValue: selectedGender,
+                onChanged: (v) => setState(() => selectedGender = v ?? "Male"),
+                title: const Text("Male"),
+                activeColor: const Color(0xFFFFC107),
+                dense: true,
               ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          subtitle,
-          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                color: Colors.grey[600],
+            ),
+            Expanded(
+              child: RadioListTile<String>(
+                value: "Female",
+                groupValue: selectedGender,
+                onChanged: (v) =>
+                    setState(() => selectedGender = v ?? "Female"),
+                title: const Text("Female"),
+                activeColor: const Color(0xFFFFC107),
+                dense: true,
               ),
+            ),
+            Expanded(
+              child: RadioListTile<String>(
+                value: "Other",
+                groupValue: selectedGender,
+                onChanged: (v) => setState(() => selectedGender = v ?? "Other"),
+                title: const Text("Other"),
+                activeColor: const Color(0xFFFFC107),
+                dense: true,
+              ),
+            ),
+          ],
         ),
-        const SizedBox(height: 32),
       ],
     );
   }
 
+  // ---------------------------
+  // Sections (PageView children)
+  // ---------------------------
   Widget _buildRequiredSection() {
     return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildSectionHeader(
               "Basic Information", "Please provide your essential details."),
+          Center(
+            child: Stack(
+              children: [
+                CircleAvatar(
+                  radius: 50,
+                  backgroundColor: Colors.grey[300],
+                  backgroundImage: profileImageFile != null
+                      ? FileImage(profileImageFile!)
+                      : null,
+                  child: profileImageFile == null
+                      ? const Icon(Icons.person, size: 50, color: Colors.white)
+                      : null,
+                ),
+                Positioned(
+                  bottom: 0,
+                  right: 0,
+                  child: InkWell(
+                    onTap: _pickProfileImage,
+                    child: Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFC107),
+                        shape: BoxShape.circle,
+                      ),
+                      child:
+                          const Icon(Icons.edit, size: 20, color: Colors.white),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+          _buildTextField(emailCtrl, "Email",
+              required: true,
+              keyboardType: TextInputType.emailAddress,
+              icon: Icons.email_outlined,
+              validator: _validateEmail),
+          const SizedBox(height: 20),
+          _buildTextField(
+            passwordCtrl,
+            "Password",
+            required: true,
+            icon: Icons.lock_outline,
+            obscure: _obscurePassword,
+            validator: _validatePassword,
+            suffix: IconButton(
+              icon: Icon(
+                  _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                  color: Colors.grey[700]),
+              onPressed: () =>
+                  setState(() => _obscurePassword = !_obscurePassword),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              Flexible(
+                flex: 2,
+                child: _buildTextField(countryCodeCtrl, "Code",
+                    required: true,
+                    keyboardType: TextInputType.phone,
+                    icon: Icons.flag_outlined),
+              ),
+              const SizedBox(width: 12),
+              Flexible(
+                flex: 5,
+                child: _buildTextField(contactNoCtrl, "Contact Number",
+                    required: true,
+                    keyboardType: TextInputType.phone,
+                    icon: Icons.phone_outlined,
+                    validator: _validatePhone),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
           _buildTextField(nameCtrl, "Full Name",
               required: true, icon: Icons.person_outline),
-          const SizedBox(height: 24),
+          const SizedBox(height: 20),
+          _buildGenderSelector(),
+          const SizedBox(height: 20),
           _buildTextField(skillCtrl, "Primary Skill",
               required: true, icon: Icons.star_border),
-          const SizedBox(height: 24),
+          const SizedBox(height: 20),
           _buildTextField(languageCtrl, "Languages Known",
               required: true, icon: Icons.language),
-          const SizedBox(height: 24),
+          const SizedBox(height: 20),
           _buildTextField(cityCtrl, "Current City",
               required: true, icon: Icons.location_city_outlined),
-          const SizedBox(height: 24),
+          const SizedBox(height: 20),
           _buildTextField(chargeCtrl, "Charge (₹ per session)",
               required: true,
               keyboardType: TextInputType.number,
               icon: Icons.currency_rupee),
-          const SizedBox(height: 24),
+          const SizedBox(height: 20),
           _buildTextField(expCtrl, "Experience (Years)",
               required: true,
               keyboardType: TextInputType.number,
               icon: Icons.work_outline),
+          const SizedBox(height: 20),
+          _buildTextField(bioCtrl, "Bio / Introduction",
+              required: true, icon: Icons.description_outlined, maxLines: 4),
           const SizedBox(height: 24),
-          _buildTextField(bioCtrl, "Bio/Introduction",
-              required: true, icon: Icons.description_outlined, maxLines: 5),
         ],
       ),
     );
   }
 
+  // ---------------------------
+  // Optional & Settings sections remain the same
+  // ---------------------------
   Widget _buildOptionalSection() {
     return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -284,262 +561,140 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
               "Help clients know you better (optional)."),
           _buildTextField(qualificationCtrl, "Highest Qualification",
               icon: Icons.school_outlined),
-          const SizedBox(height: 24),
+          const SizedBox(height: 20),
           _buildTextField(learnAstroCtrl, "How did you learn Astrology?",
               icon: Icons.auto_awesome_outlined, maxLines: 3),
-          const SizedBox(height: 32),
-          Text(
-            "Social Media Links",
-            style: Theme.of(context)
-                .textTheme
-                .titleLarge
-                ?.copyWith(fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 24),
+          Text("Social Media Links",
+              style: Theme.of(context)
+                  .textTheme
+                  .titleLarge
+                  ?.copyWith(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 16),
           _buildTextField(instaCtrl, "Instagram",
               icon: Icons.camera_alt_outlined),
-          const SizedBox(height: 20),
+          const SizedBox(height: 12),
           _buildTextField(fbCtrl, "Facebook", icon: Icons.facebook),
-          const SizedBox(height: 20),
-          _buildTextField(linkedinCtrl, "LinkedIn",
-              icon: Icons.business_center_outlined),
-          const SizedBox(height: 20),
-          _buildTextField(youtubeCtrl, "YouTube",
-              icon: Icons.video_library_outlined),
-          const SizedBox(height: 20),
-          _buildTextField(websiteCtrl, "Website", icon: Icons.public_outlined),
+          const SizedBox(height: 12),
+          _buildTextField(linkedinCtrl, "LinkedIn", icon: Icons.linked_camera),
+          const SizedBox(height: 12),
+          _buildTextField(youtubeCtrl, "YouTube", icon: Icons.video_collection),
+          const SizedBox(height: 12),
+          _buildTextField(websiteCtrl, "Website", icon: Icons.web_outlined),
+          const SizedBox(height: 24),
         ],
       ),
     );
   }
 
   Widget _buildSettingsSection() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      child: Column(
+        children: [
+          _buildSectionHeader(
+              "Settings", "Toggle your visibility and verification"),
+          SwitchListTile(
+            value: isVerified,
+            onChanged: (v) => setState(() => isVerified = v),
+            title: const Text("Verified"),
+          ),
+          SwitchListTile(
+            value: isActive,
+            onChanged: (v) => setState(() => isActive = v),
+            title: const Text("Active"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader(String title, String subtitle) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildSectionHeader(
-            "Account Settings", "Configure your account preferences."),
-        Card(
-          elevation: 4,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text("Verified Account",
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleLarge
-                                  ?.copyWith(fontWeight: FontWeight.w600)),
-                          const SizedBox(height: 4),
-                          Text("Get a verified badge on your profile",
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodyMedium
-                                  ?.copyWith(color: Colors.grey[600])),
-                        ],
-                      ),
-                    ),
-                    Switch(
-                      value: isVerified,
-                      onChanged: (v) => setState(() => isVerified = v),
-                      activeColor: const Color(0xFFFFC107),
-                    ),
-                  ],
-                ),
-                const Divider(height: 32),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text("Active Status",
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleLarge
-                                  ?.copyWith(fontWeight: FontWeight.w600)),
-                          const SizedBox(height: 4),
-                          Text("Make your profile visible to clients",
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodyMedium
-                                  ?.copyWith(color: Colors.grey[600])),
-                        ],
-                      ),
-                    ),
-                    Switch(
-                      value: isActive,
-                      onChanged: (v) => setState(() => isActive = v),
-                      activeColor: const Color(0xFFFFC107),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 32),
-        isLoading
-            ? Center(
-                child: Column(
-                  children: [
-                    const CircularProgressIndicator(
-                      valueColor: AlwaysStoppedAnimation(Color(0xFFFFC107)),
-                    ),
-                    const SizedBox(height: 16),
-                    Text("Creating your account...",
-                        style: Theme.of(context)
-                            .textTheme
-                            .bodyLarge
-                            ?.copyWith(color: Colors.grey[600])),
-                  ],
-                ),
-              )
-            : ElevatedButton(
-                onPressed: submitForm,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFFFC107),
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size(double.infinity, 56),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  elevation: 4,
-                ),
-                child: Text(
-                  "Complete Registration",
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                ),
-              ),
+        Text(title,
+            style: Theme.of(context)
+                .textTheme
+                .titleLarge
+                ?.copyWith(fontWeight: FontWeight.bold)),
+        const SizedBox(height: 4),
+        Text(subtitle, style: Theme.of(context).textTheme.bodyMedium),
+        const SizedBox(height: 16),
       ],
     );
   }
 
+  // ---------------------------
+  // Main build
+  // ---------------------------
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
       appBar: AppBar(
-        title: const Text(
-          "Astrologer Registration",
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF333333),
-          ),
-        ),
-        centerTitle: true,
-        backgroundColor: Colors.yellow[700],
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
+        title: const Text("Astrologer Signup"),
+        backgroundColor: const Color(0xFFFFC107),
       ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-          child: Form(
+      body: Stack(
+        children: [
+          Form(
             key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            child: PageView(
+              controller: _pageController,
+              physics: const NeverScrollableScrollPhysics(),
               children: [
-                _buildPageIndicator(),
-                const SizedBox(height: 32),
-                Expanded(
-                  child: PageView(
-                    controller: _pageController,
-                    physics: const NeverScrollableScrollPhysics(),
-                    children: [
-                      _buildRequiredSection(),
-                      _buildOptionalSection(),
-                      _buildSettingsSection(),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 32),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    if (_currentPage > 0)
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: () {
-                            _pageController.previousPage(
-                              duration: const Duration(milliseconds: 400),
-                              curve: Curves.easeInOut,
-                            );
-                          },
-                          style: OutlinedButton.styleFrom(
-                            minimumSize: const Size(120, 56),
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16)),
-                            side: const BorderSide(
-                                color: Color(0xFFFFC107), width: 2),
-                          ),
-                          child: const Text("Back",
-                              style: TextStyle(
-                                  color: Color(0xFFFFC107),
-                                  fontWeight: FontWeight.bold)),
-                        ),
-                      )
-                    else
-                      const Spacer(),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () {
-                          if (_currentPage == 0) {
-                            if (_formKey.currentState!.validate()) {
-                              _pageController.nextPage(
-                                duration: const Duration(milliseconds: 400),
-                                curve: Curves.easeInOut,
-                              );
-                            }
-                          } else if (_currentPage < 2) {
-                            _pageController.nextPage(
-                              duration: const Duration(milliseconds: 400),
-                              curve: Curves.easeInOut,
-                            );
-                          } else {
-                            submitForm();
-                          }
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFFFC107),
-                          foregroundColor: Colors.white,
-                          minimumSize: const Size(double.infinity, 56),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16)),
-                          elevation: 4,
-                        ),
-                        child: Text(
-                          _currentPage == 2 ? "Submit" : "Next",
-                          style:
-                              Theme.of(context).textTheme.titleLarge?.copyWith(
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.white,
-                                  ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+                _buildRequiredSection(),
+                _buildOptionalSection(),
+                _buildSettingsSection(),
               ],
             ),
           ),
+          if (isLoading)
+            Container(
+              color: Colors.black45,
+              child: const Center(child: CircularProgressIndicator()),
+            ),
+        ],
+      ),
+      bottomNavigationBar: Padding(
+        padding: const EdgeInsets.all(12.0),
+        child: Row(
+          children: [
+            if (_currentPage > 0)
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: () {
+                    if (_currentPage > 0) {
+                      _pageController.previousPage(
+                          duration: const Duration(milliseconds: 300),
+                          curve: Curves.easeInOut);
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.grey[300]),
+                  child:
+                      const Text("Back", style: TextStyle(color: Colors.black)),
+                ),
+              ),
+            if (_currentPage > 0) const SizedBox(width: 12),
+            Expanded(
+              child: ElevatedButton(
+                onPressed: () {
+                  if (_currentPage < 2) {
+                    _pageController.nextPage(
+                        duration: const Duration(milliseconds: 300),
+                        curve: Curves.easeInOut);
+                  } else {
+                    submitForm();
+                  }
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFFFC107),
+                ),
+                child: Text(_currentPage < 2 ? "Next" : "Submit"),
+              ),
+            ),
+          ],
         ),
       ),
     );
