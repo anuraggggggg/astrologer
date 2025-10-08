@@ -1,8 +1,11 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:astrowaypartner/fastApi/fastApiEndPoints.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:path/path.dart'; // For basename()
+
 
 class FastApiServices {
   final String baseUrl = "https://fastapi.jyotishionline.com/api/v1";
@@ -376,6 +379,9 @@ class FastApiServices {
     }
   }
 
+
+
+
   // ---------------- HELPERS ----------------
   static Future<String?> getUserId() async {
     final prefs = await SharedPreferences.getInstance();
@@ -392,4 +398,87 @@ class FastApiServices {
     await prefs.clear();
     print("🧹 Cleared all saved user data.");
   }
+
+
+
+//Edit Profile
+   Future<Map<String, dynamic>> editProfile({
+    required String contactNo,
+    required String currentCity,
+    required int experienceInYears,
+    required int audioCallCharge,
+    required String name,
+    required String languageKnown,
+    required int chatCharge,
+    required int videoCallCharge,
+    required String primarySkill,
+    File? profileImage, // optional image
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    final astroId = prefs.getString("astro_id");
+    final token = prefs.getString("access_token");
+
+    if (astroId == null || token == null) {
+      throw Exception("Astro ID or token not found. Please login first.");
+    }
+
+    final url = Uri.parse(FastApiEndpoints.editAstrolgerProfile + astroId);
+    print("🌐 EditProfile URL: $url");
+
+// Multipart request
+    var request = http.MultipartRequest('PUT', url);
+    request.headers['Authorization'] = 'Bearer $token';
+    request.headers['accept'] = 'application/json';
+
+// Add text fields
+    request.fields['contactNo'] = contactNo;
+    request.fields['currentCity'] = currentCity;
+    request.fields['experienceInYears'] = experienceInYears.toString();
+    request.fields['audioCallCharge'] = audioCallCharge.toString();
+    request.fields['name'] = name;
+    request.fields['languageKnown'] = languageKnown;
+    request.fields['chatCharge'] = chatCharge.toString();
+    request.fields['videoCallCharge'] = videoCallCharge.toString();
+    request.fields['primarySkill'] = primarySkill;
+
+// Add profile image if provided
+    if (profileImage != null && profileImage.existsSync()) {
+      var stream = http.ByteStream(profileImage.openRead());
+      var length = await profileImage.length();
+      request.files.add(
+        http.MultipartFile(
+          'profileImage',
+          stream,
+          length,
+          filename: basename(profileImage.path),
+        ),
+      );
+    }
+
+    try {
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
+
+      print("⬅️ Status Code: ${response.statusCode}");
+      print("⬅️ Response Body: ${response.body}");
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return {"success": true, "data": jsonDecode(response.body)};
+      } else {
+        return {"success": false, "error": response.body};
+      }
+    } catch (e) {
+      print("🚨 Exception in editProfile: $e");
+      return {"success": false, "error": e.toString()};
+    }
+  }
+
+
+
+
+
 }
+
+
+
+

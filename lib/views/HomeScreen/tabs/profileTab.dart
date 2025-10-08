@@ -1,9 +1,15 @@
 import 'package:astrowaypartner/fastApi/fastApiServices.dart';
 import 'package:astrowaypartner/fastApi/sessionController.dart';
+import 'package:astrowaypartner/views/HomeScreen/Profile/edit_profile_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:get/get_core/src/get_main.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'editprofile/editprofile.dart';
+
+
+
 
 class ProfileTabScreen extends StatefulWidget {
   const ProfileTabScreen({super.key});
@@ -381,33 +387,40 @@ class _ProfileTabScreenState extends State<ProfileTabScreen> {
           Row(
             children: [
               Expanded(
-                child: OutlinedButton(
-                  onPressed: () {
-                    // Add edit profile functionality
-                  },
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    side: BorderSide(color: Colors.yellow.shade700),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.edit, size: 20, color: Colors.yellow.shade700),
-                      const SizedBox(width: 8),
-                      Text(
-                        "Edit Profile",
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.yellow.shade700,
+                  child:OutlinedButton(
+                    onPressed: () {
+                      // Navigate to EditProfileScreen
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) =>  NewEditProfileScreen(),
                         ),
+                      );
+                    },
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
                       ),
-                    ],
+                      side: BorderSide(color: Colors.yellow.shade700),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.edit, size: 20, color: Colors.yellow.shade700),
+                        const SizedBox(width: 8),
+                        Text(
+                          "Edit Profile",
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.yellow.shade700,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
+
               ),
               const SizedBox(width: 16),
               Expanded(
