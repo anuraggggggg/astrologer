@@ -12,7 +12,9 @@ class FastApiEndpoints {
   static const String createAstrologer = "$fastApiBaseUrl/api/v1/astrologers";
   static const String getAstrologers = "$fastApiBaseUrl/api/v1/astrologers";
   static const String getAstrologerById = "$fastApiBaseUrl/api/v1/astrologers/"; // + id
-  static const String updateAstrologer = "$fastApiBaseUrl/api/v1/astrologers/"; // + id
+  static const String updateAstrologer = "$fastApiBaseUrl/api/v1/astrologers/";
+  static const String editAstrolgerProfile = "$fastApiBaseUrl/api/v1/astro/astrologers/";
+  // + id
   static const String deleteAstrologer = "$fastApiBaseUrl/api/v1/astrologers/"; // + id
 
   // ---------------- CUSTOMER / USER ----------------
