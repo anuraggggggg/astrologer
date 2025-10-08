@@ -474,11 +474,39 @@ class FastApiServices {
   }
 
 
+  Future<Map<String, dynamic>?> balanceAmountAstro(String walletId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final astroId = prefs.getString("astro_id");
+    final token = prefs.getString("access_token");
+
+    if (astroId == null || token == null) {
+      throw Exception("Astro ID or token not found. Please login first.");
+    }
+
+    final url = Uri.parse(FastApiEndpoints.amountBalanceAstrologer + astroId);
+    print("🌐 Wallet Balance URL: $url");
+
+    try {
+      final response = await http.get(
+        url,
+        headers: {'accept': 'application/json'},
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        print('Full Response:\n${const JsonEncoder.withIndent('  ').convert(data)}');
+        return data; // ✅ Return full JSON
+      } else {
+        print('Failed to load data. Status code: ${response.statusCode}');
+        print('Response body: ${response.body}');
+        return null;
+      }
+    } catch (e) {
+      print('Error fetching wallet data: $e');
+      return null;
+    }
+  }
 
 
 
 }
-
-
-
-
