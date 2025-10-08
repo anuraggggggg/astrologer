@@ -1,5 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../../../fastApi/fastApiServices.dart';
+import 'package:shimmer/shimmer.dart';
+
 
 class PaymentHistoryTab extends StatefulWidget {
   const PaymentHistoryTab({super.key});
@@ -66,10 +71,39 @@ class _PaymentHistoryTabState extends State<PaymentHistoryTab> {
     ),
   ];
 
+  @override
+  void initState() {
+    super.initState();
+    _availableBalance = 0;
+    _fetchWalletAmount();
+  }
+
+
+
+  Future<double> _fetchWalletAmount() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final astroId = prefs.getString("astro_id");
+
+      if (astroId != null) {
+        final data = await FastApiServices().balanceAmountAstro(astroId);
+        if (data != null) {
+          final amount = (data['amount'] as num).toDouble();
+          print("💰 Wallet Amount (real-time): $amount");
+          return amount;
+        }
+      }
+    } catch (e) {
+      print("Error fetching wallet amount: $e");
+    }
+    return 0.0;
+  }
+
+
   String _selectedFilter = "all";
   bool _isLoading = false;
-  double _availableBalance = 12500.00;
-  double _pendingAmount = 3200.00;
+  late double _availableBalance;
+
 
   List<PaymentRecord> get _filteredPayments {
     if (_selectedFilter == "all") return _paymentHistory;
@@ -78,11 +112,11 @@ class _PaymentHistoryTabState extends State<PaymentHistoryTab> {
         .toList();
   }
 
-  double get _totalEarnings {
-    return _paymentHistory
-        .where((payment) => payment.status == PaymentStatus.completed)
-        .fold(0, (sum, payment) => sum + payment.amount);
-  }
+  // double get _totalEarnings {
+  //   return _paymentHistory
+  //       .where((payment) => payment.status == PaymentStatus.completed)
+  //       .fold(0, (sum, payment) => sum + payment.amount);
+  // }
 
   Future<void> _refreshData() async {
     setState(() => _isLoading = true);
@@ -127,112 +161,140 @@ class _PaymentHistoryTabState extends State<PaymentHistoryTab> {
   }
 
   Widget _buildBalanceCard() {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 20),
-      child: Material(
-        elevation: 4,
-        borderRadius: BorderRadius.circular(20),
-        child: Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Colors.blue.shade50,
-                Colors.purple.shade50,
-              ],
+    return FutureBuilder<double>(
+      future: _fetchWalletAmount(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          // Shimmer Placeholder
+          return Shimmer.fromColors(
+            baseColor: Colors.grey.shade300,
+            highlightColor: Colors.grey.shade100,
+            child: Container(
+              margin: const EdgeInsets.only(bottom: 20),
+              height: 140,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+              ),
             ),
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Column(
-            children: [
-              // Balance Row
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        "Available Balance",
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey.shade700,
-                          fontWeight: FontWeight.w500,
+          );
+        } else if (snapshot.hasError) {
+          return Center(child: Text("Error fetching balance"));
+        } else {
+          final balance = snapshot.data ?? 0.0;
+
+          return Container(
+            margin: const EdgeInsets.only(bottom: 20),
+            child: Material(
+              elevation: 4,
+              borderRadius: BorderRadius.circular(20),
+              child: Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Colors.blue.shade50, Colors.purple.shade50],
+                  ),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Column(
+                  children: [
+                    // Balance Row
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              "Available Balance",
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey.shade700,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            ConstrainedBox(
+                              constraints: BoxConstraints(
+                                maxWidth: MediaQuery.of(context).size.width * 0.5, // half of screen width
+                              ),
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  "₹${balance.toStringAsFixed(2)}",
+                                  style: TextStyle(
+                                    fontSize: 28,
+                                    color: Colors.blue.shade800,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ),
+
+
+                          ],
+                        ),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.shade100,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            Icons.account_balance_wallet,
+                            size: 30,
+                            color: Colors.blue.shade800,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    // Stats Row
+                    // Row(
+                    //   children: [
+                    //     Expanded(
+                    //       child: _buildBalanceStatItem(
+                    //         "₹${_totalEarnings.toStringAsFixed(2)}",
+                    //         "Total Earnings",
+                    //         Colors.green.shade700,
+                    //       ),
+                    //     ),
+                    //     Expanded(
+                    //       child: _buildBalanceStatItem(
+                    //         "₹${_pendingAmount.toStringAsFixed(2)}",
+                    //         "Pending",
+                    //         Colors.orange.shade700,
+                    //       ),
+                    //     ),
+                    //   ],
+                    // ),
+                    const SizedBox(height: 16),
+                    // Withdraw Button
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        icon: Icon(Icons.currency_rupee, size: 20),
+                        label: Text("Withdraw Funds"),
+                        onPressed: balance > 0 ? _showWithdrawalDialog : null,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.yellow.shade700,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          elevation: 2,
                         ),
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        "₹${_availableBalance.toStringAsFixed(2)}",
-                        style: TextStyle(
-                          fontSize: 28,
-                          color: Colors.blue.shade800,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.blue.shade100,
-                      shape: BoxShape.circle,
                     ),
-                    child: Icon(
-                      Icons.account_balance_wallet,
-                      size: 30,
-                      color: Colors.blue.shade800,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-
-              // Stats Row
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildBalanceStatItem(
-                      "₹${_totalEarnings.toStringAsFixed(2)}",
-                      "Total Earnings",
-                      Colors.green.shade700,
-                    ),
-                  ),
-                  Expanded(
-                    child: _buildBalanceStatItem(
-                      "₹${_pendingAmount.toStringAsFixed(2)}",
-                      "Pending",
-                      Colors.orange.shade700,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-
-              // Withdrawal Button
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  icon: Icon(Icons.currency_rupee, size: 20),
-                  label: Text("Withdraw Funds"),
-                  onPressed:
-                      _availableBalance > 0 ? _showWithdrawalDialog : null,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.yellow.shade700,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    elevation: 2,
-                  ),
+                  ],
                 ),
               ),
-            ],
-          ),
-        ),
-      ),
+            ),
+          );
+        }
+      },
     );
   }
 
@@ -593,7 +655,7 @@ class _WithdrawalDialogState extends State<WithdrawalDialog> {
             ),
             const SizedBox(height: 16),
             Text(
-              "Available Balance: ₹${widget.availableBalance.toStringAsFixed(2)}",
+              "Available Balance: ₹${widget.availableBalance.toInt().toStringAsFixed(2)}",
               style: TextStyle(
                 color: Colors.grey.shade600,
                 fontWeight: FontWeight.w500,

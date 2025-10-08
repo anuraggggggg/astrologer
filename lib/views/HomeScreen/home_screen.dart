@@ -8,7 +8,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_snake_navigationbar/flutter_snake_navigationbar.dart';
 import 'package:get/get.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sizer/sizer.dart';
+
+import '../../fastApi/fastApiServices.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -20,14 +23,53 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   int _selectedItemPosition = 0;
   int previousposition = 0;
-  String walletAmount = "--"; // ✅ Safe placeholder
+  String walletAmount = ""; // ✅ Safe placeholder
 
   @override
   void initState() {
     super.initState();
+    _initializeWallet();
     // Removed direct API calls
     // You can trigger API calls later when needed
   }
+
+  Future<void> _initializeWallet() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final astroId = prefs.getString("astro_id");
+
+      if (astroId != null) {
+        final response = await FastApiServices().balanceAmountAstro(astroId);
+
+        if (response != null) {
+          final amount = (response['amount'] as num).toDouble(); // ensures it's a double
+          final formattedAmount = amount.toStringAsFixed(2); // 2 decimal places
+          print("💰 Wallet Amount (API): $formattedAmount");
+
+          // ✅ Update UI safely
+          setState(() {
+            walletAmount = formattedAmount;
+          });
+        } else {
+          print("⚠️ No data found for this wallet");
+          setState(() {
+            walletAmount = "--";
+          });
+        }
+      } else {
+        print("❌ Astro ID not found in SharedPreferences");
+        setState(() {
+          walletAmount = "--";
+        });
+      }
+    } catch (e) {
+      print("🚨 Error initializing wallet: $e");
+      setState(() {
+        walletAmount = "--";
+      });
+    }
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -50,7 +92,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             actions: [
               IconButton(
                 icon: const Icon(Icons.refresh),
-                onPressed: _loadWalletAmount, // ✅ Safe call
+                onPressed: _initializeWallet, // ✅ Safe call
               ),
               GestureDetector(
                 onTap: () {
