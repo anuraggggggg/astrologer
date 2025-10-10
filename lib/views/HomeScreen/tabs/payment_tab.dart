@@ -14,72 +14,58 @@ class PaymentHistoryTab extends StatefulWidget {
 }
 
 class _PaymentHistoryTabState extends State<PaymentHistoryTab> {
-  final List<PaymentRecord> _paymentHistory = [
-    PaymentRecord(
-      id: "PAY-001",
-      amount: 1500.00,
-      date: DateTime.now().subtract(const Duration(days: 1)),
-      type: PaymentType.audioCall,
-      status: PaymentStatus.completed,
-      duration: "30 mins",
-      clientName: "Rajesh Kumar",
-    ),
-    PaymentRecord(
-      id: "PAY-002",
-      amount: 2500.00,
-      date: DateTime.now().subtract(const Duration(days: 3)),
-      type: PaymentType.videoCall,
-      status: PaymentStatus.completed,
-      duration: "45 mins",
-      clientName: "Priya Sharma",
-    ),
-    PaymentRecord(
-      id: "PAY-003",
-      amount: 800.00,
-      date: DateTime.now().subtract(const Duration(days: 5)),
-      type: PaymentType.chat,
-      status: PaymentStatus.pending,
-      duration: "Chat Session",
-      clientName: "Amit Patel",
-    ),
-    PaymentRecord(
-      id: "PAY-004",
-      amount: 1200.00,
-      date: DateTime.now().subtract(const Duration(days: 7)),
-      type: PaymentType.audioCall,
-      status: PaymentStatus.completed,
-      duration: "25 mins",
-      clientName: "Sneha Gupta",
-    ),
-    PaymentRecord(
-      id: "PAY-005",
-      amount: 3000.00,
-      date: DateTime.now().subtract(const Duration(days: 10)),
-      type: PaymentType.videoCall,
-      status: PaymentStatus.failed,
-      duration: "60 mins",
-      clientName: "Vikram Singh",
-    ),
-    PaymentRecord(
-      id: "PAY-006",
-      amount: 600.00,
-      date: DateTime.now().subtract(const Duration(days: 12)),
-      type: PaymentType.chat,
-      status: PaymentStatus.completed,
-      duration: "Chat Session",
-      clientName: "Neha Joshi",
-    ),
-  ];
+  // ✅ VARIABLES
+  List<PaymentRecord> _paymentHistory = [];
+  String _selectedFilter = "all";
+  bool _isLoading = false;
+  late double _availableBalance;
 
+  // ✅ INIT
   @override
   void initState() {
     super.initState();
     _availableBalance = 0;
+    _fetchTransactionHistory();
     _fetchWalletAmount();
   }
 
+  // ✅ FETCH TRANSACTIONS
+  Future<void> _fetchTransactionHistory() async {
+    setState(() => _isLoading = true);
 
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final astroId = prefs.getString("astro_id");
 
+      if (astroId == null || astroId.isEmpty) {
+        throw Exception("Astrologer ID not found in SharedPreferences");
+      }
+
+      final transactions = await FastApiServices.transactionHistory();
+
+      final fetchedList = transactions.map((t) {
+        return PaymentRecord(
+          id: '',
+          amount: t.amount.toDouble(),
+          date: DateTime.tryParse(t.date) ?? DateTime.now(),
+          type: _mapType(t.type),
+          status: _mapStatus(t.status),
+          duration: t.duration,
+          clientName: t.userName,
+        );
+      }).toList();
+
+      setState(() {
+        _paymentHistory = fetchedList;
+      });
+    } catch (e) {
+      print("❌ Error fetching transaction history: $e");
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  // ✅ FETCH BALANCE
   Future<double> _fetchWalletAmount() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -89,28 +75,57 @@ class _PaymentHistoryTabState extends State<PaymentHistoryTab> {
         final data = await FastApiServices().balanceAmountAstro(astroId);
         if (data != null) {
           final amount = (data['amount'] as num).toDouble();
-          print("💰 Wallet Amount (real-time): $amount");
+          setState(() => _availableBalance = amount);
+          print("💰 Wallet Amount: $amount");
           return amount;
         }
       }
     } catch (e) {
-      print("Error fetching wallet amount: $e");
+      print("❌ Error fetching wallet amount: $e");
     }
     return 0.0;
   }
 
+  // ✅ TYPE + STATUS HELPERS
+  PaymentType _mapType(String type) {
+    switch (type.toLowerCase()) {
+      case 'audio_call':
 
-  String _selectedFilter = "all";
-  bool _isLoading = false;
-  late double _availableBalance;
+        return PaymentType.audioCall;
+      case 'video_call':
 
+        return PaymentType.videoCall;
+      case 'chat':
 
+        return PaymentType.chat;
+      default:
+        return PaymentType.chat;
+    }
+  }
+
+  PaymentStatus _mapStatus(String status) {
+    switch (status.toLowerCase()) {
+      case 'success':
+      case 'completed':
+        return PaymentStatus.completed;
+      case 'pending':
+        return PaymentStatus.pending;
+      case 'failed':
+        return PaymentStatus.failed;
+      default:
+        return PaymentStatus.pending;
+    }
+  }
+
+  // ✅ FILTER
   List<PaymentRecord> get _filteredPayments {
     if (_selectedFilter == "all") return _paymentHistory;
     return _paymentHistory
         .where((payment) => payment.status.name == _selectedFilter)
         .toList();
   }
+
+
 
   // double get _totalEarnings {
   //   return _paymentHistory
@@ -161,142 +176,95 @@ class _PaymentHistoryTabState extends State<PaymentHistoryTab> {
   }
 
   Widget _buildBalanceCard() {
-    return FutureBuilder<double>(
-      future: _fetchWalletAmount(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          // Shimmer Placeholder
-          return Shimmer.fromColors(
-            baseColor: Colors.grey.shade300,
-            highlightColor: Colors.grey.shade100,
-            child: Container(
-              margin: const EdgeInsets.only(bottom: 20),
-              height: 140,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(20),
-              ),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20),
+      child: Material(
+        elevation: 4,
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.blue.shade50, Colors.purple.shade50],
             ),
-          );
-        } else if (snapshot.hasError) {
-          return Center(child: Text("Error fetching balance"));
-        } else {
-          final balance = snapshot.data ?? 0.0;
-
-          return Container(
-            margin: const EdgeInsets.only(bottom: 20),
-            child: Material(
-              elevation: 4,
-              borderRadius: BorderRadius.circular(20),
-              child: Container(
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [Colors.blue.shade50, Colors.purple.shade50],
-                  ),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Column(
-                  children: [
-                    // Balance Row
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              "Available Balance",
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: Colors.grey.shade700,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            ConstrainedBox(
-                              constraints: BoxConstraints(
-                                maxWidth: MediaQuery.of(context).size.width * 0.5, // half of screen width
-                              ),
-                              child: FittedBox(
-                                fit: BoxFit.scaleDown,
-                                alignment: Alignment.centerLeft,
-                                child: Text(
-                                  "₹${balance.toStringAsFixed(2)}",
-                                  style: TextStyle(
-                                    fontSize: 28,
-                                    color: Colors.blue.shade800,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                            ),
-
-
-                          ],
-                        ),
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Colors.blue.shade100,
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(
-                            Icons.account_balance_wallet,
-                            size: 30,
-                            color: Colors.blue.shade800,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    // Stats Row
-                    // Row(
-                    //   children: [
-                    //     Expanded(
-                    //       child: _buildBalanceStatItem(
-                    //         "₹${_totalEarnings.toStringAsFixed(2)}",
-                    //         "Total Earnings",
-                    //         Colors.green.shade700,
-                    //       ),
-                    //     ),
-                    //     Expanded(
-                    //       child: _buildBalanceStatItem(
-                    //         "₹${_pendingAmount.toStringAsFixed(2)}",
-                    //         "Pending",
-                    //         Colors.orange.shade700,
-                    //       ),
-                    //     ),
-                    //   ],
-                    // ),
-                    const SizedBox(height: 16),
-                    // Withdraw Button
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        icon: Icon(Icons.currency_rupee, size: 20),
-                        label: Text("Withdraw Funds"),
-                        onPressed: balance > 0 ? _showWithdrawalDialog : null,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.yellow.shade700,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          elevation: 2,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Column(
+            children: [
+              // Balance Row
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        "Available Balance",
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.grey.shade700,
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
+                      const SizedBox(height: 4),
+                      ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxWidth: MediaQuery.of(context).size.width * 0.5,
+                        ),
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            "₹${_availableBalance.toStringAsFixed(2)}",
+                            style: TextStyle(
+                              fontSize: 28,
+                              color: Colors.blue.shade800,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.shade100,
+                      shape: BoxShape.circle,
                     ),
-                  ],
+                    child: Icon(
+                      Icons.account_balance_wallet,
+                      size: 30,
+                      color: Colors.blue.shade800,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  icon: Icon(Icons.currency_rupee, size: 20),
+                  label: Text("Withdraw Funds"),
+                  onPressed: _availableBalance > 0 ? _showWithdrawalDialog : null,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.yellow.shade700,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    elevation: 2,
+                  ),
                 ),
               ),
-            ),
-          );
-        }
-      },
+            ],
+          ),
+        ),
+      ),
     );
   }
+
 
   Widget _buildBalanceStatItem(String value, String label, Color color) {
     return Column(
@@ -392,7 +360,7 @@ class _PaymentHistoryTabState extends State<PaymentHistoryTab> {
             children: [
               const SizedBox(height: 4),
               Text(
-                "${payment.duration} • ${DateFormat('MMM dd, yyyy').format(payment.date)}",
+                "${DateFormat('MMM dd, yyyy').format(payment.date)}",
                 style: TextStyle(
                   fontSize: 13,
                   color: Colors.grey.shade600,

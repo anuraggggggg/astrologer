@@ -15,6 +15,8 @@ class FastApiEndpoints {
   static const String updateAstrologer = "$fastApiBaseUrl/api/v1/astrologers/";
   static const String editAstrolgerProfile = "$fastApiBaseUrl/api/v1/astro/astrologers/";
   static const String amountBalanceAstrologer = "$fastApiBaseUrl/api/v1/astrowallet/";
+  static const String transactionHistory = "$fastApiBaseUrl/api/v1/wallet/transactions/astrologer/";
+
 
   // + id
   static const String deleteAstrologer = "$fastApiBaseUrl/api/v1/astrologers/"; // + id

@@ -4,7 +4,9 @@ import 'package:astrowaypartner/fastApi/fastApiEndPoints.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:path/path.dart'; // For basename()
+import 'package:path/path.dart';
+
+import '../models/fastApi/transaction_model.dart'; // For basename()
 
 
 class FastApiServices {
@@ -506,6 +508,29 @@ class FastApiServices {
       return null;
     }
   }
+
+
+  static Future<List<TransactionModel>> transactionHistory() async {
+    final prefs = await SharedPreferences.getInstance();
+    final astrologerId = prefs.getString('astro_id');
+
+    if (astrologerId == null || astrologerId.isEmpty) {
+      throw Exception('Astrologer ID not found in SharedPreferences');
+    }
+
+    final url = Uri.parse('${FastApiEndpoints.transactionHistory}$astrologerId');
+
+    final response = await http.get(url, headers: {'accept': 'application/json'});
+
+    if (response.statusCode == 200) {
+      final List<dynamic> jsonList = jsonDecode(response.body);
+      return jsonList.map((e) => TransactionModel.fromJson(e)).toList();
+    } else {
+      throw Exception('Failed to load transaction history');
+    }
+  }
+
+
 
 
 
