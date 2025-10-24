@@ -1,14 +1,17 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:astrowaypartner/fastApi/fastApiEndPoints.dart';
+import 'package:astrowaypartner/fastApi/sessionController.dart';
 import 'package:flutter/material.dart';
+import 'package:get/get.dart';
+import 'package:get/get_core/src/get_main.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path/path.dart'; // For basename()
 
-
 class FastApiServices {
   final String baseUrl = "https://fastapi.jyotishionline.com/api/v1";
+  final SessionController sessionController = Get.find<SessionController>();
   String? _accessToken;
 
   // ---------------- LOGIN & TOKEN ----------------
@@ -21,8 +24,8 @@ class FastApiServices {
       url,
       headers: {"Content-Type": "application/x-www-form-urlencoded"},
       body: {
-        "username": "jinu@example.com",
-        "password": "123456",
+        "username": "jincyt@example.com",
+        "password": "jincy1",
       },
     );
 
@@ -379,9 +382,6 @@ class FastApiServices {
     }
   }
 
-
-
-
   // ---------------- HELPERS ----------------
   static Future<String?> getUserId() async {
     final prefs = await SharedPreferences.getInstance();
@@ -399,10 +399,8 @@ class FastApiServices {
     print("🧹 Cleared all saved user data.");
   }
 
-
-
 //Edit Profile
-   Future<Map<String, dynamic>> editProfile({
+  Future<Map<String, dynamic>> editProfile({
     required String contactNo,
     required String currentCity,
     required int experienceInYears,
@@ -473,7 +471,6 @@ class FastApiServices {
     }
   }
 
-
   Future<Map<String, dynamic>?> balanceAmountAstro(String walletId) async {
     final prefs = await SharedPreferences.getInstance();
     final astroId = prefs.getString("astro_id");
@@ -494,7 +491,8 @@ class FastApiServices {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        print('Full Response:\n${const JsonEncoder.withIndent('  ').convert(data)}');
+        print(
+            'Full Response:\n${const JsonEncoder.withIndent('  ').convert(data)}');
         return data; // ✅ Return full JSON
       } else {
         print('Failed to load data. Status code: ${response.statusCode}');
@@ -506,7 +504,4 @@ class FastApiServices {
       return null;
     }
   }
-
-
-
 }
