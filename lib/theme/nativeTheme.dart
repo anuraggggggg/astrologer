@@ -75,7 +75,7 @@ class Themes {
       bodyMedium: const TextStyle(color: Colors.black),
     ),
 //Card theme
-    cardTheme: const CardTheme(
+    cardTheme: const CardThemeData(
       margin: EdgeInsets.all(10),
       color: Colors.white,
       elevation: 0.5,
@@ -153,7 +153,7 @@ class Themes {
         bodyMedium: TextStyle(color: Colors.black),
         bodySmall: TextStyle(color: Colors.black),
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         margin: const EdgeInsets.all(10),
         color: Colors.blue[200],
         elevation: 0.5,
