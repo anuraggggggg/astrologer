@@ -49,6 +49,7 @@ import 'utils/FallbackLocalizationDelegate.dart';
 import 'package:flutter_easyloading/flutter_easyloading.dart'; // <--- ADD THIS IMPORT
 
 final localNotifications = FlutterLocalNotificationsPlugin();
+//my
 
 @pragma('vm:entry-point')
 Future<void> handleBackgroundMessage(
