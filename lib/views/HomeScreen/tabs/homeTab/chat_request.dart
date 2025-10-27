@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:astrowaypartner/fastApi/fastApiServices.dart';
 
+import '../../../chat/chat_screen.dart';
+
 class ChatRequests extends StatefulWidget {
   const ChatRequests({super.key});
 
@@ -100,10 +102,21 @@ class _ChatRequestsState extends State<ChatRequests> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           TextButton(
-                            onPressed: () =>
-                                _respondToRequest(req['id'], 'accepted'),
+                            onPressed: () {
+                              // Example: if you have a request map like req['user_id']
+                              final customerId = req['user_id']; // or however you get it from your request data
+
+                              // Navigate to chat screen
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => AstrologerChatPage(customerUid: customerId),
+                                ),
+                              );
+                            },
                             child: const Text("Accept"),
                           ),
+
                           TextButton(
                             onPressed: () =>
                                 _respondToRequest(req['id'], 'declined'),

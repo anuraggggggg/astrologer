@@ -531,5 +531,49 @@ class FastApiServices {
     }
   }
 
+  static Future<Map<String, dynamic>> registerFcmToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    final astrologerId = prefs.getString('astro_id');
+    final fcmToken = prefs.getString('fcm_token');
+
+    if (astrologerId == null || astrologerId.isEmpty) {
+      throw Exception('Astrologer ID not found in SharedPreferences');
+    }
+
+    if (fcmToken == null || fcmToken.isEmpty) {
+      throw Exception('FCM Token not found in SharedPreferences');
+    }
+
+    final url = Uri.parse(FastApiEndpoints.registerFcmTokenUrl);
+
+    final body = jsonEncode({
+      "astrologer_id": astrologerId,
+      "fcm_token": fcmToken,
+    });
+
+    print("📤 Registering FCM token for Astrologer ID: $astrologerId");
+    print("🔗 URL: $url");
+
+    final response = await http.post(
+      url,
+      headers: {
+        "accept": "application/json",
+        "Content-Type": "application/json",
+      },
+      body: body,
+    );
+
+    print("📡 Response: ${response.statusCode} ${response.body}");
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception("Failed to register FCM token: ${response.body}");
+    }
+  }
+
+
+
+
 
 }

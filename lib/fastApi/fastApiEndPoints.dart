@@ -30,4 +30,9 @@ class FastApiEndpoints {
       "$fastApiBaseUrl/api/v1/astrologer/$astrologerId"; // GET: fetch requests
   static const String updateSessionStatus =
       "$fastApiBaseUrl/api/v1/session/update"; // PUT: update request status (accept/reject)
+
+  static const String registerFcmTokenUrl =
+      "$fastApiBaseUrl/Astrologer_notification/register-token";
+
+
 }

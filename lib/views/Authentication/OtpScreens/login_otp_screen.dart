@@ -4,10 +4,12 @@ import 'package:astrowaypartner/views/HomeScreen/home_screen.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:pinput/pinput.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sizer/sizer.dart';
 
 import '../../../constants/messageConst.dart';
 import '../../../widgets/app_bar_widget.dart';
+import 'fcm_token.dart';
 
 const borderColor = Color.fromRGBO(114, 178, 238, 1);
 const fillColor = Color.fromRGBO(222, 231, 240, .57);
@@ -93,9 +95,6 @@ class _LoginOtpScreenState extends State<LoginOtpScreen> {
       final token = response['access_token'];
       final userId = response['astro']?['id'];
 
-      log("🔑 AccessToken: $token");
-      log("👤 UserId: $userId");
-
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text("OTP verified successfully"),
@@ -103,7 +102,27 @@ class _LoginOtpScreenState extends State<LoginOtpScreen> {
         ),
       );
 
-      // ✅ Navigate to home/dashboard
+      // ✅ Get FCM token from Firebase
+      // final fcmToken = await getFcmToken();
+      //
+      // // ✅ Store astrologerId and fcmToken in SharedPreferences
+      // final prefs = await SharedPreferences.getInstance();
+      // if (userId != null) {
+      //   await prefs.setString('astro_id', userId.toString());
+      // }
+      // if (fcmToken != null) {
+      //   await prefs.setString('fcm_token', fcmToken);
+      // }
+      //
+      // // ✅ Register FCM token (no parameters now)
+      // try {
+      //   final registerResponse = await FastApiServices.registerFcmToken();
+      //   log("✅ FCM Token Registered Successfully: $registerResponse");
+      // } catch (e) {
+      //   log("❌ FCM Token Registration Failed: $e");
+      // }
+
+      // ✅ Navigate to Home Screen
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (context) => HomeScreen()),
       );
@@ -119,6 +138,7 @@ class _LoginOtpScreenState extends State<LoginOtpScreen> {
       setState(() => isLoading = false);
     }
   }
+
 
   @override
   Widget build(BuildContext context) {
