@@ -1,14 +1,13 @@
 {
   "project_info": {
-    "project_number": "44565728556",
-    "firebase_url": "https://jyotishiastro-fbd16-default-rtdb.firebaseio.com",
-    "project_id": "jyotishiastro-fbd16",
-    "storage_bucket": "jyotishiastro-fbd16.firebasestorage.app"
+    "project_number": "946296603847",
+    "project_id": "jyotishi-ef7e6",
+    "storage_bucket": "jyotishi-ef7e6.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:44565728556:android:88e82ec3ba5eff54cd7089",
+        "mobilesdk_app_id": "1:946296603847:android:a428a78352a74a99b06ae2",
         "android_client_info": {
           "package_name": "com.jyotishi.astro"
         }
@@ -16,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyD65BBoYaEou8rLMWyF2dYQQ88_ioZa3VY"
+          "current_key": "AIzaSyCXbdAXDCEn1GdDkWHfO6FInEbwv29zZVE"
         }
       ],
       "services": {

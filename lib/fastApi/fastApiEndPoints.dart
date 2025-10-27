@@ -15,6 +15,8 @@ class FastApiEndpoints {
   static const String updateAstrologer = "$fastApiBaseUrl/api/v1/astrologers/";
   static const String editAstrolgerProfile = "$fastApiBaseUrl/api/v1/astro/astrologers/";
   static const String amountBalanceAstrologer = "$fastApiBaseUrl/api/v1/astrowallet/";
+  static const String transactionHistory = "$fastApiBaseUrl/api/v1/wallet/transactions/astrologer/";
+
 
   // + id
   static const String deleteAstrologer = "$fastApiBaseUrl/api/v1/astrologers/"; // + id
@@ -28,4 +30,9 @@ class FastApiEndpoints {
       "$fastApiBaseUrl/api/v1/astrologer/$astrologerId"; // GET: fetch requests
   static const String updateSessionStatus =
       "$fastApiBaseUrl/api/v1/session/update"; // PUT: update request status (accept/reject)
+
+  static const String registerFcmTokenUrl =
+      "$fastApiBaseUrl/Astrologer_notification/register-token";
+
+
 }

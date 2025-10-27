@@ -2733,7 +2733,7 @@ class _SignupScreenState extends State<SignupScreen> {
       child: SizedBox(
         child: Theme(
           data: ThemeData(
-            dialogTheme: DialogTheme(
+            dialogTheme: DialogThemeData(
               contentTextStyle: const TextStyle(color: Colors.white),
               backgroundColor: Colors.grey[800],
               surfaceTintColor: Colors.grey[800],

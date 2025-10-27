@@ -49,6 +49,7 @@ import 'utils/FallbackLocalizationDelegate.dart';
 import 'package:flutter_easyloading/flutter_easyloading.dart'; // <--- ADD THIS IMPORT
 
 final localNotifications = FlutterLocalNotificationsPlugin();
+//my
 
 @pragma('vm:entry-point')
 Future<void> handleBackgroundMessage(
@@ -302,20 +303,21 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await EasyLocalization.ensureInitialized();
   await GetStorage.init();
-  Get.put(SessionController(), permanent: true);
+
+  // ✅ Initialize and load session before running the app
+  final sessionController = Get.put(SessionController(), permanent: true);
+  await sessionController.loadSession();
 
   await Firebase.initializeApp(
-      name: 'Astroway', options: DefaultFirebaseOptions.currentPlatform);
+    name: 'Astroway',
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
 
   FirebaseMessaging messaging = FirebaseMessaging.instance;
   FirebaseMessaging.onBackgroundMessage(handleBackgroundMessage);
   await messaging.requestPermission(
     alert: true,
-    announcement: false,
     badge: true,
-    carPlay: false,
-    criticalAlert: false,
-    provisional: false,
     sound: true,
   );
 
@@ -329,17 +331,21 @@ void main() async {
         Locale('gu', 'IN'),
         Locale('kn', 'IN'),
         Locale('ml', 'IN'),
-        Locale('mr', 'IN'), //marathi
+        Locale('mr', 'IN'),
         Locale('sa', 'IN'),
         Locale('ta', 'IN'),
-        Locale('te', 'IN')
+        Locale('te', 'IN'),
       ],
       path: 'assets/translations',
       fallbackLocale: const Locale('en', 'US'),
       startLocale: const Locale('en', 'US'),
-      child: MultiProvider(providers: [
-        ChangeNotifierProvider(create: (_) => AuthProvider(FastApiServices())),
-      ], child: const MyApp()),
+      child: MultiProvider(
+        providers: [
+          ChangeNotifierProvider(
+              create: (_) => AuthProvider(FastApiServices())),
+        ],
+        child: const MyApp(),
+      ),
     ),
   );
 }
@@ -562,7 +568,7 @@ class _MyAppState extends State<MyApp> {
           supportedLocales: context.supportedLocales,
           initialBinding: NetworkBinding(),
           title: global.appName,
-          initialRoute: "SplashScreen",
+
           builder: EasyLoading.init(), // <--- ADD THIS LINE
           home: SplashScreen(
             a: analytics,
