@@ -149,39 +149,48 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           appBar: AppBar(
             automaticallyImplyLeading: false,
             centerTitle: true,
-            title:  Text( profile!['name'] ?? 'No Name',), // ✅ Static Title
+            title: Text(
+              profile != null ? (profile!['name'] ?? 'No Name') : 'Loading...',
+            ),
             actions: [
-              IconButton(
-                icon: const Icon(Icons.refresh),
-                onPressed: _initializeWallet, // ✅ Safe call
-              ),
-              GestureDetector(
-                onTap: () {
-                  // Navigate to wallet screen (dummy for now)
-                  debugPrint("Wallet tapped");
-                },
-                child: Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 8),
-                  padding: const EdgeInsets.all(5),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: Colors.black),
-                  ),
-                  child: Row(
-                    children: [
-                      const Text("₹"),
-                      Text(walletAmount), // ✅ Will not break if null
-                    ],
+              if (!isLoading) ...[
+                IconButton(
+                  icon: const Icon(Icons.refresh),
+                  onPressed: _initializeWallet,
+                ),
+                GestureDetector(
+                  onTap: () {
+                    debugPrint("Wallet tapped");
+                  },
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 8),
+                    padding: const EdgeInsets.all(5),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.black),
+                    ),
+                    child: Row(
+                      children: [
+                        const Text("₹"),
+                        Text(walletAmount.isNotEmpty ? walletAmount : "--"),
+                      ],
+                    ),
                   ),
                 ),
-              ),
+              ],
             ],
           ),
-          body: Container(
+
+          body: isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : errorMessage != null
+              ? Center(child: Text("Error: $errorMessage"))
+              : Container(
             height: height,
             color: Colors.grey.shade200,
-            child: _buildSelectedTab(), // ✅ Safe rendering
+            child: _buildSelectedTab(),
           ),
+
           bottomNavigationBar: SizedBox(
             height: 7.7.h,
             child: SnakeNavigationBar.color(
