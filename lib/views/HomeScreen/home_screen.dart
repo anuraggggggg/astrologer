@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sizer/sizer.dart';
 
 import '../../fastApi/fastApiServices.dart';
+import '../chat/chat_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -154,10 +155,24 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             ),
             actions: [
               if (!isLoading) ...[
+                // IconButton(
+                //   icon: const Icon(Icons.refresh),
+                //   onPressed: _initializeWallet,
+                // ),
                 IconButton(
                   icon: const Icon(Icons.refresh),
-                  onPressed: _initializeWallet,
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => AstrologerChatPage(
+                          customerUid: 'user_779b09b9560f490e92889c35f5ff8de5',
+                        ),
+                      ),
+                    );
+                  },
                 ),
+
                 GestureDetector(
                   onTap: () {
                     debugPrint("Wallet tapped");

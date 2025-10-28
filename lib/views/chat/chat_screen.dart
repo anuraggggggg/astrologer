@@ -98,7 +98,7 @@ class _AstrologerChatPageState extends State<AstrologerChatPage> {
   WebSocketChannel? _channel;
   bool _isConnected = false;
   bool _isLoading = true;
-  String? _roomId;
+  String? _roomId= 'room_6d741b397f134892a04aab155a000d5a';
 
   @override
   void initState() {
@@ -120,8 +120,11 @@ class _AstrologerChatPageState extends State<AstrologerChatPage> {
   }
 
   void _connectWebSocket() {
+    if (_roomId == null) return;
+
+    // 👇 Must match your working HTML test client
     final uri = Uri.parse(
-        'wss://fastapi.umeed.app/api/v1/chat/ws/chat/${widget.customerUid}?token=$_mockAstrologerToken'
+      'wss://fastapi.jyotishionline.com/chat/ws/$_roomId',
     );
 
     print("🔗 Connecting to: $uri");
@@ -134,22 +137,32 @@ class _AstrologerChatPageState extends State<AstrologerChatPage> {
             (data) {
           print("📩 Received: $data");
           final json = jsonDecode(data);
-          final msg = ChatMessage.fromJson(json);
-          setState(() => _messages.insert(0, msg));
+
+          // Server sends: { "type": "message", "message": { ... } }
+          if (json['type'] == 'message' && json['message'] != null) {
+            final msg = ChatMessage.fromJson(json['message']);
+            setState(() => _messages.insert(0, msg));
+          } else if (json['type'] == 'read_update') {
+            print("📖 Read update: ${json['user_id']} marked ${json['marked']}");
+          } else {
+            print("🌀 Unknown message: $json");
+          }
         },
         onError: (e) {
           print("⚠️ WS Error: $e");
-          _isConnected = false;
+          setState(() => _isConnected = false);
         },
         onDone: () {
           print("❌ WebSocket Closed");
-          _isConnected = false;
+          setState(() => _isConnected = false);
         },
       );
     } catch (e) {
       print("❌ WebSocket connection failed: $e");
     }
   }
+
+
 
   Future<void> _loadChatHistory() async {
     final history = await _chatService.chatHistory(_roomId!, _mockAstrologerToken);
@@ -163,7 +176,14 @@ class _AstrologerChatPageState extends State<AstrologerChatPage> {
     final text = _controller.text.trim();
     if (text.isEmpty || !_isConnected) return;
 
-    _channel!.sink.add(text);
+    final payload = jsonEncode({
+      "action": "send",
+      "sender_id": _mockMyAstrologerId,
+      "receiver_id": widget.customerUid,
+      "content": text,
+    });
+
+    _channel!.sink.add(payload);
 
     final myMsg = ChatMessage(
       id: DateTime.now().millisecondsSinceEpoch,
@@ -176,6 +196,7 @@ class _AstrologerChatPageState extends State<AstrologerChatPage> {
     setState(() => _messages.insert(0, myMsg));
     _controller.clear();
   }
+
 
   @override
   void dispose() {
