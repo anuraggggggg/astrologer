@@ -41,6 +41,51 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
     }
   }
 
+  Widget _buildStatusChip(String status) {
+    Color backgroundColor;
+    Color textColor;
+    String statusText;
+
+    switch (status.toLowerCase()) {
+      case 'accepted':
+        backgroundColor = Colors.green.shade100;
+        textColor = Colors.green.shade800;
+        statusText = 'Accepted';
+        break;
+      case 'declined':
+        backgroundColor = Colors.red.shade100;
+        textColor = Colors.red.shade800;
+        statusText = 'Declined';
+        break;
+      case 'pending':
+        backgroundColor = Colors.orange.shade100;
+        textColor = Colors.orange.shade800;
+        statusText = 'Pending';
+        break;
+      default:
+        backgroundColor = Colors.grey.shade100;
+        textColor = Colors.grey.shade800;
+        statusText = status;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: textColor.withOpacity(0.3)),
+      ),
+      child: Text(
+        statusText,
+        style: TextStyle(
+          color: textColor,
+          fontWeight: FontWeight.w600,
+          fontSize: 12,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<Map<String, dynamic>>>(
@@ -51,7 +96,19 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
         } else if (snapshot.hasError) {
           return Center(child: Text("Error: ${snapshot.error}"));
         } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-          return const Center(child: Text("No video requests"));
+          return const Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.videocam_off, size: 64, color: Colors.grey),
+                SizedBox(height: 16),
+                Text(
+                  "No Video Requests",
+                  style: TextStyle(fontSize: 18, color: Colors.grey),
+                ),
+              ],
+            ),
+          );
         }
 
         // Filter requests for video_call
@@ -60,7 +117,19 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
             .toList();
 
         if (videoRequests.isEmpty) {
-          return const Center(child: Text("No video requests"));
+          return const Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.videocam_off, size: 64, color: Colors.grey),
+                SizedBox(height: 16),
+                Text(
+                  "No Video Requests",
+                  style: TextStyle(fontSize: 18, color: Colors.grey),
+                ),
+              ],
+            ),
+          );
         }
 
         return ListView.builder(
@@ -69,49 +138,139 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
           itemBuilder: (context, index) {
             final req = videoRequests[index];
             final status = req['status'] as String;
-
-            // Determine if action buttons should be shown
             final showActions = status == 'pending';
 
-            // Status color
-            Color statusColor;
-            if (status == 'accepted') {
-              statusColor = Colors.green;
-            } else if (status == 'declined') {
-              statusColor = Colors.red;
-            } else {
-              statusColor = Colors.black87;
-            }
-
             return Card(
-              margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
-              child: ListTile(
-                leading: const Icon(Icons.videocam, color: Colors.blue),
-                title: Text("User: ${req['user_id']}"),
-                subtitle: Text(
-                  "Status: $status",
-                  style: TextStyle(
-                    color: statusColor,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                trailing: showActions
-                    ? Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          TextButton(
-                            onPressed: () =>
-                                _respondToRequest(req['id'], 'accepted'),
-                            child: const Text("Accept"),
+              margin: const EdgeInsets.symmetric(vertical: 8),
+              elevation: 2,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Header row with user info and status
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.person,
+                                    size: 16,
+                                    color: Theme.of(context).primaryColor,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    "User",
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey.shade600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                req['user_name']?.toString() ?? 'Unknown User',
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
                           ),
-                          TextButton(
-                            onPressed: () =>
-                                _respondToRequest(req['id'], 'declined'),
-                            child: const Text("Reject"),
+                        ),
+                        _buildStatusChip(status),
+                      ],
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // Session type info
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.videocam,
+                          size: 16,
+                          color: Colors.purple.shade600,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          "Video Call Session",
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey.shade700,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    // Show action buttons only for pending requests
+                    if (showActions) ...[
+                      const SizedBox(height: 16),
+                      const Divider(height: 1),
+                      const SizedBox(height: 16),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () => _respondToRequest(req['id'], 'declined'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.red,
+                                side: const BorderSide(color: Colors.red),
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              ),
+                              child: const Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.close, size: 18),
+                                  SizedBox(width: 6),
+                                  Text("Reject"),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: () => _respondToRequest(req['id'], 'accepted'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.green,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              ),
+                              child: const Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.check, size: 18),
+                                  SizedBox(width: 6),
+                                  Text("Accept"),
+                                ],
+                              ),
+                            ),
                           ),
                         ],
-                      )
-                    : null,
+                      ),
+                    ] else ...[
+                      const SizedBox(height: 8),
+                    ],
+                  ],
+                ),
               ),
             );
           },

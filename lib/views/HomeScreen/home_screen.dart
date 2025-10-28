@@ -150,48 +150,90 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           appBar: AppBar(
             automaticallyImplyLeading: false,
             centerTitle: true,
-            title: Text(
-              profile != null ? (profile!['name'] ?? 'No Name') : 'Loading...',
+            title: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  "Welcome",
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey.shade600,
+                    fontWeight: FontWeight.w400,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  profile != null ? (profile!['name'] ?? 'No Name') : 'Loading...',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
             ),
             actions: [
               if (!isLoading) ...[
                 // IconButton(
                 //   icon: const Icon(Icons.refresh),
-                //   onPressed: _initializeWallet,
+                //   onPressed: () {
+                //     // Navigator.push(
+                //     //   context,
+                //     //   MaterialPageRoute(
+                //     //     builder: (context) => AstrologerChatPage(
+                //     //       customerUid: 'user_779b09b9560f490e92889c35f5ff8de5',
+                //     //     ),
+                //     //   ),
+                //     // );
+                //   },
                 // ),
-                IconButton(
-                  icon: const Icon(Icons.refresh),
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => AstrologerChatPage(
-                          customerUid: 'user_779b09b9560f490e92889c35f5ff8de5',
-                        ),
-                      ),
-                    );
-                  },
-                ),
 
                 GestureDetector(
                   onTap: () {
                     debugPrint("Wallet tapped");
                   },
                   child: Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 8),
-                    padding: const EdgeInsets.all(5),
+                    margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.black),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.black.withOpacity(0.7)),
+                      gradient: LinearGradient(
+                        colors: [
+                          Colors.amber.shade100,
+                          Colors.orange.shade100,
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.1),
+                          blurRadius: 4,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
                     ),
                     child: Row(
                       children: [
-                        const Text("₹"),
-                        Text(walletAmount.isNotEmpty ? walletAmount : "--"),
+                        const Icon(
+                          Icons.account_balance_wallet,
+                          size: 18,
+                          color: Colors.black87,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          "₹${walletAmount.isNotEmpty ? walletAmount : "--"}",
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.black87,
+                          ),
+                        ),
                       ],
                     ),
                   ),
                 ),
+                const SizedBox(width: 4),
               ],
             ],
           ),

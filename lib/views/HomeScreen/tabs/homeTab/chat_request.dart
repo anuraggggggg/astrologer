@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:astrowaypartner/fastApi/fastApiServices.dart';
-
 import '../../../chat/chat_screen.dart';
 
 class ChatRequests extends StatefulWidget {
@@ -43,6 +42,90 @@ class _ChatRequestsState extends State<ChatRequests> {
     }
   }
 
+  Future<void> _acceptAndStartChat(Map<String, dynamic> request) async {
+    // First accept the request
+    final success = await FastApiServices().respondToRequest(
+      requestId: request['id'],
+      status: 'accepted',
+    );
+
+    if (success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Request accepted successfully!")),
+      );
+
+      // Then navigate to chat screen
+      // Use actual user ID from the request data
+      final customerId = request['user_id']?.toString() ??
+          request['customer_uid']?.toString() ??
+          'user_779b09b9560f490e92889c35f5ff8de5'; // fallback
+
+      if (!mounted) return;
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => AstrologerChatPage(customerUid: customerId),
+        ),
+      ).then((_) {
+        // Refresh requests when returning from chat
+        setState(() {
+          _loadRequests();
+        });
+      });
+    } else {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Failed to accept request.")),
+      );
+    }
+  }
+
+  Widget _buildStatusChip(String status) {
+    Color backgroundColor;
+    Color textColor;
+    String statusText;
+
+    switch (status.toLowerCase()) {
+      case 'accepted':
+        backgroundColor = Colors.green.shade100;
+        textColor = Colors.green.shade800;
+        statusText = 'Accepted';
+        break;
+      case 'declined':
+        backgroundColor = Colors.red.shade100;
+        textColor = Colors.red.shade800;
+        statusText = 'Declined';
+        break;
+      case 'pending':
+        backgroundColor = Colors.orange.shade100;
+        textColor = Colors.orange.shade800;
+        statusText = 'Pending';
+        break;
+      default:
+        backgroundColor = Colors.grey.shade100;
+        textColor = Colors.grey.shade800;
+        statusText = status;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: textColor.withOpacity(0.3)),
+      ),
+      child: Text(
+        statusText,
+        style: TextStyle(
+          color: textColor,
+          fontWeight: FontWeight.w600,
+          fontSize: 12,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<Map<String, dynamic>>>(
@@ -53,7 +136,19 @@ class _ChatRequestsState extends State<ChatRequests> {
         } else if (snapshot.hasError) {
           return Center(child: Text("Error: ${snapshot.error}"));
         } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-          return const Center(child: Text("No chat requests"));
+          return const Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.chat_bubble_outline, size: 64, color: Colors.grey),
+                SizedBox(height: 16),
+                Text(
+                  "No Chat Requests",
+                  style: TextStyle(fontSize: 18, color: Colors.grey),
+                ),
+              ],
+            ),
+          );
         }
 
         // Filter requests for chat
@@ -62,7 +157,19 @@ class _ChatRequestsState extends State<ChatRequests> {
             .toList();
 
         if (chatRequests.isEmpty) {
-          return const Center(child: Text("No chat requests"));
+          return const Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.chat_bubble_outline, size: 64, color: Colors.grey),
+                SizedBox(height: 16),
+                Text(
+                  "No Chat Requests",
+                  style: TextStyle(fontSize: 18, color: Colors.grey),
+                ),
+              ],
+            ),
+          );
         }
 
         return ListView.builder(
@@ -71,60 +178,177 @@ class _ChatRequestsState extends State<ChatRequests> {
           itemBuilder: (context, index) {
             final req = chatRequests[index];
             final status = req['status'] as String;
-
-            // Determine if action buttons should be shown
             final showActions = status == 'pending';
-
-            // Status color
-            Color statusColor;
-            if (status == 'accepted') {
-              statusColor = Colors.green;
-            } else if (status == 'declined') {
-              statusColor = Colors.red;
-            } else {
-              statusColor = Colors.black87;
-            }
+            final isAccepted = status == 'accepted';
 
             return Card(
-              margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
-              child: ListTile(
-                leading: const Icon(Icons.chat, color: Colors.orange),
-                title: Text("User: ${req['user_id']}"),
-                subtitle: Text(
-                  "Status: $status",
-                  style: TextStyle(
-                    color: statusColor,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                trailing: showActions
-                    ? Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          TextButton(
-                            onPressed: () {
-                              // Example: if you have a request map like req['user_id']
-                              //final customerId = req['user_id']; // or however you get it from your request data
-
-                              // Navigate to chat screen
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                    builder: (context) => AstrologerChatPage(customerUid: 'user_779b09b9560f490e92889c35f5ff8de5'),
+              margin: const EdgeInsets.symmetric(vertical: 8),
+              elevation: 2,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Header row with user info and status
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.person,
+                                    size: 16,
+                                    color: Theme.of(context).primaryColor,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    "User",
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey.shade600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                req['user_name']?.toString() ?? 'Unknown User',
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
                                 ),
-                              );
-                            },
-                            child: const Text("Accept"),
+                              ),
+                            ],
                           ),
+                        ),
+                        _buildStatusChip(status),
+                      ],
+                    ),
 
-                          TextButton(
-                            onPressed: () =>
-                                _respondToRequest(req['id'], 'declined'),
-                            child: const Text("Reject"),
+                    const SizedBox(height: 16),
+
+                    // Session type info
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.chat,
+                          size: 16,
+                          color: Colors.orange.shade600,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          "Chat Session",
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey.shade700,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    // Show action buttons for pending requests OR chat button for accepted requests
+                    const SizedBox(height: 16),
+                    const Divider(height: 1),
+                    const SizedBox(height: 16),
+
+                    if (showActions)
+                    // Pending request - show Accept/Reject buttons
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () => _respondToRequest(req['id'], 'declined'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.red,
+                                side: const BorderSide(color: Colors.red),
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              ),
+                              child: const Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.close, size: 18),
+                                  SizedBox(width: 6),
+                                  Text("Reject"),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: () => _acceptAndStartChat(req),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.green,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              ),
+                              child: const Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.chat, size: 18),
+                                  SizedBox(width: 6),
+                                  Text("Accept & Chat"),
+                                ],
+                              ),
+                            ),
                           ),
                         ],
                       )
-                    : null,
+                    else if (isAccepted)
+                    // Accepted request - show Chat button
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: () {
+                            final customerId = req['user_id']?.toString() ??
+                                req['customer_uid']?.toString() ??
+                                'user_779b09b9560f490e92889c35f5ff8de5';
+
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => AstrologerChatPage(customerUid: customerId),
+                              ),
+                            );
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          child: const Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.chat, size: 18),
+                              SizedBox(width: 6),
+                              Text("Start Chat"),
+                            ],
+                          ),
+                        ),
+                      )
+                    else
+                    // Declined request - no actions
+                      const SizedBox(),
+                  ],
+                ),
               ),
             );
           },
@@ -133,4 +357,3 @@ class _ChatRequestsState extends State<ChatRequests> {
     );
   }
 }
- 
