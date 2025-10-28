@@ -104,13 +104,13 @@ class _ChatRequestsState extends State<ChatRequests> {
                           TextButton(
                             onPressed: () {
                               // Example: if you have a request map like req['user_id']
-                              final customerId = req['user_id']; // or however you get it from your request data
+                              //final customerId = req['user_id']; // or however you get it from your request data
 
                               // Navigate to chat screen
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                  builder: (context) => AstrologerChatPage(customerUid: customerId),
+                                    builder: (context) => AstrologerChatPage(customerUid: 'user_779b09b9560f490e92889c35f5ff8de5'),
                                 ),
                               );
                             },

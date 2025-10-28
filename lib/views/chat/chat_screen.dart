@@ -5,11 +5,14 @@ import 'package:intl/intl.dart';
 
 // =================================================================
 // 0. MOCK CONFIGS (Replace in Production)
-// =================================================================
+// =========================
+//
+//
+// ========================================
 
 const String _mockServerBaseUrl = '10.0.2.2:8000'; // FastAPI local host (Android Emulator)
-const String _mockMyAstrologerId = 'bcd335c3-dd61-4a2f-9d4d-fcdbdcb45972';
-const String _mockAstrologerToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJkMGE3YTE5ZC0wNTEyLTQ3ZTEtYWY4ZS0zOWZhYWE1NzVkZmQiLCJleHAiOjE3NjQxNjAxMTV9.Op4lEH92ZXIRfHj6d7eteiZ_9LEw_OGD2eP-aHnY-gQ';
+const String _mockMyAstrologerId = 'fea423d4-3f23-43a9-9ecb-a5cd4d0d5247';
+const String _mockAstrologerToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJqaW5jeXRAZXhhbXBsZS5jb20iLCJleHAiOjE3NjQyMjM0NDR9.DPPuDztA5DL3SGNalsG4C6EHSDAkxjcw2UBOSQd7c1k';
 const Color _primaryColor = Color(0xFF6A1B9A); // Deep Purple
 
 // Mock Message Model
@@ -117,7 +120,10 @@ class _AstrologerChatPageState extends State<AstrologerChatPage> {
   }
 
   void _connectWebSocket() {
-    final uri = Uri.parse('ws://$_mockServerBaseUrl/ws/chat/${widget.customerUid}?token=$_mockAstrologerToken');
+    final uri = Uri.parse(
+        'wss://fastapi.umeed.app/api/v1/chat/ws/chat/${widget.customerUid}?token=$_mockAstrologerToken'
+    );
+
     print("🔗 Connecting to: $uri");
 
     try {

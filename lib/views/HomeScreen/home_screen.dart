@@ -24,14 +24,75 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   int _selectedItemPosition = 0;
   int previousposition = 0;
   String walletAmount = ""; // ✅ Safe placeholder
+  Map<String, dynamic>? profile;
+
+  bool isLoading = true;
+  String? errorMessage;
+  int _retryCount = 0;
+  final int _maxRetries = 2;
 
   @override
   void initState() {
     super.initState();
+    fetchProfile();
     _initializeWallet();
     // Removed direct API calls
     // You can trigger API calls later when needed
   }
+
+  Future<void> fetchProfile({bool isRetry = false}) async {
+    if (!isRetry) {
+      setState(() {
+        isLoading = true;
+        errorMessage = null;
+      });
+    }
+
+    try {
+      final api = FastApiServices();
+      final prefs = await SharedPreferences.getInstance();
+      String? token = prefs.getString("access_token");
+
+      // If token is null or we're retrying due to auth error, get new token
+      if (token == null || isRetry) {
+        await api.loginAndGetToken();
+        token = prefs.getString("access_token");
+        _retryCount++;
+      }
+
+      if (token == null) {
+        throw Exception("Token missing even after login!");
+      }
+
+      final userId = prefs.getString("user_id");
+      if (userId == null) {
+        throw Exception("User ID missing. Cannot fetch profile.");
+      }
+
+      final fetchedProfile = await api.getAstrologerById();
+
+      // Reset retry count on successful fetch
+      _retryCount = 0;
+
+      setState(() {
+        profile = fetchedProfile;
+        isLoading = false;
+      });
+    } catch (e) {
+      // Handle unauthorized error specifically
+      if (e.toString().contains('Unauthorized') && _retryCount < _maxRetries) {
+        // Retry with new token
+        await fetchProfile(isRetry: true);
+        return;
+      }
+
+      setState(() {
+        errorMessage = e.toString();
+        isLoading = false;
+      });
+    }
+  }
+
 
   Future<void> _initializeWallet() async {
     try {
@@ -88,7 +149,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           appBar: AppBar(
             automaticallyImplyLeading: false,
             centerTitle: true,
-            title: const Text("Jyotishi Pandit"), // ✅ Static Title
+            title:  Text( profile!['name'] ?? 'No Name',), // ✅ Static Title
             actions: [
               IconButton(
                 icon: const Icon(Icons.refresh),
