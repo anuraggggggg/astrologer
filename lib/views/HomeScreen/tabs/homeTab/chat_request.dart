@@ -333,8 +333,8 @@ class _ChatRequestsState extends State<ChatRequests> {
                               MaterialPageRoute(
                                 builder: (context) => AstrologerChatPage(
                                   roomId: 'room_05cd5625d56e45719056a060499bacdf',
-                                  myUserId: '79952e41-dc8f-4366-b4d1-678b6f49d78a',   //user_id
-                                  receiverId: '6bc25288-2b38-469e-9fc2-ac30ccbc155a',  //id
+                                  myUserId: '79952e41-dc8f-4366-b4d1-678b6f49d78a',
+                                  receiverId: '6bc25288-2b38-469e-9fc2-ac30ccbc155a',
                                 ),
                               ),
                             );
