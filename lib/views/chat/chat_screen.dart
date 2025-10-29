@@ -1,246 +1,277 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:intl/intl.dart';
 
-// =================================================================
-// 0. MOCK CONFIGS (Replace in Production)
-// =========================
-//
-//
-// ========================================
-
-const String _mockServerBaseUrl = '10.0.2.2:8000'; // FastAPI local host (Android Emulator)
-const String _mockMyAstrologerId = 'fea423d4-3f23-43a9-9ecb-a5cd4d0d5247';
-const String _mockAstrologerToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJqaW5jeXRAZXhhbXBsZS5jb20iLCJleHAiOjE3NjQyMjM0NDR9.DPPuDztA5DL3SGNalsG4C6EHSDAkxjcw2UBOSQd7c1k';
-const Color _primaryColor = Color(0xFF6A1B9A); // Deep Purple
-
-// Mock Message Model
-class ChatMessage {
-  final int id;
-  final String fromId;
-  final String message;
-  final DateTime timestamp;
-  final bool isRead;
-  final bool isSender;
-
-  ChatMessage({
-    required this.id,
-    required this.fromId,
-    required this.message,
-    required this.timestamp,
-    required this.isRead,
-  }) : isSender = (fromId == _mockMyAstrologerId);
-
-  factory ChatMessage.fromJson(Map<String, dynamic> json) {
-    return ChatMessage(
-      id: json['id'] ?? 0,
-      fromId: json['from_id'].toString(),
-      message: json['message'] ?? '',
-      timestamp: DateTime.parse(json['timestamp']).toLocal(),
-      isRead: json['is_read'] ?? false,
-    );
-  }
-}
-
-// Mock Chat Service
-class MockPanditChatService {
-  Future<Map<String, dynamic>> getOrCreateRoomId(String customerId, String token) async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    final userList = [_mockMyAstrologerId, customerId]..sort();
-    return {'room_id': userList.join('_')};
-  }
-
-  Future<List<Map<String, dynamic>>> chatHistory(String roomId, String token) async {
-    await Future.delayed(const Duration(milliseconds: 400));
-    return [
-      {
-        'id': 1,
-        'from_id': 'CUSTOMER_USER_123',
-        'message': 'Hi Pandit ji!',
-        'timestamp': DateTime.now().subtract(const Duration(minutes: 4)).toIso8601String(),
-        'is_read': true
-      },
-      {
-        'id': 2,
-        'from_id': _mockMyAstrologerId,
-        'message': 'Namaste beta 🙏',
-        'timestamp': DateTime.now().subtract(const Duration(minutes: 3)).toIso8601String(),
-        'is_read': true
-      },
-    ];
-  }
-
-  Future<void> markChatAsRead(String roomId, String token) async {
-    await Future.delayed(const Duration(milliseconds: 150));
-    print("✅ MOCK: Astrologer marked $roomId as read");
-  }
-}
-
-// =================================================================
-// 1. ASTROLOGER CHAT SCREEN
-// =================================================================
-
 class AstrologerChatPage extends StatefulWidget {
-  final String customerUid;
-  const AstrologerChatPage({Key? key, required this.customerUid}) : super(key: key);
+  final String roomId;
+  final String myUserId;   // must be exact, no spaces
+  final String receiverId; // must be exact, no spaces
+  final String? authToken; // optional: if your backend needs it via query/header
+
+  const AstrologerChatPage({
+    super.key,
+    required this.roomId,
+    required this.myUserId,
+    required this.receiverId,
+    this.authToken,
+  });
 
   @override
   State<AstrologerChatPage> createState() => _AstrologerChatPageState();
 }
 
 class _AstrologerChatPageState extends State<AstrologerChatPage> {
-  final MockPanditChatService _chatService = MockPanditChatService();
-  final List<ChatMessage> _messages = [];
-  final ScrollController _scrollController = ScrollController();
   final TextEditingController _controller = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
 
   WebSocketChannel? _channel;
+  StreamSubscription? _subscription;
+
   bool _isConnected = false;
-  bool _isLoading = true;
-  String? _roomId= 'room_6d741b397f134892a04aab155a000d5a';
+  bool _isManuallyClosed = false;
+
+  final List<Map<String, dynamic>> _messages = [];
+  final List<String> _outbox = []; // queue while reconnecting
+
+  Timer? _pingTimer;
+  int _reconnectAttempt = 0;
+  static const int _maxBackoffSeconds = 30;
+
+  String get _cleanMyId => widget.myUserId.trim();
+  String get _cleanReceiverId => widget.receiverId.trim();
 
   @override
   void initState() {
     super.initState();
-    _initializeChat();
+    _connectWebSocket();
   }
-
-  Future<void> _initializeChat() async {
-    try {
-      final roomResponse = await _chatService.getOrCreateRoomId(widget.customerUid, _mockAstrologerToken);
-      _roomId = roomResponse['room_id'];
-      await _loadChatHistory();
-      _connectWebSocket();
-      await _chatService.markChatAsRead(_roomId!, _mockAstrologerToken);
-    } catch (e) {
-      print("Error: $e");
-    }
-    setState(() => _isLoading = false);
-  }
-
-  void _connectWebSocket() {
-    if (_roomId == null) return;
-
-    // 👇 Must match your working HTML test client
-    final uri = Uri.parse(
-      'wss://fastapi.jyotishionline.com/chat/ws/$_roomId',
-    );
-
-    print("🔗 Connecting to: $uri");
-
-    try {
-      _channel = WebSocketChannel.connect(uri);
-      _isConnected = true;
-
-      _channel!.stream.listen(
-            (data) {
-          print("📩 Received: $data");
-          final json = jsonDecode(data);
-
-          // Server sends: { "type": "message", "message": { ... } }
-          if (json['type'] == 'message' && json['message'] != null) {
-            final msg = ChatMessage.fromJson(json['message']);
-            setState(() => _messages.insert(0, msg));
-          } else if (json['type'] == 'read_update') {
-            print("📖 Read update: ${json['user_id']} marked ${json['marked']}");
-          } else {
-            print("🌀 Unknown message: $json");
-          }
-        },
-        onError: (e) {
-          print("⚠️ WS Error: $e");
-          setState(() => _isConnected = false);
-        },
-        onDone: () {
-          print("❌ WebSocket Closed");
-          setState(() => _isConnected = false);
-        },
-      );
-    } catch (e) {
-      print("❌ WebSocket connection failed: $e");
-    }
-  }
-
-
-
-  Future<void> _loadChatHistory() async {
-    final history = await _chatService.chatHistory(_roomId!, _mockAstrologerToken);
-    setState(() {
-      _messages.clear();
-      _messages.addAll(history.map((e) => ChatMessage.fromJson(e)).toList().reversed);
-    });
-  }
-
-  void _sendMessage() {
-    final text = _controller.text.trim();
-    if (text.isEmpty || !_isConnected) return;
-
-    final payload = jsonEncode({
-      "action": "send",
-      "sender_id": _mockMyAstrologerId,
-      "receiver_id": widget.customerUid,
-      "content": text,
-    });
-
-    _channel!.sink.add(payload);
-
-    final myMsg = ChatMessage(
-      id: DateTime.now().millisecondsSinceEpoch,
-      fromId: _mockMyAstrologerId,
-      message: text,
-      timestamp: DateTime.now(),
-      isRead: true,
-    );
-
-    setState(() => _messages.insert(0, myMsg));
-    _controller.clear();
-  }
-
 
   @override
   void dispose() {
+    _isManuallyClosed = true;
+    _cancelPing();
+    _subscription?.cancel();
     _channel?.sink.close();
     _controller.dispose();
     _scrollController.dispose();
     super.dispose();
   }
 
+  Uri _buildUri() {
+    // If your FastAPI expects token/ids in query, add here
+    final qp = <String, String>{
+      'room_id': widget.roomId,
+      // 'token': widget.authToken ?? '',
+      // 'user_id': _cleanMyId,
+    }..removeWhere((k, v) => v.isEmpty);
+
+    return Uri.parse('wss://fastapi.jyotishionline.com/chat/ws/${widget.roomId}')
+        .replace(queryParameters: qp.isEmpty ? null : qp);
+  }
+
+  void _connectWebSocket() {
+    final uri = _buildUri();
+    print("🔗 Connecting to WebSocket: $uri");
+
+    try {
+      _channel = WebSocketChannel.connect(uri);
+      print("✅ WebSocket connection object created");
+
+      _subscription = _channel!.stream.listen(
+            (event) {
+          print("📩 Received message: $event");
+          _handleIncoming(event);
+        },
+
+        onError: (error) {
+          print("⚠️ WebSocket error: $error");
+          _handleError(error);
+        },
+        cancelOnError: true,
+      );
+
+      setState(() => _isConnected = true);
+      print("✅ Connection state set to true");
+
+      _reconnectAttempt = 0;
+      _startPing();
+      print("📡 Started ping timer");
+
+      _sendRaw({
+        "action": "join",
+        "room_id": widget.roomId,
+        "sender_id": _cleanMyId,
+        "receiver_id": _cleanReceiverId,
+      });
+      print("📨 Sent join message");
+
+      _flushOutbox();
+      print("📬 Outbox flushed");
+    } catch (e, st) {
+      print("🚫 Connection failed: $e\n$st");
+      setState(() => _isConnected = false);
+      _scheduleReconnect();
+    }
+  }
+
+
+  void _handleIncoming(dynamic event) {
+    // print("📩 Received: $event");
+    Map<String, dynamic>? data;
+    try {
+      data = event is String ? jsonDecode(event) : Map<String, dynamic>.from(event);
+    } catch (_) {
+      return; // ignore non-JSON frames
+    }
+
+    if (data == null) return;
+
+    // Handle pong/ack quietly
+    if (data['type'] == 'pong' || data['action'] == 'pong') return;
+
+    // Normalize message payloads
+    final msg = data['message'] ?? data;
+
+    if ((data['type'] == 'message' || msg['content'] != null) && mounted) {
+      setState(() {
+        _messages.insert(0, {
+          "from": msg["sender_id"] ?? "",
+          "text": msg["content"] ?? "",
+          "time": (msg["created_at"] ??
+              msg["timestamp"] ??
+              DateTime.now().toIso8601String()),
+        });
+      });
+    }
+  }
+
+  void _handleDone() {
+    // print("❌ WebSocket closed");
+    setState(() => _isConnected = false);
+    _cancelPing();
+    if (!_isManuallyClosed) {
+      _scheduleReconnect();
+    }
+  }
+
+  void _handleError(Object error, [StackTrace? _]) {
+    // print("⚠️ WebSocket error: $error");
+    setState(() => _isConnected = false);
+    _cancelPing();
+    _scheduleReconnect();
+  }
+
+  void _scheduleReconnect() {
+    if (_isManuallyClosed) return;
+    _reconnectAttempt++;
+    final backoff = (_reconnectAttempt * 2).clamp(1, _maxBackoffSeconds);
+    Future.delayed(Duration(seconds: backoff), () {
+      if (!mounted || _isManuallyClosed) return;
+      _connectWebSocket();
+    });
+  }
+
+  void _startPing() {
+    _cancelPing();
+    // Send a ping every 20s; many proxies close idle sockets ~30s
+    _pingTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+      _sendRaw({"action": "ping", "ts": DateTime.now().toIso8601String()});
+    });
+  }
+
+  void _cancelPing() {
+    _pingTimer?.cancel();
+    _pingTimer = null;
+  }
+
+  void _flushOutbox() {
+    if (!_isConnected) return;
+    for (final payload in _outbox) {
+      _channel?.sink.add(payload);
+    }
+    _outbox.clear();
+  }
+
+  void _sendRaw(Map<String, dynamic> map) {
+    final payload = jsonEncode(map);
+    if (_isConnected && _channel != null) {
+      _channel!.sink.add(payload);
+    } else {
+      _outbox.add(payload);
+    }
+  }
+
+  void _sendMessage() {
+    final text = _controller.text.trim();
+    if (text.isEmpty) return;
+
+    final frame = {
+      "action": "send",
+      "sender_id": _cleanMyId,
+      "receiver_id": _cleanReceiverId,
+      "room_id": widget.roomId,
+      "content": text,
+    };
+
+    _sendRaw(frame);
+
+    setState(() {
+      _messages.insert(0, {
+        "from": _cleanMyId,
+        "text": text,
+        "time": DateTime.now().toIso8601String(),
+      });
+    });
+
+    _controller.clear();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text("Chat with ${widget.customerUid}"),
-        backgroundColor: _primaryColor,
+        title: const Text("WebSocket Chat"),
+        backgroundColor: Colors.deepPurple,
         actions: [
-          Icon(_isConnected ? Icons.circle : Icons.circle_outlined,
-              color: _isConnected ? Colors.greenAccent : Colors.white70)
+          Icon(
+            _isConnected ? Icons.circle : Icons.circle_outlined,
+            color: _isConnected ? Colors.greenAccent : Colors.redAccent,
+          ),
+          const SizedBox(width: 16),
         ],
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: _primaryColor))
-          : Column(
+      body: Column(
         children: [
           Expanded(
-            child: ListView.builder(
+            child: _messages.isEmpty
+                ? const Center(
+              child: Text(
+                "No messages yet...",
+                style: TextStyle(color: Colors.grey),
+              ),
+            )
+                : ListView.builder(
               reverse: true,
               controller: _scrollController,
               itemCount: _messages.length,
               itemBuilder: (context, index) {
-                final m = _messages[index];
-                final isMe = m.isSender;
+                final msg = _messages[index];
+                final isMe = (msg["from"] ?? "") == _cleanMyId;
+
                 return Align(
                   alignment:
                   isMe ? Alignment.centerRight : Alignment.centerLeft,
                   child: Container(
                     margin: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 5),
+                        vertical: 5, horizontal: 10),
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
                       color: isMe
-                          ? _primaryColor.withOpacity(0.9)
+                          ? Colors.deepPurple.withOpacity(0.8)
                           : Colors.grey.shade200,
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(10),
                     ),
                     child: Column(
                       crossAxisAlignment: isMe
@@ -248,20 +279,24 @@ class _AstrologerChatPageState extends State<AstrologerChatPage> {
                           : CrossAxisAlignment.start,
                       children: [
                         Text(
-                          m.message,
+                          msg["text"] ?? "",
                           style: TextStyle(
                             color:
-                            isMe ? Colors.white : Colors.black87,
+                            isMe ? Colors.white : Colors.black,
                           ),
                         ),
-                        const SizedBox(height: 3),
+                        const SizedBox(height: 4),
                         Text(
-                          DateFormat('hh:mm a').format(m.timestamp),
+                          DateFormat('hh:mm a').format(
+                            DateTime.tryParse(msg["time"] ?? "") ??
+                                DateTime.now(),
+                          ),
                           style: TextStyle(
-                              fontSize: 10,
-                              color: isMe
-                                  ? Colors.white70
-                                  : Colors.black45),
+                            fontSize: 10,
+                            color: isMe
+                                ? Colors.white70
+                                : Colors.black45,
+                          ),
                         ),
                       ],
                     ),
@@ -278,32 +313,24 @@ class _AstrologerChatPageState extends State<AstrologerChatPage> {
 
   Widget _buildInputArea() {
     return Container(
+      color: Colors.white,
       padding: const EdgeInsets.all(8),
-      decoration: const BoxDecoration(color: Colors.white),
       child: Row(
         children: [
           Expanded(
             child: TextField(
               controller: _controller,
-              decoration: InputDecoration(
+              decoration: const InputDecoration(
                 hintText: "Type a message...",
-                filled: true,
-                fillColor: Colors.grey.shade100,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(25),
-                  borderSide: BorderSide.none,
-                ),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                border: OutlineInputBorder(),
               ),
+              onSubmitted: (_) => _sendMessage(),
             ),
           ),
-          const SizedBox(width: 8),
-          CircleAvatar(
-            backgroundColor: _isConnected ? _primaryColor : Colors.grey,
-            child: IconButton(
-              icon: const Icon(Icons.send, color: Colors.white, size: 18),
-              onPressed: _isConnected ? _sendMessage : null,
-            ),
+          IconButton(
+            icon: const Icon(Icons.send),
+            color: Colors.deepPurple,
+            onPressed: _sendMessage,
           ),
         ],
       ),

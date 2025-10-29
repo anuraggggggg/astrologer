@@ -12,6 +12,11 @@ class ChatRequests extends StatefulWidget {
 class _ChatRequestsState extends State<ChatRequests> {
   late Future<List<Map<String, dynamic>>> _requestsFuture;
 
+
+// Optional token if your WS checks auth on connect via query/header
+
+
+
   @override
   void initState() {
     super.initState();
@@ -65,7 +70,11 @@ class _ChatRequestsState extends State<ChatRequests> {
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => AstrologerChatPage(customerUid: customerId),
+          builder: (context) => AstrologerChatPage(
+            roomId: 'room_05cd5625d56e45719056a060499bacdf',
+            myUserId: '79952e41-dc8f-4366-b4d1-678b6f49d78a',
+            receiverId: '6bc25288-2b38-469e-9fc2-ac30ccbc155a',
+          ),
         ),
       ).then((_) {
         // Refresh requests when returning from chat
@@ -322,7 +331,11 @@ class _ChatRequestsState extends State<ChatRequests> {
                             Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (context) => AstrologerChatPage(customerUid: customerId),
+                                builder: (context) => AstrologerChatPage(
+                                  roomId: 'room_05cd5625d56e45719056a060499bacdf',
+                                  myUserId: '79952e41-dc8f-4366-b4d1-678b6f49d78a',   //user_id
+                                  receiverId: '6bc25288-2b38-469e-9fc2-ac30ccbc155a',  //id
+                                ),
                               ),
                             );
                           },
