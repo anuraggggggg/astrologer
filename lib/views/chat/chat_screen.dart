@@ -104,7 +104,7 @@
         print("📡 Started ping timer");
 
         _sendRaw({
-          "action": "join",
+          "action": "send",
           "room_id": widget.roomId,
           "sender_id": _cleanMyId,
           "receiver_id": _cleanReceiverId,
@@ -200,10 +200,14 @@
 
     void _sendRaw(Map<String, dynamic> map) {
       final payload = jsonEncode(map);
+      print("📤 Outgoing WebSocket message: $payload");
+
       if (_isConnected && _channel != null) {
         _channel!.sink.add(payload);
+        print("✅ Message sent successfully");
       } else {
         _outbox.add(payload);
+        print("📦 Stored message in outbox (waiting to reconnect)");
       }
     }
 

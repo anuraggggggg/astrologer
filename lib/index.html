@@ -1,235 +1,101 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="utf-8" />
-    <title>WebSocket Chat — Test Client</title>
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WebSocket Chat Tester</title>
     <style>
-        body { font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; background:#0f172a; color:#e6eef8; margin:0; padding:20px; }
-        .container { max-width:900px; margin:0 auto; background:#071034; border-radius:12px; padding:18px; box-shadow: 0 10px 30px rgba(0,0,0,0.6); }
-        header { display:flex; gap:10px; align-items:center; margin-bottom:12px; }
-        header input, header select { padding:8px 10px; border-radius:8px; border:1px solid #203152; background:#081028; color:#e6eef8; }
-        #status { margin-left:auto; font-size:13px; opacity:0.9 }
-        #messages { height:450px; overflow:auto; border-radius:8px; padding:12px; background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); border:1px solid #15233b; }
-        .msg { margin-bottom:10px; padding:8px 10px; border-radius:10px; max-width:72%; }
-        .msg.me { background: linear-gradient(90deg, rgba(59,130,246,0.12), rgba(59,130,246,0.06)); margin-left:auto; text-align:right; }
-        .msg.them { background: rgba(255,255,255,0.02); text-align:left; }
-        .meta { font-size:12px; opacity:0.7; margin-top:6px; }
-        footer { display:flex; gap:8px; margin-top:12px; }
-        footer input[type="text"] { flex:1; padding:10px; border-radius:8px; border:1px solid #203152; background:#081028; color:#e6eef8; }
-        button { padding:10px 12px; border-radius:8px; border:none; background:#0ea5a4; color:#052023; cursor:pointer; font-weight:600; }
-        small.hint { display:block; margin-top:8px; opacity:0.7; font-size:12px; }
-        .badge { padding:4px 8px; border-radius:999px; background:#1e293b; font-size:12px; }
+        body { font-family: sans-serif; margin: 20px; }
+        input, textarea, button { margin: 5px; padding: 6px; }
+        #log { border: 1px solid #ccc; height: 300px; overflow-y: auto; padding: 8px; }
     </style>
 </head>
 <body>
-<div class="container">
-    <header>
-        <label>Room: <input id="room" value="room_test" /></label>
-        <label>Sender ID: <input id="sender" value="1" /></label>
-        <label>Receiver ID: <input id="receiver" value="2" /></label>
-        <label class="badge">WS URL: <input id="wsurl" value="wss://fastapi.jyotishionline.com/chat/ws/" style="width:250px" /></label>
-        <button id="connectBtn">Connect</button>
-        <div id="status">Disconnected</div>
-    </header>
+<h2>WebSocket Chat Tester</h2>
 
-    <div id="messages" aria-live="polite"></div>
+<label>Server URL:</label><br>
+<input id="serverUrl" size="50" value="wss://fastapi.jyotishionline.com/ws/room_7cbc2ffb81574c528e9d4fafd095cd2a"><br>
 
-    <footer>
-        <input id="text" type="text" placeholder="Type a message..." />
-        <input id="metadata" type="text" placeholder='Optional metadata JSON e.g. {"type":"image"}' style="width:240px"/>
-        <button id="sendBtn">Send (WS)</button>
-        <button id="restBtn">Send (REST fallback)</button>
-        <button id="readBtn">Mark read</button>
-    </footer>
+<label>Sender ID:</label><br>
+<input id="senderId" size="40" value="fea423d4-3f23-43a9-9ecb-a5cd4d0d5247"><br>
 
-    <small class="hint">
-        Tips: Use the Connect button after setting room & ids. If your FastAPI expects token auth for the WS you'll need to adapt the URL (e.g. add ?token=...) or add an Authorization header on the server side; current test client does no auth.
-    </small>
-</div>
+<label>Receiver ID:</label><br>
+<input id="receiverId" size="40" value="user_779b09b9560f490e92889c35f5ff8de5"><br>
+
+<button onclick="connect()">Connect</button>
+<button onclick="disconnect()">Disconnect</button>
+
+<hr>
+<textarea id="messageBox" rows="3" cols="50" placeholder="Type message..."></textarea><br>
+<button onclick="sendMessage()">Send Message</button>
+
+<h3>Logs</h3>
+<div id="log"></div>
 
 <script>
-    let ws = null;
-    let currentRoom = null;
+    let socket = null;
 
-    const ui = {
-      status: document.getElementById('status'),
-      messages: document.getElementById('messages'),
-      room: document.getElementById('room'),
-      sender: document.getElementById('sender'),
-      receiver: document.getElementById('receiver'),
-      wsurl: document.getElementById('wsurl'),
-      connectBtn: document.getElementById('connectBtn'),
-      text: document.getElementById('text'),
-      metadata: document.getElementById('metadata'),
-      sendBtn: document.getElementById('sendBtn'),
-      restBtn: document.getElementById('restBtn'),
-      readBtn: document.getElementById('readBtn')
-    };
-
-    function appendMessage(data, mine=false, extraHtml='') {
-      const div = document.createElement('div');
-      div.className = 'msg ' + (mine ? 'me':'them');
-      const body = document.createElement('div');
-      body.textContent = data.content || '';
-      div.appendChild(body);
-
-      const meta = document.createElement('div');
-      meta.className = 'meta';
-      const ts = data.created_at ? new Date(data.created_at).toLocaleString() : new Date().toLocaleString();
-      const who = data.sender_id ? ('sender:' + data.sender_id) : '';
-      const md = data.meta_data ? ' • meta: ' + JSON.stringify(data.meta_data) : '';
-      meta.innerHTML = `${who} • ${ts}${md}${extraHtml}`;
-      div.appendChild(meta);
-      ui.messages.appendChild(div);
-      ui.messages.scrollTop = ui.messages.scrollHeight;
+    function log(msg) {
+      const logDiv = document.getElementById('log');
+      logDiv.innerHTML += `<div>${msg}</div>`;
+      logDiv.scrollTop = logDiv.scrollHeight;
     }
 
-    function setStatus(text, color) {
-      ui.status.textContent = text;
-      ui.status.style.color = color || '#e6eef8';
+    function connect() {
+      const url = document.getElementById('serverUrl').value;
+      socket = new WebSocket(url);
+
+      socket.onopen = () => {
+        log('✅ Connected to ' + url);
+
+        const joinPayload = {
+          action: "join",
+          room_id: url.split("/").pop(),
+          sender_id: document.getElementById('senderId').value,
+          receiver_id: document.getElementById('receiverId').value
+        };
+        socket.send(JSON.stringify(joinPayload));
+        log('📡 Sent JOIN: ' + JSON.stringify(joinPayload));
+      };
+
+      socket.onmessage = (event) => {
+        log('📩 Received: ' + event.data);
+      };
+
+      socket.onclose = () => {
+        log('🔴 Disconnected');
+      };
+
+      socket.onerror = (error) => {
+        log('⚠️ Error: ' + error);
+      };
     }
 
-    ui.connectBtn.addEventListener('click', () => {
-      const room = ui.room.value.trim();
-      if (!room) return alert('Enter a room id');
-      currentRoom = room;
-      connectWebSocket();
-    });
+    function sendMessage() {
+      const msg = document.getElementById('messageBox').value;
+      const sender = document.getElementById('senderId').value;
+      const receiver = document.getElementById('receiverId').value;
 
-    function connectWebSocket() {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.close();
-      }
-      const base = ui.wsurl.value.replace(/\/$/, '');
-      // note: path expected: /ws/{room_id}
-      const url = `${base}/${encodeURIComponent(currentRoom)}`;
-      setStatus('Connecting...', '#f59e0b');
-
-      try {
-        ws = new WebSocket(url);
-      } catch (err) {
-        setStatus('Invalid WS URL', '#ef4444');
-        console.error(err);
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        log('⚠️ Socket not connected');
         return;
       }
 
-      ws.onopen = () => {
-        setStatus('Connected', '#34d399');
-        // optional: we can request history via HTTP separately if you have REST endpoint
-      };
-
-      ws.onmessage = (ev) => {
-        try {
-          const payload = JSON.parse(ev.data);
-          // server sends shape like: { type: 'message', message: { ... } } or read_update
-          if (payload.type === 'message' && payload.message) {
-            appendMessage(payload.message, String(payload.message.sender_id) === String(ui.sender.value));
-          } else if (payload.type === 'read_update') {
-            const txt = ` — read update: user ${payload.user_id} marked ${payload.marked} messages`;
-            setStatus('Read update received', '#93c5fd');
-            const notice = document.createElement('div');
-            notice.className = 'msg them';
-            notice.style.opacity = '0.9';
-            notice.innerHTML = `<div class="meta">${txt}</div>`;
-            ui.messages.appendChild(notice);
-            ui.messages.scrollTop = ui.messages.scrollHeight;
-          } else {
-            // fallback: show raw
-            appendMessage({content: JSON.stringify(payload)}, false);
-          }
-        } catch (e) {
-          appendMessage({content: ev.data}, false);
-        }
-      };
-
-      ws.onclose = () => {
-        setStatus('Disconnected', '#ef4444');
-      };
-
-      ws.onerror = (err) => {
-        console.error('WS error', err);
-        setStatus('WebSocket error (see console)', '#ef4444');
-      };
-    }
-
-    ui.sendBtn.addEventListener('click', async () => {
-      const content = ui.text.value.trim();
-      if (!content) return;
       const payload = {
         action: "send",
-        sender_id: ui.sender.value,
-        receiver_id: ui.receiver.value,
-        content,
+        sender_id: sender,
+        receiver_id: receiver,
+        content: msg
       };
-      const metaText = ui.metadata.value.trim();
-      if (metaText) {
-        try {
-          payload.metadata = JSON.parse(metaText);
-        } catch (e) {
-          return alert('Invalid metadata JSON');
-        }
-      }
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify(payload));
-        ui.text.value = '';
-      } else {
-        alert('WebSocket not connected. Use REST fallback or connect WS.');
-      }
-    });
 
-    // REST fallback — adjust endpoint path if your router is mounted with a prefix
-    ui.restBtn.addEventListener('click', async () => {
-      const content = ui.text.value.trim();
-      if (!content) return;
-      const body = {
-        room_id: currentRoom || ui.room.value,
-        sender_id: ui.sender.value,
-        receiver_id: ui.receiver.value,
-        content,
-        metadata: null
-      };
-      const metaText = ui.metadata.value.trim();
-      if (metaText) {
-        try { body.metadata = JSON.parse(metaText); } catch (e) { return alert('Invalid metadata JSON'); }
-      }
+      socket.send(JSON.stringify(payload));
+      log('🟢 Sent: ' + JSON.stringify(payload));
+    }
 
-      // Try default path /send — change if your router is mounted differently
-      const restBase = window.location.origin.replace(/^http/, 'http'); // same host as file served from
-      // change this if your API is at different host/port:
-      const apiUrl = `${restBase}/send`; // e.g. https://fastapi.jyotishionline.com//chat/send or https://fastapi.jyotishionline.com//chat/api/v1/chat/send
-      try {
-        const res = await fetch(apiUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body)
-        });
-        if (!res.ok) {
-          const text = await res.text();
-          throw new Error('REST send failed: ' + res.status + ' — ' + text);
-        }
-        const data = await res.json();
-        appendMessage(data, true);
-        ui.text.value = '';
-      } catch (err) {
-        console.error(err);
-        alert('REST send failed — check console for details. Make sure apiUrl is correct: ' + apiUrl);
-      }
-    });
-
-    // mark read via WS
-    ui.readBtn.addEventListener('click', () => {
-      if (!ws || ws.readyState !== WebSocket.OPEN) return alert('WS not connected');
-      const payload = { action: "read", user_id: ui.receiver.value };
-      ws.send(JSON.stringify(payload));
-    });
-
-    // convenience: press Enter to send
-    ui.text.addEventListener('keyup', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        ui.sendBtn.click();
-      }
-    });
+    function disconnect() {
+      if (socket) socket.close();
+      log('🔴 Manual disconnect');
+    }
 </script>
 </body>
 </html>
