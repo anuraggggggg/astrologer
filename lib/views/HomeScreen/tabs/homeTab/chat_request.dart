@@ -12,11 +12,6 @@ class ChatRequests extends StatefulWidget {
 class _ChatRequestsState extends State<ChatRequests> {
   late Future<List<Map<String, dynamic>>> _requestsFuture;
 
-
-// Optional token if your WS checks auth on connect via query/header
-
-
-
   @override
   void initState() {
     super.initState();
@@ -59,21 +54,34 @@ class _ChatRequestsState extends State<ChatRequests> {
         const SnackBar(content: Text("Request accepted successfully!")),
       );
 
-      // Then navigate to chat screen
-      // Use actual user ID from the request data
-      final customerId = request['user_id']?.toString() ??
-          request['customer_uid']?.toString() ??
-          'user_779b09b9560f490e92889c35f5ff8de5'; // fallback
+      // ✅ YAHA PE API SE DATA LE RAHE HAIN - NO HARDCODED VALUES
+      // API response se room_id, user_id, aur astrologer_id extract karo
+      final roomId = request['room_id']?.toString();
+      final userId = request['user_id']?.toString();
+      final astrologerId = request['astrologer_id']?.toString();
+
+      // Validation: Check agar sab values available hain
+      if (roomId == null || userId == null || astrologerId == null) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Missing required data. Please try again."),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
 
       if (!mounted) return;
 
+      // Navigate to chat with actual API data
       Navigator.push(
         context,
         MaterialPageRoute(
           builder: (context) => AstrologerChatPage(
-            roomId: 'room_05cd5625d56e45719056a060499bacdf',
-            myUserId: '79952e41-dc8f-4366-b4d1-678b6f49d78a',
-            receiverId: '6bc25288-2b38-469e-9fc2-ac30ccbc155a',
+            roomId: roomId,
+            myUserId: astrologerId, // Astrologer ka ID (tumhara ID)
+            receiverId: userId,      // Customer/User ka ID
           ),
         ),
       ).then((_) {
@@ -88,6 +96,40 @@ class _ChatRequestsState extends State<ChatRequests> {
         const SnackBar(content: Text("Failed to accept request.")),
       );
     }
+  }
+
+  // Helper function to open chat (reusable for both pending and accepted)
+  void _openChat(Map<String, dynamic> request) {
+    final roomId = request['room_id']?.toString();
+    final userId = request['user_id']?.toString();
+    final astrologerId = request['astrologer_id']?.toString();
+
+    // Validation
+    if (roomId == null || userId == null || astrologerId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Missing required data. Cannot open chat."),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => AstrologerChatPage(
+          roomId: roomId,
+          myUserId: astrologerId,
+          receiverId: userId,
+        ),
+      ),
+    ).then((_) {
+      // Refresh list after returning
+      setState(() {
+        _loadRequests();
+      });
+    });
   }
 
   Widget _buildStatusChip(String status) {
@@ -263,7 +305,6 @@ class _ChatRequestsState extends State<ChatRequests> {
                       ],
                     ),
 
-                    // Show action buttons for pending requests OR chat button for accepted requests
                     const SizedBox(height: 16),
                     const Divider(height: 1),
                     const SizedBox(height: 16),
@@ -323,22 +364,7 @@ class _ChatRequestsState extends State<ChatRequests> {
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton(
-                          onPressed: () {
-                            final customerId = req['user_id']?.toString() ??
-                                req['customer_uid']?.toString() ??
-                                'user_779b09b9560f490e92889c35f5ff8de5';
-
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => AstrologerChatPage(
-                                  roomId: 'room_05cd5625d56e45719056a060499bacdf',
-                                  myUserId: '79952e41-dc8f-4366-b4d1-678b6f49d78a',
-                                  receiverId: '6bc25288-2b38-469e-9fc2-ac30ccbc155a',
-                                ),
-                              ),
-                            );
-                          },
+                          onPressed: () => _openChat(req),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.blue,
                             foregroundColor: Colors.white,
