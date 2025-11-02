@@ -1,4 +1,5 @@
 import 'package:astrowaypartner/fastApi/fastApiServices.dart';
+import 'package:astrowaypartner/views/HomeScreen/tabs/homeTab/newAudioPage.dart';
 import 'package:flutter/material.dart';
 
 class AudioCallRequests extends StatefulWidget {
@@ -21,25 +22,140 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
     _requestsFuture = FastApiServices().fetchAstrologerRequests();
   }
 
-  Future<void> _respondToRequest(int requestId, String status) async {
+  // ---- Helpers ---------------------------------------------------------------
+
+  /// Prefer only ASTRO ids here. We do NOT fall back to user_id.
+  /// Checks common top-level and nested shapes.
+  String _extractAstroId(Map<String, dynamic> req) {
+    String pick(dynamic v) => (v ?? '').toString().trim();
+
+    final candidates = <String>[
+      pick(req['astrologer_id']),
+      pick(req['astro_id']),
+      pick(req['astrologerId']),
+      pick(req['other_user_id']), // sometimes backend may set this to astro
+      // nested maps
+      if (req['astrologer'] is Map) ...[
+        pick((req['astrologer'] as Map)['astro_id']),
+        pick((req['astrologer'] as Map)['id']),
+      ],
+      if (req['receiver'] is Map) ...[
+        pick((req['receiver'] as Map)['astro_id']),
+        pick((req['receiver'] as Map)['id']),
+      ],
+    ];
+
+    for (final v in candidates) {
+      if (v.isNotEmpty && v.toLowerCase() != 'null' && !v.contains('user_')) {
+        // we strongly avoid picking customer ids like user_xxx here
+        debugPrint(
+            "🧩 [AudioReq] Extracted astroId='$v' from request id=${req['id']}");
+        return v;
+      }
+    }
+
+    // As a last resort, accept an id that looks like astro even if key unknown
+    // (e.g., any non-empty non-'user_' string)
+    final allValues = req.values.toList();
+    for (final v in allValues) {
+      final s = pick(v);
+      if (s.isNotEmpty &&
+          !s.startsWith('user_') &&
+          s.length > 6 &&
+          s != 'null') {
+        // heuristic: many of your astro ids are UUID-like
+        if (_looksLikeUuidOrAstro(s)) {
+          debugPrint(
+              "🧩 [AudioReq] Heuristic astroId='$s' (request id=${req['id']})");
+          return s;
+        }
+      }
+    }
+
+    debugPrint(
+        "❌ [AudioReq] Could not find astrologer id in request id=${req['id']}. Payload: $req");
+    return '';
+  }
+
+  bool _looksLikeUuidOrAstro(String s) {
+    // accept UUID-ish or known astro id length
+    // Your astro ids look like UUIDs: 36 chars, or the sample '3260671e-...'
+    return s.length >= 12 && (s.contains('-') || s.length >= 24);
+  }
+
+  /// Try to show a user-friendly name
+  String _displayName(Map<String, dynamic> req) {
+    String pick(dynamic v) => (v ?? '').toString().trim();
+
+    final candidates = <String>[
+      pick(req['user_name']),
+      pick(req['name']),
+      if (req['user'] is Map) pick((req['user'] as Map)['name']),
+      if (req['sender'] is Map) pick((req['sender'] as Map)['name']),
+      if (req['receiver'] is Map) pick((req['receiver'] as Map)['name']),
+      if (req['astrologer'] is Map) pick((req['astrologer'] as Map)['name']),
+    ];
+
+    for (final v in candidates) {
+      if (v.isNotEmpty && v.toLowerCase() != 'null' && v != 'string') {
+        return v;
+      }
+    }
+    return 'User';
+  }
+
+  // ---- Actions ---------------------------------------------------------------
+
+  Future<void> _respondToRequest({
+    required Map<String, dynamic> req,
+    required String status,
+  }) async {
+    final requestId = (req['id'] ?? 0) as int;
+    final astroId = _extractAstroId(req);
+
     final success = await FastApiServices().respondToRequest(
       requestId: requestId,
       status: status,
     );
 
+    if (!mounted) return;
+
     if (success) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Request $status successfully!")),
       );
-      setState(() {
-        _loadRequests(); // refresh list
-      });
+
+      // If accepted & audio_call → navigate to AudioCallPage with the ASTRO id
+      final isAudio =
+          (req['session_type']?.toString() ?? '').toLowerCase() == 'audio_call';
+      if (status == 'accepted' && isAudio) {
+        if (astroId.isEmpty) {
+          debugPrint(
+              "🚫 [AudioReq] Invalid astroId='$astroId' (looks like room or empty)");
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+                content: Text("Missing astrologer ID to start call.")),
+          );
+        } else {
+          debugPrint(
+              "➡️ [AudioReq] Navigating to AudioCallPage(otherUserId=$astroId)");
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => AudioCallPage(astroId: astroId),
+            ),
+          );
+        }
+      }
+
+      setState(_loadRequests); // refresh list
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Failed to update request.")),
       );
     }
   }
+
+  // ---- UI --------------------------------------------------------------------
 
   Widget _buildStatusChip(String status) {
     Color backgroundColor;
@@ -102,18 +218,17 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
               children: [
                 Icon(Icons.phone_disabled, size: 64, color: Colors.grey),
                 SizedBox(height: 16),
-                Text(
-                  "No Audio Requests",
-                  style: TextStyle(fontSize: 18, color: Colors.grey),
-                ),
+                Text("No Audio Requests",
+                    style: TextStyle(fontSize: 18, color: Colors.grey)),
               ],
             ),
           );
         }
 
-        // Filter requests for audio_call
         final audioRequests = snapshot.data!
-            .where((req) => req['session_type'] == 'audio_call')
+            .where((req) =>
+                (req['session_type']?.toString() ?? '').toLowerCase() ==
+                'audio_call')
             .toList();
 
         if (audioRequests.isEmpty) {
@@ -123,10 +238,8 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
               children: [
                 Icon(Icons.phone_disabled, size: 64, color: Colors.grey),
                 SizedBox(height: 16),
-                Text(
-                  "No Audio Requests",
-                  style: TextStyle(fontSize: 18, color: Colors.grey),
-                ),
+                Text("No Audio Requests",
+                    style: TextStyle(fontSize: 18, color: Colors.grey)),
               ],
             ),
           );
@@ -137,8 +250,11 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
           itemCount: audioRequests.length,
           itemBuilder: (context, index) {
             final req = audioRequests[index];
-            final status = req['status'] as String;
+            final status = (req['status'] ?? '').toString();
             final showActions = status == 'pending';
+
+            final name = _displayName(req);
+            final astroId = _extractAstroId(req); // useful for the Join button
 
             return Card(
               margin: const EdgeInsets.symmetric(vertical: 8),
@@ -161,28 +277,23 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
                             children: [
                               Row(
                                 children: [
-                                  Icon(
-                                    Icons.person,
-                                    size: 16,
-                                    color: Theme.of(context).primaryColor,
-                                  ),
+                                  Icon(Icons.person,
+                                      size: 16,
+                                      color: Theme.of(context).primaryColor),
                                   const SizedBox(width: 6),
-                                  Text(
-                                    "User",
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey.shade600,
-                                    ),
-                                  ),
+                                  Text("User",
+                                      style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey.shade600)),
                                 ],
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                req['user_name']?.toString() ?? 'Unknown User',
+                                name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                ),
+                                    fontSize: 16, fontWeight: FontWeight.w600),
                               ),
                             ],
                           ),
@@ -193,27 +304,22 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
 
                     const SizedBox(height: 16),
 
-                    // Session type info
                     Row(
                       children: [
-                        Icon(
-                          Icons.phone_in_talk,
-                          size: 16,
-                          color: Colors.blue.shade600,
-                        ),
+                        Icon(Icons.phone_in_talk,
+                            size: 16, color: Colors.blue.shade600),
                         const SizedBox(width: 6),
                         Text(
                           "Audio Call Session",
                           style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey.shade700,
-                            fontWeight: FontWeight.w500,
-                          ),
+                              fontSize: 14,
+                              color: Colors.grey.shade700,
+                              fontWeight: FontWeight.w500),
                         ),
                       ],
                     ),
 
-                    // Show action buttons only for pending requests
+                    // Actions
                     if (showActions) ...[
                       const SizedBox(height: 16),
                       const Divider(height: 1),
@@ -223,14 +329,15 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
                         children: [
                           Expanded(
                             child: OutlinedButton(
-                              onPressed: () => _respondToRequest(req['id'], 'declined'),
+                              onPressed: () => _respondToRequest(
+                                  req: req, status: 'declined'),
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: Colors.red,
                                 side: const BorderSide(color: Colors.red),
-                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 12),
                                 shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
+                                    borderRadius: BorderRadius.circular(8)),
                               ),
                               child: const Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
@@ -245,14 +352,15 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
                           const SizedBox(width: 12),
                           Expanded(
                             child: ElevatedButton(
-                              onPressed: () => _respondToRequest(req['id'], 'accepted'),
+                              onPressed: () => _respondToRequest(
+                                  req: req, status: 'accepted'),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.green,
                                 foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 12),
                                 shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
+                                    borderRadius: BorderRadius.circular(8)),
                               ),
                               child: const Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
@@ -267,7 +375,34 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
                         ],
                       ),
                     ] else ...[
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 16),
+                      if (status == 'accepted')
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            icon: const Icon(Icons.call),
+                            label: const Text('Join Call'),
+                            onPressed: () {
+                              if (astroId.isEmpty) {
+                                debugPrint(
+                                    "🚫 [AudioReq] Join pressed but astroId missing. req=$req");
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                      content: Text(
+                                          "Missing astrologer ID to start call.")),
+                                );
+                                return;
+                              }
+                              debugPrint(
+                                  "➡️ [AudioReq] Join -> AudioCallPage(otherUserId=$astroId)");
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                    builder: (_) =>
+                                        AudioCallPage(astroId: astroId)),
+                              );
+                            },
+                          ),
+                        ),
                     ],
                   ],
                 ),

@@ -77,15 +77,15 @@ class _VideoCallPageState extends State<VideoCallPage> {
       _appId = auth.appId;
       _channel = auth.channelName;
 
-      if (widget.isAstrologer) {
-        _token = auth.astroToken;
-        _account =
-            auth.astroId; // MUST equal the account used when token was minted
-      } else {
-        _token = auth.currentUserToken;
-        _account = auth
-            .currentUserId; // MUST equal the account used when token was minted
-      }
+      // if (widget.isAstrologer) {
+      //   _token = auth.astroToken;
+      //   _account =
+      //       auth.astroId; // MUST equal the account used when token was minted
+      // } else {
+      //   _token = auth.currentUserToken;
+      //   _account = auth
+      //       .currentUserId; // MUST equal the account used when token was minted
+      // }
 
       final tokPreview = _token.length > 12
           ? '${_token.substring(0, 6)}…${_token.substring(_token.length - 6)}'
