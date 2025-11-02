@@ -1,5 +1,7 @@
 import 'package:astrowaypartner/fastApi/fastApiServices.dart';
+import 'package:astrowaypartner/views/HomeScreen/tabs/homeTab/videoCallPage.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class VideoCallRequests extends StatefulWidget {
   const VideoCallRequests({super.key});
@@ -10,6 +12,7 @@ class VideoCallRequests extends StatefulWidget {
 
 class _VideoCallRequestsState extends State<VideoCallRequests> {
   late Future<List<Map<String, dynamic>>> _requestsFuture;
+  bool _actBusy = false; // lock UI while accepting/declining
 
   @override
   void initState() {
@@ -21,23 +24,66 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
     _requestsFuture = FastApiServices().fetchAstrologerRequests();
   }
 
-  Future<void> _respondToRequest(int requestId, String status) async {
-    final success = await FastApiServices().respondToRequest(
-      requestId: requestId,
-      status: status,
+  Future<void> _goToCall(Map<String, dynamic> req) async {
+    final prefs = await SharedPreferences.getInstance();
+    final astroId = prefs.getString('astro_id') ?? '';
+
+    if (astroId.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('Astrologer ID missing – please login again.')),
+        );
+      }
+      return;
+    }
+
+    if (!mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => VideoCallPage(
+          astroId: astroId,
+          isAstrologer: true, // ⭐ astrologer app uses astro token
+        ),
+      ),
     );
 
-    if (success) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Request $status successfully!")),
+    // After call ends, refresh list
+    if (mounted) setState(_loadRequests);
+  }
+
+  Future<void> _respondToRequest(
+      int requestId, String status, Map<String, dynamic> req) async {
+    if (_actBusy) return;
+    setState(() => _actBusy = true);
+
+    try {
+      final success = await FastApiServices().respondToRequest(
+        requestId: requestId,
+        status: status, // "accepted" | "declined" | "pending"
       );
-      setState(() {
-        _loadRequests(); // refresh list
-      });
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Failed to update request.")),
-      );
+
+      if (!mounted) return;
+
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Request $status successfully!")),
+        );
+
+        // If accepted, jump straight into the call
+        if (status.toLowerCase() == 'accepted') {
+          await _goToCall(req);
+        } else {
+          setState(_loadRequests); // just refresh the list
+        }
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Failed to update request.")),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _actBusy = false);
     }
   }
 
@@ -96,40 +142,18 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
         } else if (snapshot.hasError) {
           return Center(child: Text("Error: ${snapshot.error}"));
         } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-          return const Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.videocam_off, size: 64, color: Colors.grey),
-                SizedBox(height: 16),
-                Text(
-                  "No Video Requests",
-                  style: TextStyle(fontSize: 18, color: Colors.grey),
-                ),
-              ],
-            ),
-          );
+          return const _EmptyState();
         }
 
-        // Filter requests for video_call
+        // Only video calls
         final videoRequests = snapshot.data!
-            .where((req) => req['session_type'] == 'video_call')
+            .where((req) =>
+                (req['session_type']?.toString() ?? '').toLowerCase() ==
+                'video_call')
             .toList();
 
         if (videoRequests.isEmpty) {
-          return const Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.videocam_off, size: 64, color: Colors.grey),
-                SizedBox(height: 16),
-                Text(
-                  "No Video Requests",
-                  style: TextStyle(fontSize: 18, color: Colors.grey),
-                ),
-              ],
-            ),
-          );
+          return const _EmptyState();
         }
 
         return ListView.builder(
@@ -137,8 +161,10 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
           itemCount: videoRequests.length,
           itemBuilder: (context, index) {
             final req = videoRequests[index];
-            final status = req['status'] as String;
-            final showActions = status == 'pending';
+            final status = (req['status'] ?? '').toString().toLowerCase();
+            final userName = req['user'] is Map
+                ? (req['user']['name']?.toString() ?? 'Unknown User')
+                : (req['user_name']?.toString() ?? 'Unknown User');
 
             return Card(
               margin: const EdgeInsets.symmetric(vertical: 8),
@@ -161,28 +187,21 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
                             children: [
                               Row(
                                 children: [
-                                  Icon(
-                                    Icons.person,
-                                    size: 16,
-                                    color: Theme.of(context).primaryColor,
-                                  ),
+                                  Icon(Icons.person,
+                                      size: 16,
+                                      color: Theme.of(context).primaryColor),
                                   const SizedBox(width: 6),
-                                  Text(
-                                    "User",
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey.shade600,
-                                    ),
-                                  ),
+                                  Text("User",
+                                      style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey.shade600)),
                                 ],
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                req['user_name']?.toString() ?? 'Unknown User',
+                                userName,
                                 style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                ),
+                                    fontSize: 16, fontWeight: FontWeight.w600),
                               ),
                             ],
                           ),
@@ -193,14 +212,11 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
 
                     const SizedBox(height: 16),
 
-                    // Session type info
+                    // Session details
                     Row(
                       children: [
-                        Icon(
-                          Icons.videocam,
-                          size: 16,
-                          color: Colors.purple.shade600,
-                        ),
+                        Icon(Icons.videocam,
+                            size: 16, color: Colors.purple.shade600),
                         const SizedBox(width: 6),
                         Text(
                           "Video Call Session",
@@ -213,31 +229,32 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
                       ],
                     ),
 
-                    // Show action buttons only for pending requests
-                    if (showActions) ...[
-                      const SizedBox(height: 16),
-                      const Divider(height: 1),
-                      const SizedBox(height: 16),
+                    const SizedBox(height: 12),
+
+                    // Buttons
+                    if (status == 'pending') ...[
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
                           Expanded(
                             child: OutlinedButton(
-                              onPressed: () => _respondToRequest(req['id'], 'declined'),
+                              onPressed: _actBusy
+                                  ? null
+                                  : () => _respondToRequest(
+                                      req['id'], 'declined', req),
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: Colors.red,
                                 side: const BorderSide(color: Colors.red),
-                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 12),
                                 shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
+                                    borderRadius: BorderRadius.circular(8)),
                               ),
-                              child: const Row(
+                              child: Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  Icon(Icons.close, size: 18),
-                                  SizedBox(width: 6),
-                                  Text("Reject"),
+                                  const Icon(Icons.close, size: 18),
+                                  const SizedBox(width: 6),
+                                  Text(_actBusy ? "Please wait…" : "Reject"),
                                 ],
                               ),
                             ),
@@ -245,29 +262,52 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
                           const SizedBox(width: 12),
                           Expanded(
                             child: ElevatedButton(
-                              onPressed: () => _respondToRequest(req['id'], 'accepted'),
+                              onPressed: _actBusy
+                                  ? null
+                                  : () => _respondToRequest(
+                                      req['id'], 'accepted', req),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.green,
                                 foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 12),
                                 shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
+                                    borderRadius: BorderRadius.circular(8)),
                               ),
-                              child: const Row(
+                              child: Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  Icon(Icons.check, size: 18),
-                                  SizedBox(width: 6),
-                                  Text("Accept"),
+                                  const Icon(Icons.check, size: 18),
+                                  const SizedBox(width: 6),
+                                  Text(_actBusy
+                                      ? "Accepting…"
+                                      : "Accept & Join"),
                                 ],
                               ),
                             ),
                           ),
                         ],
                       ),
+                    ] else if (status == 'accepted') ...[
+                      ElevatedButton.icon(
+                        onPressed: _actBusy ? null : () => _goToCall(req),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.deepPurple,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8)),
+                        ),
+                        icon: const Icon(Icons.videocam),
+                        label: Text(_actBusy ? "Opening…" : "Join Call"),
+                      ),
                     ] else ...[
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 4),
+                      Text(
+                        "This request is $status.",
+                        style: TextStyle(
+                            color: Colors.grey.shade600, fontSize: 12),
+                      ),
                     ],
                   ],
                 ),
@@ -276,6 +316,27 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
           },
         );
       },
+    );
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  const _EmptyState();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.videocam_off, size: 64, color: Colors.grey),
+          SizedBox(height: 16),
+          Text(
+            "No Video Requests",
+            style: TextStyle(fontSize: 18, color: Colors.grey),
+          ),
+        ],
+      ),
     );
   }
 }

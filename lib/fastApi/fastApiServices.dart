@@ -213,7 +213,7 @@ class FastApiServices {
 
     // ✅ Remove '+' sign if present
     final formattedCountryCode =
-    countryCode.startsWith('+') ? countryCode.substring(1) : countryCode;
+        countryCode.startsWith('+') ? countryCode.substring(1) : countryCode;
 
     final sendWhatsapp = true;
     final sendSms = true;
@@ -253,39 +253,119 @@ class FastApiServices {
 
   Future<bool> respondToRequest({
     required int requestId,
-    required String status, // "accepted" or "declined"
+    required String status, // "accepted" | "declined" | "pending"
   }) async {
-    if (status != "accepted" && status != "declined") {
-      throw Exception("Status must be either 'accepted' or 'declined'");
+    // API allows "pending" too per docs; keep a guard to avoid typos
+    const allowed = {'accepted', 'declined', 'pending'};
+    if (!allowed.contains(status)) {
+      throw Exception("Status must be one of: ${allowed.join(', ')}");
     }
 
+    // Load token (your API likely requires it for astrologer routes)
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString("access_token");
 
-    if (token == null) {
-      throw Exception("No access token found. Please login again.");
-    }
-
+    // Build URL exactly like the docs: https://fastapi.jyotishionline.com/api/v1/{id}
+    final String baseUrl = "https://fastapi.jyotishionline.com/api/v1";
     final url = Uri.parse("$baseUrl/$requestId");
 
-    final response = await http.patch(
-      url,
-      headers: {
-        "Content-Type": "application/json",
-        "accept": "application/json",
-        "Authorization": "Bearer $token",
-      },
-      body: jsonEncode({"status": status}),
-    );
+    final headers = <String, String>{
+      "accept": "application/json",
+      "Content-Type": "application/json",
+      if (token != null && token.isNotEmpty) "Authorization": "Bearer $token",
+    };
+    final body = jsonEncode({"status": status});
 
-    if (response.statusCode == 200) {
-      print("✅ Request $requestId $status successfully.");
-      return true;
-    } else {
-      print("❌ Failed to respond: ${response.body}");
+    debugPrint("📤 [PATCH] $url");
+    debugPrint("🧾 Headers: $headers");
+    debugPrint("📦 Body: $body");
+
+    try {
+      final res = await http.patch(url, headers: headers, body: body);
+      debugPrint("⬅️ Status: ${res.statusCode}");
+      debugPrint("⬅️ Body: ${res.body}");
+
+      if (res.statusCode == 200) {
+        debugPrint("✅ Request $requestId updated to '$status'");
+        return true;
+      }
+
+      // Helpful diagnostics for 404s/401s
+      if (res.statusCode == 404) {
+        debugPrint(
+            "❌ 404 Not Found — check requestId ($requestId) exists, and URL is exactly /api/v1/{id}");
+      } else if (res.statusCode == 401) {
+        debugPrint("❌ 401 Unauthorized — missing/invalid token?");
+      }
+      return false;
+    } catch (e) {
+      debugPrint("🔥 respondToRequest exception: $e");
       return false;
     }
   }
+
+
+// In FastApiServices
+
+Future<Map<String, dynamic>> getChatHistoryForAstrologerSelf({
+  required String otherUserId, // currently you pass astrologer id (self) due to backend quirk
+  int page = 1,
+  int size = 20,
+}) async {
+  final prefs = await SharedPreferences.getInstance();
+  final token = prefs.getString("access_token");
+
+  // Build URL using your Endpoints util or inline:
+  final Uri url = Uri.parse(
+    FastApiEndpoints.chatHistoryOther(otherUserId, page: page, size: size),
+    // If you don't have FastApiEndpoints.chatHistoryOther:
+    // Uri.parse("https://fastapi.jyotishionline.com/chat/history/$otherUserId?page=$page&size=$size"),
+  );
+
+  // DEBUG: Log everything we’re about to send
+  debugPrint("🛰️ [CHAT_HISTORY_REQ]");
+  debugPrint("   • otherUserId: $otherUserId  (NOTE: passing astrologer/self id due to backend quirk)");
+  debugPrint("   • page: $page, size: $size");
+  debugPrint("   • URL: $url");
+  debugPrint("   • Token present: ${token != null && token.isNotEmpty}");
+  if (token != null && token.isNotEmpty) {
+    final tail = token.length > 12 ? token.substring(token.length - 12) : token;
+    debugPrint("   • Token tail: ...$tail");
+  }
+
+  final headers = <String, String>{
+    "accept": "application/json",
+    if (token != null && token.isNotEmpty) "Authorization": "Bearer $token",
+  };
+  debugPrint("   • Headers: $headers");
+
+  try {
+    final resp = await http.get(url, headers: headers);
+    debugPrint("⬅️ [CHAT_HISTORY_RES] status=${resp.statusCode}");
+    debugPrint("⬅️ Body: ${resp.body}");
+
+    if (resp.statusCode == 200) {
+      final decoded = jsonDecode(resp.body) as Map<String, dynamic>;
+      // quick sanity counters
+      final msgs = (decoded['messages'] as List?)?.length ?? 0;
+      debugPrint("✅ Parsed OK. messages=$msgs page=${decoded['page']} size=${decoded['size']} total=${decoded['total']}");
+      return decoded;
+    } else {
+      throw Exception("History failed ${resp.statusCode}: ${resp.body}");
+    }
+  } catch (e, st) {
+    debugPrint("🔥 [CHAT_HISTORY_ERR] $e");
+    debugPrint("$st");
+    rethrow;
+  }
+}
+
+
+
+
+  
+
+  
 
   // ---------------- VERIFY OTP & SAVE USER ----------------
   static Future<Map<String, dynamic>> verifyOtp({
@@ -494,8 +574,7 @@ class FastApiServices {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         print(
-            'Full Response:\n${const JsonEncoder.withIndent('  ').convert(
-                data)}');
+            'Full Response:\n${const JsonEncoder.withIndent('  ').convert(data)}');
         return data; // ✅ Return full JSON
       } else {
         print('Failed to load data. Status code: ${response.statusCode}');
@@ -508,7 +587,6 @@ class FastApiServices {
     }
   }
 
-
   static Future<List<TransactionModel>> transactionHistory() async {
     final prefs = await SharedPreferences.getInstance();
     final astrologerId = prefs.getString('astro_id');
@@ -517,11 +595,11 @@ class FastApiServices {
       throw Exception('Astrologer ID not found in SharedPreferences');
     }
 
-    final url = Uri.parse(
-        '${FastApiEndpoints.transactionHistory}$astrologerId');
+    final url =
+        Uri.parse('${FastApiEndpoints.transactionHistory}$astrologerId');
 
-    final response = await http.get(
-        url, headers: {'accept': 'application/json'});
+    final response =
+        await http.get(url, headers: {'accept': 'application/json'});
 
     if (response.statusCode == 200) {
       final List<dynamic> jsonList = jsonDecode(response.body);
@@ -571,9 +649,4 @@ class FastApiServices {
       throw Exception("Failed to register FCM token: ${response.body}");
     }
   }
-
-
-
-
-
 }
