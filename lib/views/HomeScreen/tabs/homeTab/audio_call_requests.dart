@@ -12,106 +12,132 @@ class AudioCallRequests extends StatefulWidget {
 class _AudioCallRequestsState extends State<AudioCallRequests> {
   late Future<List<Map<String, dynamic>>> _requestsFuture;
 
+  /// Saved/self astrologer id from SharedPreferences (fallback when list items don’t include it)
+  String _selfAstroId = '';
+
   @override
   void initState() {
     super.initState();
+    _bootstrap();
+  }
+
+  Future<void> _bootstrap() async {
+    // Load self astro id first (for reliable fallback)
+    final saved = await FastApiServices.getAstroId();
+    _selfAstroId = (saved ?? '').trim();
+    if (_selfAstroId.isEmpty) {
+      debugPrint(
+          "⚠️ [AudioReq] No astro_id in SharedPreferences. Login required.");
+    } else {
+      debugPrint("🔐 [AudioReq] Using self astro_id fallback: $_selfAstroId");
+    }
     _loadRequests();
+    setState(() {}); // trigger rebuild if needed
   }
 
   void _loadRequests() {
     _requestsFuture = FastApiServices().fetchAstrologerRequests();
   }
 
-  // ---- Helpers ---------------------------------------------------------------
+  // ────────────────────────────────────────────────────────────────────────────
+  // Helpers
+  // ────────────────────────────────────────────────────────────────────────────
 
-  /// Prefer only ASTRO ids here. We do NOT fall back to user_id.
-  /// Checks common top-level and nested shapes.
-  String _extractAstroId(Map<String, dynamic> req) {
-    String pick(dynamic v) => (v ?? '').toString().trim();
+  String _pick(dynamic v) => (v ?? '').toString().trim();
 
-    final candidates = <String>[
-      pick(req['astrologer_id']),
-      pick(req['astro_id']),
-      pick(req['astrologerId']),
-      pick(req['other_user_id']), // sometimes backend may set this to astro
-      // nested maps
-      if (req['astrologer'] is Map) ...[
-        pick((req['astrologer'] as Map)['astro_id']),
-        pick((req['astrologer'] as Map)['id']),
-      ],
-      if (req['receiver'] is Map) ...[
-        pick((req['receiver'] as Map)['astro_id']),
-        pick((req['receiver'] as Map)['id']),
-      ],
-    ];
-
-    for (final v in candidates) {
-      if (v.isNotEmpty && v.toLowerCase() != 'null' && !v.contains('user_')) {
-        // we strongly avoid picking customer ids like user_xxx here
-        debugPrint(
-            "🧩 [AudioReq] Extracted astroId='$v' from request id=${req['id']}");
-        return v;
-      }
-    }
-
-    // As a last resort, accept an id that looks like astro even if key unknown
-    // (e.g., any non-empty non-'user_' string)
-    final allValues = req.values.toList();
-    for (final v in allValues) {
-      final s = pick(v);
-      if (s.isNotEmpty &&
-          !s.startsWith('user_') &&
-          s.length > 6 &&
-          s != 'null') {
-        // heuristic: many of your astro ids are UUID-like
-        if (_looksLikeUuidOrAstro(s)) {
-          debugPrint(
-              "🧩 [AudioReq] Heuristic astroId='$s' (request id=${req['id']})");
-          return s;
-        }
-      }
-    }
-
-    debugPrint(
-        "❌ [AudioReq] Could not find astrologer id in request id=${req['id']}. Payload: $req");
-    return '';
-  }
-
-  bool _looksLikeUuidOrAstro(String s) {
-    // accept UUID-ish or known astro id length
-    // Your astro ids look like UUIDs: 36 chars, or the sample '3260671e-...'
-    return s.length >= 12 && (s.contains('-') || s.length >= 24);
-  }
-
-  /// Try to show a user-friendly name
+  /// Extract a friendly display name. Avoids 'string'/'null'.
   String _displayName(Map<String, dynamic> req) {
-    String pick(dynamic v) => (v ?? '').toString().trim();
-
     final candidates = <String>[
-      pick(req['user_name']),
-      pick(req['name']),
-      if (req['user'] is Map) pick((req['user'] as Map)['name']),
-      if (req['sender'] is Map) pick((req['sender'] as Map)['name']),
-      if (req['receiver'] is Map) pick((req['receiver'] as Map)['name']),
-      if (req['astrologer'] is Map) pick((req['astrologer'] as Map)['name']),
+      _pick(req['user_name']),
+      _pick(req['name']),
+      if (req['user'] is Map) _pick((req['user'] as Map)['name']),
+      if (req['sender'] is Map) _pick((req['sender'] as Map)['name']),
+      if (req['receiver'] is Map) _pick((req['receiver'] as Map)['name']),
+      if (req['astrologer'] is Map) _pick((req['astrologer'] as Map)['name']),
     ];
 
     for (final v in candidates) {
-      if (v.isNotEmpty && v.toLowerCase() != 'null' && v != 'string') {
-        return v;
-      }
+      final s = v.toLowerCase();
+      if (v.isNotEmpty && s != 'null' && v != 'string') return v;
     }
     return 'User';
   }
 
-  // ---- Actions ---------------------------------------------------------------
+  /// Extract strictly an ASTROLOGER ID (UUID-like). Never returns room_id or user_*
+  String _extractAstroId(Map<String, dynamic> req) {
+    bool looksLikeAstroId(String s) {
+      if (s.isEmpty) return false;
+      final lower = s.toLowerCase();
+      if (lower.startsWith('room_')) return false; // reject room ids
+      if (lower.startsWith('user_')) return false; // reject customer ids
+      // UUID-ish: dashes OR long enough random-ish id (>= 24)
+      return s.contains('-') || s.length >= 24;
+    }
+
+    String clean(String v) => v.trim();
+
+    // Preferred top-level keys
+    final candidates = <String>[
+      clean(_pick(req['astrologer_id'])),
+      clean(_pick(req['astro_id'])),
+      clean(_pick(req['astrologerId'])),
+      clean(_pick(req['other_user_id'])), // backend might put astro id here
+    ]..removeWhere((e) => e.isEmpty);
+
+    // Nested possibilities
+    if (req['astrologer'] is Map) {
+      final m = (req['astrologer'] as Map);
+      candidates.addAll([
+        clean(_pick(m['astro_id'])),
+        clean(_pick(m['id'])),
+      ]);
+    }
+    if (req['receiver'] is Map) {
+      final m = (req['receiver'] as Map);
+      candidates.addAll([
+        clean(_pick(m['astro_id'])),
+        clean(_pick(m['id'])),
+      ]);
+    }
+
+    // Validate
+    for (final v in candidates) {
+      if (looksLikeAstroId(v)) {
+        debugPrint(
+            "🧩 [AudioReq] Extracted astroId='$v' (req id=${req['id']})");
+        return v;
+      }
+    }
+
+    // Fallback to our own saved astro id (reliable)
+    if (_selfAstroId.isNotEmpty) {
+      debugPrint(
+          "🧷 [AudioReq] Falling back to self astro_id='$_selfAstroId' (req id=${req['id']})");
+      return _selfAstroId;
+    }
+
+    debugPrint(
+        "❌ [AudioReq] No valid astroId for req id=${req['id']}. Payload: $req");
+    return '';
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // Actions
+  // ────────────────────────────────────────────────────────────────────────────
 
   Future<void> _respondToRequest({
     required Map<String, dynamic> req,
     required String status,
   }) async {
-    final requestId = (req['id'] ?? 0) as int;
+    final requestIdDynamic = req['id'];
+    final int requestId = (requestIdDynamic is int)
+        ? requestIdDynamic
+        : int.tryParse(_pick(requestIdDynamic)) ?? 0;
+
     final astroId = _extractAstroId(req);
+
+    debugPrint(
+        "📨 [AudioReq] respondToRequest(id=$requestId, status=$status, astroId='$astroId')");
 
     final success = await FastApiServices().respondToRequest(
       requestId: requestId,
@@ -125,37 +151,43 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
         SnackBar(content: Text("Request $status successfully!")),
       );
 
-      // If accepted & audio_call → navigate to AudioCallPage with the ASTRO id
-      final isAudio =
-          (req['session_type']?.toString() ?? '').toLowerCase() == 'audio_call';
+      final isAudio = _pick(req['session_type']).toLowerCase() == 'audio_call';
       if (status == 'accepted' && isAudio) {
         if (astroId.isEmpty) {
           debugPrint(
-              "🚫 [AudioReq] Invalid astroId='$astroId' (looks like room or empty)");
+              "🚫 [AudioReq] Accepted but astroId missing (cannot navigate).");
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
                 content: Text("Missing astrologer ID to start call.")),
           );
         } else {
           debugPrint(
-              "➡️ [AudioReq] Navigating to AudioCallPage(otherUserId=$astroId)");
+              "➡️ [AudioReq] Navigating -> AudioCallPage(otherUserId=$astroId)");
           Navigator.of(context).push(
             MaterialPageRoute(
-              builder: (_) => AudioCallPage(astroId: astroId),
+              builder: (_) => AudioCallPage(
+                otherUserId: astroId,
+                astroId: astroId,
+              ),
             ),
           );
         }
       }
 
-      setState(_loadRequests); // refresh list
+      // ✅ Avoid “use_of_void_result”: wrap the call in a closure
+      setState(() => _loadRequests());
     } else {
+      debugPrint(
+          "💥 [AudioReq] respondToRequest failed for id=$requestId, status=$status");
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Failed to update request.")),
       );
     }
   }
 
-  // ---- UI --------------------------------------------------------------------
+  // ────────────────────────────────────────────────────────────────────────────
+  // UI
+  // ────────────────────────────────────────────────────────────────────────────
 
   Widget _buildStatusChip(String status) {
     Color backgroundColor;
@@ -227,8 +259,7 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
 
         final audioRequests = snapshot.data!
             .where((req) =>
-                (req['session_type']?.toString() ?? '').toLowerCase() ==
-                'audio_call')
+                _pick(req['session_type']).toLowerCase() == 'audio_call')
             .toList();
 
         if (audioRequests.isEmpty) {
@@ -250,18 +281,17 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
           itemCount: audioRequests.length,
           itemBuilder: (context, index) {
             final req = audioRequests[index];
-            final status = (req['status'] ?? '').toString();
+            final status = _pick(req['status']);
             final showActions = status == 'pending';
 
             final name = _displayName(req);
-            final astroId = _extractAstroId(req); // useful for the Join button
+            final astroId = _extractAstroId(req); // for the Join button
 
             return Card(
               margin: const EdgeInsets.symmetric(vertical: 8),
               elevation: 2,
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
+                  borderRadius: BorderRadius.circular(12)),
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Column(
@@ -309,12 +339,10 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
                         Icon(Icons.phone_in_talk,
                             size: 16, color: Colors.blue.shade600),
                         const SizedBox(width: 6),
-                        Text(
+                        const Text(
                           "Audio Call Session",
                           style: TextStyle(
-                              fontSize: 14,
-                              color: Colors.grey.shade700,
-                              fontWeight: FontWeight.w500),
+                              fontSize: 14, fontWeight: FontWeight.w500),
                         ),
                       ],
                     ),
@@ -397,8 +425,11 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
                                   "➡️ [AudioReq] Join -> AudioCallPage(otherUserId=$astroId)");
                               Navigator.of(context).push(
                                 MaterialPageRoute(
-                                    builder: (_) =>
-                                        AudioCallPage(astroId: astroId)),
+                                  builder: (_) => AudioCallPage(
+                                    otherUserId: astroId,
+                                    astroId: astroId,
+                                  ),
+                                ),
                               );
                             },
                           ),

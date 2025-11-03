@@ -304,6 +304,27 @@ class FastApiServices {
     }
   }
 
+  // FastApiServices.dart
+
+static Future<String?> getAstroId() async {
+  final prefs = await SharedPreferences.getInstance();
+  return prefs.getString("astro_id");
+}
+
+static Future<(String astroId, String token)> requireAstroIdAndToken() async {
+  final prefs = await SharedPreferences.getInstance();
+  final astroId = prefs.getString("astro_id");
+  final token = prefs.getString("access_token");
+  if (astroId == null || astroId.isEmpty) {
+    throw Exception("Astrologer ID not found. Please login again.");
+  }
+  if (token == null || token.isEmpty) {
+    throw Exception("Access token missing. Please login again.");
+  }
+  return (astroId, token);
+}
+
+
 
 // In FastApiServices
 
