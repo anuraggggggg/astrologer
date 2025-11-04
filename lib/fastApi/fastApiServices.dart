@@ -306,87 +306,82 @@ class FastApiServices {
 
   // FastApiServices.dart
 
-static Future<String?> getAstroId() async {
-  final prefs = await SharedPreferences.getInstance();
-  return prefs.getString("astro_id");
-}
-
-static Future<(String astroId, String token)> requireAstroIdAndToken() async {
-  final prefs = await SharedPreferences.getInstance();
-  final astroId = prefs.getString("astro_id");
-  final token = prefs.getString("access_token");
-  if (astroId == null || astroId.isEmpty) {
-    throw Exception("Astrologer ID not found. Please login again.");
+  static Future<String?> getAstroId() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString("astro_id");
   }
-  if (token == null || token.isEmpty) {
-    throw Exception("Access token missing. Please login again.");
+
+  static Future<(String astroId, String token)> requireAstroIdAndToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    final astroId = prefs.getString("astro_id");
+    final token = prefs.getString("access_token");
+    if (astroId == null || astroId.isEmpty) {
+      throw Exception("Astrologer ID not found. Please login again.");
+    }
+    if (token == null || token.isEmpty) {
+      throw Exception("Access token missing. Please login again.");
+    }
+    return (astroId, token);
   }
-  return (astroId, token);
-}
-
-
 
 // In FastApiServices
 
-Future<Map<String, dynamic>> getChatHistoryForAstrologerSelf({
-  required String otherUserId, // currently you pass astrologer id (self) due to backend quirk
-  int page = 1,
-  int size = 20,
-}) async {
-  final prefs = await SharedPreferences.getInstance();
-  final token = prefs.getString("access_token");
+  Future<Map<String, dynamic>> getChatHistoryForAstrologerSelf({
+    required String
+        otherUserId, // currently you pass astrologer id (self) due to backend quirk
+    int page = 1,
+    int size = 20,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString("access_token");
 
-  // Build URL using your Endpoints util or inline:
-  final Uri url = Uri.parse(
-    FastApiEndpoints.chatHistoryOther(otherUserId, page: page, size: size),
-    // If you don't have FastApiEndpoints.chatHistoryOther:
-    // Uri.parse("https://fastapi.jyotishionline.com/chat/history/$otherUserId?page=$page&size=$size"),
-  );
+    // Build URL using your Endpoints util or inline:
+    final Uri url = Uri.parse(
+      FastApiEndpoints.chatHistoryOther(otherUserId, page: page, size: size),
+      // If you don't have FastApiEndpoints.chatHistoryOther:
+      // Uri.parse("https://fastapi.jyotishionline.com/chat/history/$otherUserId?page=$page&size=$size"),
+    );
 
-  // DEBUG: Log everything we’re about to send
-  debugPrint("🛰️ [CHAT_HISTORY_REQ]");
-  debugPrint("   • otherUserId: $otherUserId  (NOTE: passing astrologer/self id due to backend quirk)");
-  debugPrint("   • page: $page, size: $size");
-  debugPrint("   • URL: $url");
-  debugPrint("   • Token present: ${token != null && token.isNotEmpty}");
-  if (token != null && token.isNotEmpty) {
-    final tail = token.length > 12 ? token.substring(token.length - 12) : token;
-    debugPrint("   • Token tail: ...$tail");
-  }
-
-  final headers = <String, String>{
-    "accept": "application/json",
-    if (token != null && token.isNotEmpty) "Authorization": "Bearer $token",
-  };
-  debugPrint("   • Headers: $headers");
-
-  try {
-    final resp = await http.get(url, headers: headers);
-    debugPrint("⬅️ [CHAT_HISTORY_RES] status=${resp.statusCode}");
-    debugPrint("⬅️ Body: ${resp.body}");
-
-    if (resp.statusCode == 200) {
-      final decoded = jsonDecode(resp.body) as Map<String, dynamic>;
-      // quick sanity counters
-      final msgs = (decoded['messages'] as List?)?.length ?? 0;
-      debugPrint("✅ Parsed OK. messages=$msgs page=${decoded['page']} size=${decoded['size']} total=${decoded['total']}");
-      return decoded;
-    } else {
-      throw Exception("History failed ${resp.statusCode}: ${resp.body}");
+    // DEBUG: Log everything we’re about to send
+    debugPrint("🛰️ [CHAT_HISTORY_REQ]");
+    debugPrint(
+        "   • otherUserId: $otherUserId  (NOTE: passing astrologer/self id due to backend quirk)");
+    debugPrint("   • page: $page, size: $size");
+    debugPrint("   • URL: $url");
+    debugPrint("   • Token present: ${token != null && token.isNotEmpty}");
+    if (token != null && token.isNotEmpty) {
+      final tail =
+          token.length > 12 ? token.substring(token.length - 12) : token;
+      debugPrint("   • Token tail: ...$tail");
     }
-  } catch (e, st) {
-    debugPrint("🔥 [CHAT_HISTORY_ERR] $e");
-    debugPrint("$st");
-    rethrow;
+
+    final headers = <String, String>{
+      "accept": "application/json",
+      if (token != null && token.isNotEmpty) "Authorization": "Bearer $token",
+    };
+    debugPrint("   • Headers: $headers");
+
+    try {
+      final resp = await http.get(url, headers: headers);
+      debugPrint("⬅️ [CHAT_HISTORY_RES] status=${resp.statusCode}");
+      debugPrint("⬅️ Body: ${resp.body}");
+
+      if (resp.statusCode == 200) {
+        final decoded = jsonDecode(resp.body) as Map<String, dynamic>;
+        // quick sanity counters
+        final msgs = (decoded['messages'] as List?)?.length ?? 0;
+        debugPrint(
+            "✅ Parsed OK. messages=$msgs page=${decoded['page']} size=${decoded['size']} total=${decoded['total']}");
+        return decoded;
+      } else {
+        throw Exception("History failed ${resp.statusCode}: ${resp.body}");
+      }
+    } catch (e, st) {
+      debugPrint("🔥 [CHAT_HISTORY_ERR] $e");
+      debugPrint("$st");
+      rethrow;
+    }
   }
-}
-
-
-
-
-  
-
-  
 
   // ---------------- VERIFY OTP & SAVE USER ----------------
   static Future<Map<String, dynamic>> verifyOtp({

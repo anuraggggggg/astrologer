@@ -74,8 +74,12 @@ class _ChatRequestsState extends State<ChatRequests> {
     if (!mounted) return;
 
     if (success) {
+      final locked = status.toLowerCase() == 'accepted';
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Request $status successfully!')),
+        SnackBar(
+            content: Text(locked
+                ? 'Request accepted. Session locked.'
+                : 'Request $status successfully!')),
       );
       await _refresh();
     } else {
@@ -220,6 +224,7 @@ class _ChatRequestsState extends State<ChatRequests> {
         return;
       }
 
+      // Navigate immediately on acceptance (one-time entry)
       Navigator.push(
         context,
         MaterialPageRoute(
@@ -238,12 +243,11 @@ class _ChatRequestsState extends State<ChatRequests> {
   }
 
   void _openChat(Map<String, dynamic> request) {
+    // This path will no longer be presented for accepted items (UI removed).
     _debugRequest(request, label: 'OPEN_CHAT');
-
     final roomId = _extractRoomId(request);
     final userId = _extractUserId(request);
     final astrologerId = _extractAstrologerId(request);
-
     if (roomId == null || userId == null || astrologerId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -254,7 +258,6 @@ class _ChatRequestsState extends State<ChatRequests> {
       _debugRequest(request, label: 'OPEN_CHAT_MISSING');
       return;
     }
-
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -282,7 +285,7 @@ class _ChatRequestsState extends State<ChatRequests> {
         future: _requestsFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return ListView(children: [
+            return ListView(children: const [
               SizedBox(height: 240),
               Center(child: CircularProgressIndicator()),
               SizedBox(height: 240),
@@ -454,25 +457,20 @@ class _ChatRequestsState extends State<ChatRequests> {
                           ],
                         )
                       else if (isAccepted)
+                        // 🔒 Accepted: no re-open allowed → show disabled "Session over"
                         SizedBox(
                           width: double.infinity,
-                          child: ElevatedButton(
-                            onPressed: () => _openChat(req),
+                          child: ElevatedButton.icon(
+                            onPressed: null, // disabled
+                            icon: const Icon(Icons.lock),
+                            label: const Text('Session over'),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.blue,
+                              backgroundColor: Colors.grey,
                               foregroundColor: Colors.white,
                               padding: const EdgeInsets.symmetric(vertical: 12),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(8),
                               ),
-                            ),
-                            child: const Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.chat, size: 18),
-                                SizedBox(width: 6),
-                                Text('Start Chat'),
-                              ],
                             ),
                           ),
                         )

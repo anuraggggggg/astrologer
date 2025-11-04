@@ -1,16 +1,17 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-// history only
+// Your API service that returns paged history for the astrologer
 import 'package:astrowaypartner/fastApi/fastApiServices.dart';
 
 class AstrologerChatPage extends StatefulWidget {
   final String roomId;
-  final String myUserId; // astrologer id (me)
-  final String receiverId; // customer id (other)
+  final String myUserId; // astrologer (me)
+  final String receiverId; // customer (other)
   final String? authToken;
 
   const AstrologerChatPage({
@@ -27,124 +28,139 @@ class AstrologerChatPage extends StatefulWidget {
 
 class _AstrologerChatPageState extends State<AstrologerChatPage> {
   final TextEditingController _controller = TextEditingController();
-  final ScrollController _scrollController = ScrollController();
+  final ScrollController _scroll = ScrollController();
   final FastApiServices _api = FastApiServices();
 
-  WebSocketChannel? _channel;
-  StreamSubscription? _subscription;
-
-  bool _isConnected = false;
-  bool _isManuallyClosed = false;
+  WebSocket? _socket;
+  bool _connected = false;
   bool _joined = false;
+  bool _manuallyClosed = false;
+  String? _token; // resolved token (widget.authToken or prefs)
+  String? _lastError; // for UI banner
 
-  final List<Map<String, dynamic>> _messages = []; // {from,text,time}
+  final List<Map<String, dynamic>> _messages =
+      []; // {from,text,time,id?,optimistic_id?}
+  final Set<String> _seenIds = {}; // server ids
+  final Set<String> _seenKeys = {}; // content-only key: "sender|content"
 
-  // pagination for history
+  // history paging
   int _page = 1;
   final int _size = 20;
-  bool _isLoadingHistory = false;
-  bool _hasMore = true;
+  bool _histLoading = false;
+  bool _histHasMore = true;
 
-  // queued while reconnecting
-  final List<String> _outbox = [];
-
-  // ping + reconnect + polling
-  Timer? _pingTimer;
+  // timers
+  Timer? _reconnectTimer;
   Timer? _pollTimer;
   DateTime _lastFrameAt = DateTime.fromMillisecondsSinceEpoch(0);
-  int _reconnectAttempt = 0;
-  static const int _maxBackoffSeconds = 30;
+  int _retries = 0;
 
-  // de-dup (server ids & simple content-time rule)
-  final Set<String> _seenIds = {};
-  final Set<String> _seenKeys = {};
+  // optimistic
+  int _optCounter = 0;
+  DateTime? _lastSentAt; // pause polling briefly after send
 
-  // FIX: Use a monotonic counter for the client-side key for maximum stability
-  int _optimisticMessageCounter = 0;
-  String? _lastOptimisticKey; // Stores the key of the last message sent
-
-  // suppress my own immediate echo
-  // NOTE: Kept for reference but the primary suppression is via _seenKeys
-  String _lastSentText = '';
-  DateTime _lastSentAt = DateTime.fromMillisecondsSinceEpoch(0);
-  // static const Duration _echoWindow = Duration(seconds: 2); // Unused now
-
-  String get _cleanMyId => widget.myUserId.trim();
-  String get _cleanReceiverId => widget.receiverId.trim();
+  String get _me => widget.myUserId.trim(); // astrologer (self)
+  String get _other => widget.receiverId.trim(); // customer
 
   @override
   void initState() {
     super.initState();
-    _loadHistory(initial: true).then((_) {
-      if (!mounted) return;
-      _connectWebSocket();
-    });
-
-    _scrollController.addListener(() {
-      if (_scrollController.position.pixels <=
-          _scrollController.position.minScrollExtent + 24) {
+    debugPrint(
+        '🧭 [AstroChat] init room=${widget.roomId} me=$_me other=$_other tokenProvided=${widget.authToken != null}');
+    _bootstrap();
+    _scroll.addListener(() {
+      if (_scroll.position.pixels <= _scroll.position.minScrollExtent + 24) {
         _loadHistory();
       }
     });
   }
 
+  Future<void> _bootstrap() async {
+    // Resolve token (use same storage key as your working app)
+    final prefs = await SharedPreferences.getInstance();
+    _token = widget.authToken ??
+        prefs.getString('accessToken') ??
+        prefs.getString('access_token');
+    debugPrint(
+        '🧭 [AstroChat] token resolved? ${_token != null && _token!.isNotEmpty}');
+
+    // Load initial history — 🔑 pass ASTRO ID (self), not customer
+    await _loadHistory(initial: true);
+
+    if (!mounted) return;
+    _connectWS();
+  }
+
   @override
   void dispose() {
-    _isManuallyClosed = true;
-    _cancelPing();
-    _stopPolling();
-    _subscription?.cancel();
-    _channel?.sink.close();
+    _manuallyClosed = true;
+    _pollTimer?.cancel();
+    try {
+      _socket?.close();
+    } catch (_) {}
+    _reconnectTimer?.cancel();
     _controller.dispose();
-    _scrollController.dispose();
+    _scroll.dispose();
     super.dispose();
   }
 
-  // ---------- helpers ----------
+  // ---------- Reconcile helper (optimistic -> server copy) ----------
+  bool _tryReconcileOptimistic({
+    required String sender,
+    required String text,
+    required String ts,
+    required String id,
+  }) {
+    // Only reconcile "my" messages
+    if (sender != _me) return false;
 
-  String _mkKey(Map<String, dynamic> m) {
-    // 1. Server ID (highest priority)
-    final id = (m['id'] ?? '').toString();
-    if (id.isNotEmpty) return 'id:$id';
+    for (int i = _messages.length - 1; i >= 0; i--) {
+      final m = _messages[i];
+      final hasOpt = (m['optimistic_id'] ?? '').toString().isNotEmpty;
+      final isMe = (m['from'] ?? '') == _me;
+      if (!hasOpt || !isMe) continue;
 
-    // 2. Optimistic ID (next priority - for self-echo suppression)
-    final optimisticId = (m['optimistic_id'] ?? '').toString();
-    if (optimisticId.isNotEmpty) return 'opt:$optimisticId';
-
-    // 3. Fallback (Content-Time-Sender rule for history/polling)
-    final s = (m['sender_id'] ?? m['from'] ?? '').toString();
-    // Normalize content: trim and lowercase, then take a stable prefix
-    final c = (m['content'] ?? m['message'] ?? m['text'] ?? '')
-        .toString()
-        .trim()
-        .toLowerCase();
-    final t = (m['created_at'] ?? m['time'] ?? '').toString();
-
-    // We only use the first 50 characters of content to keep the key stable
-    final cShort = c.length > 50 ? c.substring(0, 50) : c;
-
-    return 's:$s|t:${t.length > 19 ? t.substring(0, 19) : t}|c:$cShort'; // Trim ISO timestamp to seconds precision
+      final sameText = (m['text'] ?? '').toString().trim() == text.trim();
+      if (sameText) {
+        setState(() {
+          _messages[i] = {
+            "from": _me,
+            "text": text,
+            "time": ts,
+            if (id.isNotEmpty) "id": id,
+          };
+        });
+        // Remember we have this content so later frames with different ts won't add again
+        _seenKeys.add('$_me|${text.trim()}');
+        if (id.isNotEmpty) _seenIds.add(id);
+        return true;
+      }
+    }
+    return false;
   }
 
-  // ---------- history (initial & scrollback only) ----------
-
+  // -------------------- History --------------------
   Future<void> _loadHistory({bool initial = false}) async {
-    if (_isLoadingHistory || !_hasMore) return;
-    setState(() => _isLoadingHistory = true);
+    if (_histLoading || !_histHasMore) return;
+    setState(() => _histLoading = true);
 
     try {
-      // NOTE: Using _cleanMyId as 'otherUserId' is a documented backend quirk.
+      // 🔁 Use astrologer id (self) for history
+      debugPrint(
+          '🧭 [AstroChat] history: selfAstroId=$_me page=$_page size=$_size');
       final resp = await _api.getChatHistoryForAstrologerSelf(
-        otherUserId: _cleanMyId,
+        otherUserId: _me, // ✅ backend expects astrologer/self id here
         page: _page,
         size: _size,
       );
 
-      final List<dynamic> items = (resp['messages'] as List?) ?? const [];
+      final items = (resp['messages'] as List?) ?? const [];
+      debugPrint('🧭 [AstroChat] history got ${items.length} items');
+
       if (items.isEmpty) {
         setState(() {
-          _hasMore = false;
-          _isLoadingHistory = false;
+          _histHasMore = false;
+          _histLoading = false;
         });
         return;
       }
@@ -153,25 +169,24 @@ class _AstrologerChatPageState extends State<AstrologerChatPage> {
       for (final raw in items) {
         final m = Map<String, dynamic>.from(raw as Map);
         final id = (m['id'] ?? '').toString();
-        if (id.isNotEmpty && _seenIds.contains(id)) continue;
-
         final sender = (m['sender_id'] ?? '').toString();
         final text = (m['content'] ?? m['message'] ?? '').toString();
         final ts =
             (m['created_at'] ?? DateTime.now().toIso8601String()).toString();
 
+        if (text.isEmpty) continue;
+
+        if (id.isNotEmpty && _seenIds.contains(id)) continue;
         if (id.isNotEmpty) _seenIds.add(id);
-        final uniq = _mkKey(
-            {'id': id, 'sender_id': sender, 'content': text, 'created_at': ts});
 
-        // If an optimistic key was used for this exact message, treat this history item as seen.
-        if (_seenKeys.contains(uniq)) continue;
-        _seenKeys.add(uniq);
+        // 👇 De-dupe by content-only key (timestamps differ between optimistic/server)
+        final key = '$sender|${text.trim()}';
+        if (_seenKeys.contains(key)) continue;
+        _seenKeys.add(key);
 
-        batch.add({"from": sender, "text": text, "time": ts});
+        batch.add({"from": sender, "text": text, "time": ts, "id": id});
       }
 
-      // newest->oldest => oldest->newest
       batch.sort((a, b) =>
           DateTime.parse(a['time']).compareTo(DateTime.parse(b['time'])));
 
@@ -184,278 +199,302 @@ class _AstrologerChatPageState extends State<AstrologerChatPage> {
         });
         _scrollToBottom(immediate: true);
       } else {
-        final oldMax = _scrollController.position.maxScrollExtent;
+        final oldMax = _scroll.position.maxScrollExtent;
         setState(() {
           _messages.insertAll(0, batch);
           _page++;
         });
+
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          final newMax = _scrollController.position.maxScrollExtent;
-          // Maintain scroll position after prepending messages
-          _scrollController
-              .jumpTo(_scrollController.offset + (newMax - oldMax));
+          final newMax = _scroll.position.maxScrollExtent;
+          _scroll.jumpTo(_scroll.offset + (newMax - oldMax));
         });
       }
-    } catch (_) {
-      // ignore
+    } catch (e, st) {
+      debugPrint('💥 [AstroChat] history error: $e\n$st');
+      setState(() => _lastError = 'History error: $e');
     } finally {
-      if (mounted) setState(() => _isLoadingHistory = false);
+      if (mounted) setState(() => _histLoading = false);
     }
   }
 
-  // ---------- websocket ----------
-
-  Uri _buildUri() {
+  // -------------------- WebSocket --------------------
+  Uri _buildWsUri() {
     final qp = <String, String>{
-      'user_id': _cleanMyId,
-      if ((widget.authToken ?? '').isNotEmpty) 'token': widget.authToken!,
+      'user_id': _me,
+      'role': 'astrologer',
+      if ((_token ?? '').isNotEmpty) 'token': _token!,
     };
-    return Uri.parse(
-            'wss://fastapi.jyotishionline.com/chat/ws/${widget.roomId}')
-        .replace(queryParameters: qp);
+    final uri = Uri(
+      scheme: 'wss',
+      host: 'fastapi.jyotishionline.com',
+      path: '/chat/ws/${widget.roomId}',
+      queryParameters: qp,
+    );
+    debugPrint('🌐 [AstroChat] WS URI: $uri');
+    return uri;
   }
 
-  void _connectWebSocket() {
-    final uri = _buildUri();
+  Future<void> _connectWS() async {
+    if (_socket != null) return;
+
+    final uri = _buildWsUri();
     try {
-      _channel = WebSocketChannel.connect(uri);
-      _subscription = _channel!.stream.listen(
-        _handleIncoming,
-        onDone: _handleDone,
-        onError: _handleError,
-        cancelOnError: false,
-      );
+      debugPrint('🧭 [AstroChat] connecting...');
+      final s = await WebSocket.connect(uri.toString());
 
-      setState(() {
-        _isConnected = true;
-        _joined = false;
-      });
+      if (!mounted) {
+        try {
+          s.close();
+        } catch (_) {}
+        return;
+      }
 
-      _reconnectAttempt = 0;
-      _startPing();
+      _socket = s;
+      _socket!.pingInterval = const Duration(seconds: 20);
+      _connected = true;
+      _retries = 0;
+      _lastError = null;
+      debugPrint('✅ [AstroChat] connected');
+      setState(() {});
+
+      _listenSocket();
       _sendJoin();
-      _flushOutbox();
       _startPolling();
-    } catch (_) {
-      setState(() => _isConnected = false);
+    } catch (e, st) {
+      debugPrint('💥 [AstroChat] connect failed: $e\n$st');
+      setState(() {
+        _connected = false;
+        _lastError = 'WS connect failed: $e';
+      });
       _scheduleReconnect();
     }
   }
 
-  void _sendJoin() {
-    if (!_isConnected || _channel == null) return;
+  void _listenSocket() {
+    _socket?.listen(
+      (data) {
+        _lastFrameAt = DateTime.now();
+        try {
+          final raw = data is String ? data : utf8.decode(data as List<int>);
+          debugPrint('⬅️ [AstroChat] FRAME $raw');
+        } catch (_) {}
+        _onIncoming(data);
+      },
+      onDone: () {
+        debugPrint('⚠️ [AstroChat] onDone');
+        _handleDisconnect('Socket closed');
+      },
+      onError: (err, st) {
+        debugPrint('⚠️ [AstroChat] onError: $err');
+        _handleDisconnect('WS error: $err');
+      },
+      cancelOnError: false,
+    );
+  }
 
-    final joinPayload = {
+  void _handleDisconnect(String reason) {
+    setState(() {
+      _connected = false;
+      _joined = false;
+      _lastError = reason;
+    });
+    try {
+      _socket?.close();
+    } catch (_) {}
+    _socket = null;
+    _pollTimer?.cancel();
+    if (!_manuallyClosed) _scheduleReconnect();
+  }
+
+  void _scheduleReconnect() {
+    if (_manuallyClosed) return;
+    _reconnectTimer?.cancel();
+    _retries++;
+    final backoff = [2, 5, 10, 20, 30][_retries.clamp(0, 4)];
+    debugPrint('🔁 [AstroChat] reconnect in ${backoff}s (attempt $_retries)');
+    _reconnectTimer = Timer(Duration(seconds: backoff), _connectWS);
+  }
+
+  void _sendJoin() {
+    if (!_connected || _socket == null) return;
+
+    final join = {
       "action": "join",
+      "type": "join",
+      "event": "subscribe",
+      "room": widget.roomId,
       "room_id": widget.roomId,
-      "user_id": _cleanMyId,
-      "sender_id": _cleanMyId,
-      "receiver_id": _cleanReceiverId,
+      "user_id": _me,
+      "sender_id": _me,
+      "receiver_id": _other,
+      "role": "astrologer",
+      if ((_token ?? '').isNotEmpty) "token": _token,
     };
-    _sendRaw(joinPayload);
+    _sendRaw(join);
     _joined = true;
   }
 
-  void _handleIncoming(dynamic event) {
-    _lastFrameAt = DateTime.now();
-    Map<String, dynamic>? data;
+  void _onIncoming(dynamic data) {
+    Map<String, dynamic>? root;
     try {
-      if (event is String) {
-        if (event.trim().isEmpty) return;
-        if (event.trim().startsWith('[')) {
-          final List arr = jsonDecode(event);
-          for (final e in arr) {
-            _handleIncoming(e);
-          }
-          return;
+      final raw = data is String ? data : utf8.decode(data as List<int>);
+      if (raw.trim().isEmpty) return;
+
+      if (raw.trim().startsWith('[')) {
+        final list = jsonDecode(raw) as List;
+        for (final item in list) {
+          _onIncoming(item);
         }
-        data = jsonDecode(event);
-      } else if (event is Map) {
-        data = Map<String, dynamic>.from(event);
+        return;
       }
+      root = data is String
+          ? jsonDecode(data) as Map<String, dynamic>
+          : Map<String, dynamic>.from(data as Map);
     } catch (_) {
       return;
     }
-    if (data == null) return;
+    if (root == null) return;
 
-    final type = (data['type'] ?? data['action'])?.toString();
-    if (type == 'pong') return;
+    final type = (root['type'] ?? root['action'])?.toString();
+    if (type == 'ping' || type == 'pong' || type == 'joined' || type == 'join')
+      return;
 
-    // normalize payload
-    final Map<String, dynamic> msg = (data['message'] is Map)
-        ? Map<String, dynamic>.from(data['message'])
-        : data;
+    // unwrap typical containers
+    Map<String, dynamic> msg;
+    if (root['message'] is Map) {
+      msg = Map<String, dynamic>.from(root['message']);
+    } else if (root['data'] is Map) {
+      msg = Map<String, dynamic>.from(root['data']);
+    } else {
+      msg = root;
+    }
 
-    // Extract fields
-    final String id = (msg['id'] ?? '').toString();
-    final String content =
-        (msg['content'] ?? msg['message'] ?? msg['text'] ?? '')
-            .toString()
-            .trim();
+    final serverId = (msg['id'] ?? '').toString();
+    final content = (msg['content'] ?? msg['message'] ?? msg['text'] ?? '')
+        .toString()
+        .trim();
     if (content.isEmpty) return;
-    final String sender = (msg['sender_id'] ?? msg['from'] ?? '').toString();
-    final String ts = (msg['created_at'] ??
+
+    final sender =
+        (msg['sender_id'] ?? msg['user_id'] ?? msg['from'] ?? '').toString();
+    final ts = (msg['created_at'] ??
             msg['timestamp'] ??
             msg['time'] ??
             DateTime.now().toIso8601String())
         .toString();
 
-    // Check for server ID duplication (highest priority)
-    if (id.isNotEmpty && _seenIds.contains(id)) return;
-    if (id.isNotEmpty) _seenIds.add(id);
-
-    // Check for custom key duplication (to block optimistic echo)
-    // NOTE: We manually add the last sent optimistic key to the incoming message
-    // data here if it matches the sender and content, as a final attempt to match.
-    // However, the _mkKey logic should handle this.
-    final Map<String, dynamic> keyData = {
-      'id': id,
-      'sender_id': sender,
-      'content': content,
-      'created_at': ts
-    };
-
-    // Check if this is the immediate echo of the last sent message.
-    // If it is, and we have the optimistic key, use it for de-duplication.
-    if (sender == _cleanMyId && _lastOptimisticKey != null) {
-      // The content check is simplified but necessary to prevent blocking the wrong message
-      final sentContent = _lastSentText.trim().toLowerCase();
-      final incomingContent = content.trim().toLowerCase();
-      if (incomingContent.startsWith(sentContent)) {
-        keyData['optimistic_id'] = _lastOptimisticKey;
+    // if my echo arrives with an ID, reconcile optimistic bubble
+    if (sender == _me && serverId.isNotEmpty) {
+      _seenIds.add(serverId);
+      if (_tryReconcileOptimistic(
+          sender: sender, text: content, ts: ts, id: serverId)) {
+        return;
       }
+      // fallback: add if no optimistic bubble found
+      setState(() {
+        _messages
+            .add({"from": _me, "text": content, "time": ts, "id": serverId});
+      });
+      _seenKeys.add('$_me|${content.trim()}');
+      _scrollToBottom();
+      return;
     }
 
-    final uniq = _mkKey(keyData);
-    if (_seenKeys.contains(uniq)) return;
-    _seenKeys.add(uniq);
+    // normal incoming
+    if (serverId.isNotEmpty && _seenIds.contains(serverId)) return;
+    if (serverId.isNotEmpty) _seenIds.add(serverId);
 
-    // Clear the optimistic key if we successfully received its echo/server message
-    if (uniq == _lastOptimisticKey) {
-      _lastOptimisticKey = null;
+    // ✅ Try reconcile (in case server marks echo without sender==_me for some reason)
+    if (_tryReconcileOptimistic(
+        sender: sender, text: content, ts: ts, id: serverId)) {
+      return;
     }
 
-    if (!mounted) return;
+    // content-only de-dupe (timestamps differ)
+    final key = '$sender|${content.trim()}';
+    if (_seenKeys.contains(key)) return;
+    _seenKeys.add(key);
+
     setState(() {
-      _messages.add({"from": sender, "text": content, "time": ts});
+      _messages
+          .add({"from": sender, "text": content, "time": ts, "id": serverId});
     });
     _scrollToBottom();
   }
 
-  void _handleDone() {
-    setState(() {
-      _isConnected = false;
-      _joined = false;
-    });
-    _cancelPing();
-    _stopPolling();
-    if (!_isManuallyClosed) _scheduleReconnect();
-  }
-
-  void _handleError(Object error, [StackTrace? _]) {
-    setState(() {
-      _isConnected = false;
-      _joined = false;
-    });
-    _cancelPing();
-    _stopPolling();
-    if (!_isManuallyClosed) _scheduleReconnect();
-  }
-
-  void _scheduleReconnect() {
-    if (_isManuallyClosed) return;
-    _reconnectAttempt++;
-    final backoff = (_reconnectAttempt * 2).clamp(1, _maxBackoffSeconds);
-    Future.delayed(Duration(seconds: backoff), () {
-      if (!mounted || _isManuallyClosed) return;
-      _connectWebSocket();
-    });
-  }
-
-  void _startPing() {
-    _cancelPing();
-    _pingTimer = Timer.periodic(const Duration(seconds: 20), (_) {
-      _sendRaw({"action": "ping", "ts": DateTime.now().toIso8601String()});
-    });
-  }
-
-  void _cancelPing() {
-    _pingTimer?.cancel();
-    _pingTimer = null;
-  }
-
-  // ---------- POLLING FALLBACK (2s) ----------
-
+  // -------------------- Polling fallback (3s) --------------------
   void _startPolling() {
     _pollTimer?.cancel();
-    _pollTimer = Timer.periodic(const Duration(seconds: 2), (_) async {
-      if (!_isConnected || !_joined) return;
-      // only poll if socket has been quiet for a moment
-      if (DateTime.now().difference(_lastFrameAt) < const Duration(seconds: 1))
+    _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) async {
+      if (!_connected || !_joined) return;
+
+      // Don't poll if we've received a frame recently OR just sent a message
+      if (DateTime.now().difference(_lastFrameAt) < const Duration(seconds: 2))
+        return;
+      if (_lastSentAt != null &&
+          DateTime.now().difference(_lastSentAt!) < const Duration(seconds: 4))
         return;
 
       try {
+        // 🔁 Poll with ASTRO ID (self)
         final resp = await _api.getChatHistoryForAstrologerSelf(
-          otherUserId: _cleanMyId,
+          otherUserId: _me, // ✅ self id
           page: 1,
           size: 10,
         );
-        final List<dynamic> items = (resp['messages'] as List?) ?? const [];
 
-        // merge oldest->newest to maintain order
+        final items = (resp['messages'] as List?) ?? const [];
         for (final raw in items.reversed) {
           final m = Map<String, dynamic>.from(raw as Map);
           final id = (m['id'] ?? '').toString();
-          if (id.isNotEmpty && _seenIds.contains(id)) continue;
-
           final sender = (m['sender_id'] ?? '').toString();
           final text = (m['content'] ?? m['message'] ?? '').toString();
           final ts = (m['created_at'] ?? '').toString();
-          if (text.isEmpty || ts.isEmpty) continue;
 
-          final uniq = _mkKey({
-            'id': id,
-            'sender_id': sender,
-            'content': text,
-            'created_at': ts
-          });
-          if (_seenKeys.contains(uniq)) continue;
+          if (text.isEmpty || ts.isEmpty) continue;
+          if (id.isNotEmpty && _seenIds.contains(id)) continue;
+
+          // ✅ Reconcile with optimistic bubble first
+          if (_tryReconcileOptimistic(
+              sender: sender, text: text, ts: ts, id: id)) {
+            continue;
+          }
+
+          // Secondary de-dupe by content
+          final key = '$sender|${text.trim()}';
+          if (_seenKeys.contains(key)) continue;
+
+          if (id.isNotEmpty) _seenIds.add(id);
+          _seenKeys.add(key);
 
           if (!mounted) return;
+
           setState(() {
-            _messages.add({"from": sender, "text": text, "time": ts});
-            if (id.isNotEmpty) _seenIds.add(id);
-            _seenKeys.add(uniq);
+            _messages.add({"from": sender, "text": text, "time": ts, "id": id});
           });
           _scrollToBottom();
         }
       } catch (_) {
-        // ignore; try next tick
+        // ignore; retry next tick
       }
     });
   }
 
-  void _stopPolling() {
-    _pollTimer?.cancel();
-    _pollTimer = null;
-  }
-
-  // ---------- send ----------
-
-  void _flushOutbox() {
-    if (!_isConnected || _channel == null) return;
-    for (final payload in _outbox) {
-      _channel!.sink.add(payload);
-    }
-    _outbox.clear();
-  }
-
+  // -------------------- Send --------------------
   void _sendRaw(Map<String, dynamic> map) {
-    final payload = jsonEncode(map);
-    if (_isConnected && _channel != null) {
-      _channel!.sink.add(payload);
-    } else {
-      _outbox.add(payload);
+    if (!_connected || _socket == null) {
+      debugPrint('🚫 [AstroChat] send while disconnected');
+      setState(() => _lastError = 'Sending while disconnected');
+      return;
+    }
+    try {
+      final payload = jsonEncode(map);
+      debugPrint('➡️ [AstroChat] SEND $payload');
+      _socket!.add(payload);
+    } catch (e, st) {
+      debugPrint('💥 [AstroChat] send failed: $e\n$st');
+      setState(() => _lastError = 'Send failed: $e');
     }
   }
 
@@ -465,75 +504,66 @@ class _AstrologerChatPageState extends State<AstrologerChatPage> {
 
     if (!_joined) _sendJoin();
 
-    // 1. Generate a client-side ID for the optimistic update
-    _optimisticMessageCounter++;
-    final optimisticId = "${_cleanMyId}:${_optimisticMessageCounter}";
+    _optCounter++;
+    final optId =
+        'opt_${_me}_${DateTime.now().millisecondsSinceEpoch}_$_optCounter';
 
-    // 2. Prepare the frame to send (contains the message content)
     final frame = {
       "action": "send",
+      "type": "message",
+      "event": "message",
+      "room": widget.roomId,
       "room_id": widget.roomId,
-      "sender_id": _cleanMyId,
-      "receiver_id": _cleanReceiverId,
+      "sender_id": _me,
+      "user_id": _me,
+      "receiver_id": _other,
+      "role": "astrologer",
       "content": text,
-      // Optional: If your backend supports echoing a 'client_id' or 'correlation_id',
-      // you could add it here as well, e.g., "client_id": optimisticId
+      "message": text, // some servers require both
+      if ((_token ?? '').isNotEmpty) "token": _token,
+      "message_obj": {
+        "room_id": widget.roomId,
+        "sender_id": _me,
+        "receiver_id": _other,
+        "role": "astrologer",
+        "content": text,
+        "created_at": DateTime.now().toIso8601String(),
+        "token": _token,
+      }
     };
 
-    _sendRaw(frame);
-
-    // 3. Optimistic UI update and key generation
+    // optimistic UI
     final ts = DateTime.now().toIso8601String();
-
-    // Key used to block the server echo. We use the custom optimistic ID
-    // which has the highest priority in _mkKey.
-    final optimisticKey = _mkKey({
-      "optimistic_id": optimisticId,
-      "sender_id": _cleanMyId,
-      "content": text,
-      "created_at": ts,
+    setState(() {
+      _messages
+          .add({"from": _me, "text": text, "time": ts, "optimistic_id": optId});
+      _lastError = null;
     });
-
-    // Store the last key and content to help with echo matching in _handleIncoming
-    _lastOptimisticKey = optimisticKey;
-    _lastSentText = text;
-    _lastSentAt = DateTime.now();
-
-    // Only add if the key is new (should always be, but safe check)
-    if (!_seenKeys.contains(optimisticKey)) {
-      setState(() {
-        // Add the optimistic_id to the message object to confirm it's the optimistic one
-        _messages.add({
-          "from": _cleanMyId,
-          "text": text,
-          "time": ts,
-          "optimistic_id": optimisticId
-        });
-        _seenKeys.add(optimisticKey);
-      });
-    }
-
     _controller.clear();
     _scrollToBottom();
+
+    // mark last sent to pause polling briefly
+    _lastSentAt = DateTime.now();
+
+    _sendRaw(frame);
   }
 
+  // -------------------- UI helpers --------------------
   void _scrollToBottom({bool immediate = false}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scrollController.hasClients) return;
-      _scrollController.animateTo(
-        _scrollController.position.maxScrollExtent,
+      if (!_scroll.hasClients) return;
+      _scroll.animateTo(
+        _scroll.position.maxScrollExtent,
         duration: Duration(milliseconds: immediate ? 1 : 200),
         curve: Curves.easeOut,
       );
     });
   }
 
-  // ---------- UI ----------
-
+  // -------------------- UI --------------------
   @override
   Widget build(BuildContext context) {
-    final canSend = _isConnected;
-
+    final canSend = _connected;
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.deepPurple,
@@ -544,31 +574,40 @@ class _AstrologerChatPageState extends State<AstrologerChatPage> {
               height: 10,
               margin: const EdgeInsets.only(right: 8),
               decoration: BoxDecoration(
-                color: _isConnected ? Colors.greenAccent : Colors.redAccent,
+                color: _connected ? Colors.greenAccent : Colors.redAccent,
                 shape: BoxShape.circle,
               ),
             ),
-            const Text("Chat"),
+            const Text('Chat (Astrologer)'),
           ],
         ),
       ),
       body: Column(
         children: [
-          if (_isLoadingHistory) const LinearProgressIndicator(minHeight: 2),
+          if (_histLoading) const LinearProgressIndicator(minHeight: 2),
+          if (_lastError != null)
+            Container(
+              width: double.infinity,
+              color: Colors.amber.shade100,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Text(
+                '⚠️ ${_lastError!}',
+                style: const TextStyle(fontSize: 12),
+              ),
+            ),
           Expanded(
             child: _messages.isEmpty
                 ? const Center(
-                    child: Text(
-                      "No messages yet...",
-                      style: TextStyle(color: Colors.grey),
-                    ),
-                  )
+                    child: Text('No messages yet...',
+                        style: TextStyle(color: Colors.grey)))
                 : ListView.builder(
-                    controller: _scrollController,
+                    controller: _scroll,
                     itemCount: _messages.length,
-                    itemBuilder: (context, index) {
-                      final msg = _messages[index];
-                      final isMe = (msg["from"] ?? "") == _cleanMyId;
+                    itemBuilder: (_, i) {
+                      final m = _messages[i];
+                      final isMe = (m['from'] ?? '') == _me;
+                      final isOpt =
+                          (m['optimistic_id'] ?? '').toString().isNotEmpty;
 
                       return Align(
                         alignment:
@@ -578,11 +617,13 @@ class _AstrologerChatPageState extends State<AstrologerChatPage> {
                               vertical: 6, horizontal: 10),
                           padding: const EdgeInsets.all(12),
                           constraints: BoxConstraints(
-                            maxWidth: MediaQuery.of(context).size.width * 0.75,
-                          ),
+                              maxWidth:
+                                  MediaQuery.of(context).size.width * 0.75),
                           decoration: BoxDecoration(
                             color: isMe
-                                ? Colors.deepPurple.withOpacity(0.85)
+                                ? (isOpt
+                                    ? Colors.deepPurple.withOpacity(0.6)
+                                    : Colors.deepPurple.withOpacity(0.85))
                                 : Colors.grey.shade200,
                             borderRadius: BorderRadius.only(
                               topLeft: const Radius.circular(12),
@@ -597,22 +638,31 @@ class _AstrologerChatPageState extends State<AstrologerChatPage> {
                                 : CrossAxisAlignment.start,
                             children: [
                               Text(
-                                (msg["text"] ?? "").toString(),
+                                (m['text'] ?? '').toString(),
                                 style: TextStyle(
-                                  color: isMe ? Colors.white : Colors.black87,
-                                  height: 1.25,
-                                ),
+                                    color: isMe ? Colors.white : Colors.black87,
+                                    height: 1.25),
                               ),
                               const SizedBox(height: 4),
-                              Text(
-                                DateFormat('hh:mm a').format(
-                                  DateTime.tryParse(msg["time"] ?? "") ??
-                                      DateTime.now(),
-                                ),
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  color: isMe ? Colors.white70 : Colors.black45,
-                                ),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (isOpt)
+                                    const Icon(Icons.access_time,
+                                        size: 10, color: Colors.white70),
+                                  Text(
+                                    DateFormat('hh:mm a').format(
+                                      DateTime.tryParse(m['time'] ?? '') ??
+                                          DateTime.now(),
+                                    ),
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: isMe
+                                          ? Colors.white70
+                                          : Colors.black45,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
@@ -621,13 +671,13 @@ class _AstrologerChatPageState extends State<AstrologerChatPage> {
                     },
                   ),
           ),
-          _buildInputArea(canSend: canSend),
+          _buildInput(canSend: canSend),
         ],
       ),
     );
   }
 
-  Widget _buildInputArea({required bool canSend}) {
+  Widget _buildInput({required bool canSend}) {
     return SafeArea(
       top: false,
       child: Container(
@@ -642,7 +692,7 @@ class _AstrologerChatPageState extends State<AstrologerChatPage> {
                 textInputAction: TextInputAction.send,
                 onSubmitted: (_) => _sendMessage(),
                 decoration: InputDecoration(
-                  hintText: canSend ? "Type a message..." : "Connecting…",
+                  hintText: canSend ? 'Type a message...' : 'Connecting…',
                   filled: true,
                   fillColor: Colors.grey.shade100,
                   contentPadding:
