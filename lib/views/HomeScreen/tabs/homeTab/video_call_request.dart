@@ -44,7 +44,7 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
       MaterialPageRoute(
         builder: (_) => VideoCallPage(
           astroId: astroId,
-          isAstrologer: true, // ⭐ astrologer app uses astro token
+          isAstrologer: true, // astrologer app uses astro token
         ),
       ),
     );
@@ -54,7 +54,10 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
   }
 
   Future<void> _respondToRequest(
-      int requestId, String status, Map<String, dynamic> req) async {
+    int requestId,
+    String status,
+    Map<String, dynamic> req,
+  ) async {
     if (_actBusy) return;
     setState(() => _actBusy = true);
 
@@ -67,19 +70,17 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
       if (!mounted) return;
 
       if (success) {
+        // ✅ Do NOT navigate on accepted anymore
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Request $status successfully!")),
+          SnackBar(
+              content: Text(status.toLowerCase() == 'accepted'
+                  ? 'Request accepted. Session locked.'
+                  : 'Request $status successfully!')),
         );
-
-        // If accepted, jump straight into the call
-        if (status.toLowerCase() == 'accepted') {
-          await _goToCall(req);
-        } else {
-          setState(_loadRequests); // just refresh the list
-        }
+        setState(_loadRequests); // refresh list to reflect new status
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Failed to update request.")),
+          const SnackBar(content: Text('Failed to update request.')),
         );
       }
     } finally {
@@ -191,17 +192,22 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
                                       size: 16,
                                       color: Theme.of(context).primaryColor),
                                   const SizedBox(width: 6),
-                                  Text("User",
-                                      style: TextStyle(
-                                          fontSize: 12,
-                                          color: Colors.grey.shade600)),
+                                  Text(
+                                    "User",
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey.shade600,
+                                    ),
+                                  ),
                                 ],
                               ),
                               const SizedBox(height: 4),
                               Text(
                                 userName,
                                 style: const TextStyle(
-                                    fontSize: 16, fontWeight: FontWeight.w600),
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
                             ],
                           ),
@@ -247,7 +253,8 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
                                 padding:
                                     const EdgeInsets.symmetric(vertical: 12),
                                 shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8)),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
                               ),
                               child: Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
@@ -272,16 +279,15 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
                                 padding:
                                     const EdgeInsets.symmetric(vertical: 12),
                                 shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8)),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
                               ),
                               child: Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
                                   const Icon(Icons.check, size: 18),
                                   const SizedBox(width: 6),
-                                  Text(_actBusy
-                                      ? "Accepting…"
-                                      : "Accept & Join"),
+                                  Text(_actBusy ? "Accepting…" : "Accept"),
                                 ],
                               ),
                             ),
@@ -289,24 +295,28 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
                         ],
                       ),
                     ] else if (status == 'accepted') ...[
+                      // 🔒 Accepted requests: disable join, show "Session over"
                       ElevatedButton.icon(
-                        onPressed: _actBusy ? null : () => _goToCall(req),
+                        onPressed: null, // disabled
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.deepPurple,
+                          backgroundColor: Colors.grey,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 12),
                           shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8)),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
                         ),
-                        icon: const Icon(Icons.videocam),
-                        label: Text(_actBusy ? "Opening…" : "Join Call"),
+                        icon: const Icon(Icons.lock),
+                        label: const Text("Session over"),
                       ),
                     ] else ...[
                       const SizedBox(height: 4),
                       Text(
                         "This request is $status.",
                         style: TextStyle(
-                            color: Colors.grey.shade600, fontSize: 12),
+                          color: Colors.grey.shade600,
+                          fontSize: 12,
+                        ),
                       ),
                     ],
                   ],
