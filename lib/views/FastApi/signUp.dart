@@ -35,9 +35,16 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
   final TextEditingController skillCtrl = TextEditingController();
   final TextEditingController languageCtrl = TextEditingController();
   final TextEditingController cityCtrl = TextEditingController();
-  final TextEditingController chargeCtrl = TextEditingController();
   final TextEditingController expCtrl = TextEditingController();
   final TextEditingController bioCtrl = TextEditingController();
+
+  // NEW: separate charges with minimums
+  final TextEditingController chatChargeCtrl =
+      TextEditingController(); // min 50
+  final TextEditingController audioChargeCtrl =
+      TextEditingController(); // min 200
+  final TextEditingController videoChargeCtrl =
+      TextEditingController(); // min 250
 
   // Optional fields
   final TextEditingController qualificationCtrl = TextEditingController();
@@ -84,9 +91,13 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     skillCtrl.dispose();
     languageCtrl.dispose();
     cityCtrl.dispose();
-    chargeCtrl.dispose();
     expCtrl.dispose();
     bioCtrl.dispose();
+
+    // Charges
+    chatChargeCtrl.dispose();
+    audioChargeCtrl.dispose();
+    videoChargeCtrl.dispose();
 
     // Optional
     qualificationCtrl.dispose();
@@ -110,54 +121,6 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
       setState(() {
         profileImageFile = File(pickedFile.path);
       });
-    }
-  }
-
-  // ---------------------------
-  // Helper: HTTP call to API
-  // ---------------------------
-  Future<Map<String, dynamic>> createAstrologer(
-      Map<String, dynamic> body) async {
-    final url = Uri.parse(
-        "https://fastapi.jyotishionline.com/api/v1/users/signup/astrologer");
-    try {
-      print("\n==============================");
-      print("📤 POST $url");
-      print(
-          "📝 Request body (pretty):\n${const JsonEncoder.withIndent('  ').convert(body)}");
-      print("==============================");
-
-      final response = await http.post(
-        url,
-        headers: {
-          "Content-Type": "application/json",
-          "accept": "application/json",
-        },
-        body: jsonEncode(body),
-      );
-
-      print("📡 STATUS: ${response.statusCode}");
-      print("📩 RAW RESPONSE: ${response.body}");
-      if (response.body.isNotEmpty) {
-        try {
-          final parsed = jsonDecode(response.body);
-          print(
-              "📘 PARSED RESPONSE:\n${const JsonEncoder.withIndent('  ').convert(parsed)}");
-        } catch (_) {}
-      }
-
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        return {"success": true, "data": jsonDecode(response.body)};
-      } else {
-        final err = response.body.isNotEmpty
-            ? response.body
-            : "HTTP ${response.statusCode}";
-        return {"success": false, "error": err};
-      }
-    } catch (e, st) {
-      print("🚨 Exception while calling API: $e");
-      print(st);
-      return {"success": false, "error": e.toString()};
     }
   }
 
@@ -190,6 +153,14 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     return null;
   }
 
+  String? _validateMinInt(String? v, String label, int min) {
+    if (v == null || v.trim().isEmpty) return "$label is required";
+    final parsed = int.tryParse(v.trim());
+    if (parsed == null) return "$label must be a number";
+    if (parsed < min) return "$label must be at least ₹$min";
+    return null;
+  }
+
   // ---------------------------
   // Submit form -> API
   // ---------------------------
@@ -205,28 +176,46 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
         "https://fastapi.jyotishionline.com/api/v1/users/signup/astrologer");
     final request = http.MultipartRequest("POST", uri);
 
+    // Parse & enforce minimums (already validated)
+    final int chatCharge = int.parse(chatChargeCtrl.text.trim()); // min 50
+    final int audioCharge = int.parse(audioChargeCtrl.text.trim()); // min 200
+    final int videoCharge = int.parse(videoChargeCtrl.text.trim()); // min 250
+
     // Add all text fields
     request.fields['email'] = emailCtrl.text.trim();
     request.fields['password'] = passwordCtrl.text.trim();
     request.fields['contactNo'] = contactNoCtrl.text.trim().isNotEmpty
         ? contactNoCtrl.text.trim()
         : "0000000000";
-    request.fields['countryCode'] = countryCodeCtrl.text.trim().isNotEmpty
-        ? countryCodeCtrl.text.trim()
-        : "91";
+    // API shows countryCode as string; strip + if present
+    final cc = countryCodeCtrl.text.trim();
+    request.fields['countryCode'] = cc.startsWith('+') ? cc.substring(1) : cc;
+
     request.fields['name'] =
         nameCtrl.text.trim().isNotEmpty ? nameCtrl.text.trim() : "Unknown";
     request.fields['gender'] = selectedGender;
-    request.fields['birthDate'] =
-        DateTime.now().toIso8601String(); // Replace if needed
+    // you can replace this with a proper date field if required by backend
+    request.fields['birthDate'] = DateTime.now().toIso8601String();
+
     request.fields['primarySkill'] = skillCtrl.text.trim();
     request.fields['languageKnown'] = languageCtrl.text.trim();
-    request.fields['charge'] = chargeCtrl.text.trim();
+
+    // IMPORTANT: charges mapped to API fields
+    request.fields['chatCharge'] = chatCharge.toString(); // 💬 minimum 50
+    request.fields['audioCallCharge'] =
+        audioCharge.toString(); // 🎧 minimum 200
+    request.fields['videoCallCharge'] =
+        videoCharge.toString(); // 🎥 minimum 250
+
     request.fields['experienceInYears'] = expCtrl.text.trim();
     request.fields['currentCity'] = cityCtrl.text.trim();
     request.fields['highestQualification'] = qualificationCtrl.text.trim();
     request.fields['learnAstrology'] = learnAstroCtrl.text.trim();
+
+    // If your API expects this, fill it; otherwise leave empty string
     request.fields['astrologerCategoryId'] = "";
+
+    // Optionals / extras you had (these are harmless to include if backend ignores)
     request.fields['instaProfileLink'] = instaCtrl.text.trim();
     request.fields['facebookProfileLink'] = fbCtrl.text.trim();
     request.fields['linkedInProfileLink'] = linkedinCtrl.text.trim();
@@ -260,7 +249,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
         'profileImage',
         profileImageFile!.path,
         contentType: MediaType('image', 'jpeg'),
-        filename: p.basename(profileImageFile!.path), // use alias
+        filename: p.basename(profileImageFile!.path),
       ));
     }
 
@@ -268,7 +257,8 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
       final streamedResponse = await request.send();
       final responseStr = await streamedResponse.stream.bytesToString();
 
-      if (streamedResponse.statusCode == 200) {
+      if (streamedResponse.statusCode == 200 ||
+          streamedResponse.statusCode == 201) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             backgroundColor: Colors.green,
@@ -311,9 +301,13 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     skillCtrl.clear();
     languageCtrl.clear();
     cityCtrl.clear();
-    chargeCtrl.clear();
     expCtrl.clear();
     bioCtrl.clear();
+
+    chatChargeCtrl.clear();
+    audioChargeCtrl.clear();
+    videoChargeCtrl.clear();
+
     qualificationCtrl.clear();
     learnAstroCtrl.clear();
     instaCtrl.clear();
@@ -321,6 +315,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     linkedinCtrl.clear();
     youtubeCtrl.clear();
     websiteCtrl.clear();
+
     selectedGender = "Male";
     isVerified = false;
     isActive = true;
@@ -460,8 +455,8 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
                     onTap: _pickProfileImage,
                     child: Container(
                       padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFFC107),
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFFFC107),
                         shape: BoxShape.circle,
                       ),
                       child:
@@ -473,11 +468,14 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
             ),
           ),
           const SizedBox(height: 20),
-          _buildTextField(emailCtrl, "Email",
-              required: true,
-              keyboardType: TextInputType.emailAddress,
-              icon: Icons.email_outlined,
-              validator: _validateEmail),
+          _buildTextField(
+            emailCtrl,
+            "Email",
+            required: true,
+            keyboardType: TextInputType.emailAddress,
+            icon: Icons.email_outlined,
+            validator: _validateEmail,
+          ),
           const SizedBox(height: 20),
           _buildTextField(
             passwordCtrl,
@@ -499,19 +497,25 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
             children: [
               Flexible(
                 flex: 2,
-                child: _buildTextField(countryCodeCtrl, "Code",
-                    required: true,
-                    keyboardType: TextInputType.phone,
-                    icon: Icons.flag_outlined),
+                child: _buildTextField(
+                  countryCodeCtrl,
+                  "Code",
+                  required: true,
+                  keyboardType: TextInputType.phone,
+                  icon: Icons.flag_outlined,
+                ),
               ),
               const SizedBox(width: 12),
               Flexible(
                 flex: 5,
-                child: _buildTextField(contactNoCtrl, "Contact Number",
-                    required: true,
-                    keyboardType: TextInputType.phone,
-                    icon: Icons.phone_outlined,
-                    validator: _validatePhone),
+                child: _buildTextField(
+                  contactNoCtrl,
+                  "Contact Number",
+                  required: true,
+                  keyboardType: TextInputType.phone,
+                  icon: Icons.phone_outlined,
+                  validator: _validatePhone,
+                ),
               ),
             ],
           ),
@@ -529,28 +533,59 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
           const SizedBox(height: 20),
           _buildTextField(cityCtrl, "Current City",
               required: true, icon: Icons.location_city_outlined),
+
+          // NEW: Three charge fields with min validation
           const SizedBox(height: 20),
-          _buildTextField(chargeCtrl, "Charge (₹ per session)",
-              required: true,
-              keyboardType: TextInputType.number,
-              icon: Icons.currency_rupee),
+          _buildTextField(
+            chatChargeCtrl,
+            "Chat Charge (₹/min) — min 50",
+            required: true,
+            keyboardType: TextInputType.number,
+            icon: Icons.chat_bubble_outline,
+            validator: (v) => _validateMinInt(v, "Chat charge", 50),
+          ),
           const SizedBox(height: 20),
-          _buildTextField(expCtrl, "Experience (Years)",
-              required: true,
-              keyboardType: TextInputType.number,
-              icon: Icons.work_outline),
+          _buildTextField(
+            audioChargeCtrl,
+            "Audio Call Charge (₹/min) — min 200",
+            required: true,
+            keyboardType: TextInputType.number,
+            icon: Icons.call_outlined,
+            validator: (v) => _validateMinInt(v, "Audio call charge", 200),
+          ),
           const SizedBox(height: 20),
-          _buildTextField(bioCtrl, "Bio / Introduction",
-              required: true, icon: Icons.description_outlined, maxLines: 4),
+          _buildTextField(
+            videoChargeCtrl,
+            "Video Call Charge (₹/min) — min 250",
+            required: true,
+            keyboardType: TextInputType.number,
+            icon: Icons.videocam_outlined,
+            validator: (v) => _validateMinInt(v, "Video call charge", 250),
+          ),
+
+          const SizedBox(height: 20),
+          _buildTextField(
+            expCtrl,
+            "Experience (Years)",
+            required: true,
+            keyboardType: TextInputType.number,
+            icon: Icons.work_outline,
+          ),
+          const SizedBox(height: 20),
+          _buildTextField(
+            bioCtrl,
+            "Bio / Introduction",
+            required: true,
+            icon: Icons.description_outlined,
+            maxLines: 4,
+          ),
           const SizedBox(height: 24),
         ],
       ),
     );
   }
 
-  // ---------------------------
   // Optional & Settings sections remain the same
-  // ---------------------------
   Widget _buildOptionalSection() {
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(vertical: 8.0),
@@ -689,8 +724,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
                   }
                 },
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFFFC107),
-                ),
+                    backgroundColor: const Color(0xFFFFC107)),
                 child: Text(_currentPage < 2 ? "Next" : "Submit"),
               ),
             ),
