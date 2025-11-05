@@ -212,6 +212,7 @@ class _ChatRequestsState extends State<ChatRequests> {
       final roomId = _extractRoomId(request);
       final userId = _extractUserId(request);
       final astrologerId = _extractAstrologerId(request); // now has fallback
+      final userName = _extractUserName(request); // Extract user name
 
       if (roomId == null || userId == null || astrologerId == null) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -231,7 +232,8 @@ class _ChatRequestsState extends State<ChatRequests> {
           builder: (context) => AstrologerChatPage(
             roomId: roomId,
             myUserId: astrologerId, // astrologer (you)
-            receiverId: userId, // customer
+            receiverId: userId,
+            receiverName: userName, // Pass the user name here
           ),
         ),
       ).then((_) => _refresh());
@@ -248,6 +250,8 @@ class _ChatRequestsState extends State<ChatRequests> {
     final roomId = _extractRoomId(request);
     final userId = _extractUserId(request);
     final astrologerId = _extractAstrologerId(request);
+    final userName = _extractUserName(request); // Extract user name
+
     if (roomId == null || userId == null || astrologerId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -265,6 +269,7 @@ class _ChatRequestsState extends State<ChatRequests> {
           roomId: roomId,
           myUserId: astrologerId,
           receiverId: userId,
+          receiverName: userName, // Pass the user name here
         ),
       ),
     ).then((_) => _refresh());
