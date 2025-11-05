@@ -41,4 +41,6 @@ class FastApiEndpoints {
   static String chatHistoryOther(String participantId,
           {int page = 1, int size = 20}) =>
       "$fastApiBaseUrl/chat/history/$participantId?page=$page&size=$size";
+
+      static const String startAgoraLive = "$fastApiBaseUrl/agora/live/start";
 }

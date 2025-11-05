@@ -92,6 +92,7 @@ dependencies:
   video_compress: ^3.1.2
   webview_flutter: ^4.4.2
   provider: ^6.1.5+1
+  clipboard: ^2.0.2
 
 dev_dependencies:
   flutter_test:

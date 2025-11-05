@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:astrowaypartner/views/HomeScreen/Profile/profile_screen.dart';
 import 'package:astrowaypartner/views/HomeScreen/tabs/homeTab/home_tab.dart';
+import 'package:astrowaypartner/views/HomeScreen/tabs/homeTab/livePage.dart';
 import 'package:astrowaypartner/views/HomeScreen/tabs/payment_tab.dart';
 import 'package:astrowaypartner/views/HomeScreen/tabs/profileTab.dart';
 import 'package:flutter/cupertino.dart';
@@ -94,7 +95,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     }
   }
 
-
   Future<void> _initializeWallet() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -104,7 +104,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         final response = await FastApiServices().balanceAmountAstro(astroId);
 
         if (response != null) {
-          final amount = (response['amount'] as num).toDouble(); // ensures it's a double
+          final amount =
+              (response['amount'] as num).toDouble(); // ensures it's a double
           final formattedAmount = amount.toStringAsFixed(2); // 2 decimal places
           print("💰 Wallet Amount (API): $formattedAmount");
 
@@ -131,7 +132,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       });
     }
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -163,7 +163,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  profile != null ? (profile!['name'] ?? 'No Name') : 'Loading...',
+                  profile != null
+                      ? (profile!['name'] ?? 'No Name')
+                      : 'Loading...',
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -192,8 +194,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     debugPrint("Wallet tapped");
                   },
                   child: Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    margin:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(color: Colors.black.withOpacity(0.7)),
@@ -237,17 +241,15 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               ],
             ],
           ),
-
           body: isLoading
               ? const Center(child: CircularProgressIndicator())
               : errorMessage != null
-              ? Center(child: Text("Error: $errorMessage"))
-              : Container(
-            height: height,
-            color: Colors.grey.shade200,
-            child: _buildSelectedTab(),
-          ),
-
+                  ? Center(child: Text("Error: $errorMessage"))
+                  : Container(
+                      height: height,
+                      color: Colors.grey.shade200,
+                      child: _buildSelectedTab(),
+                    ),
           bottomNavigationBar: SizedBox(
             height: 7.7.h,
             child: SnakeNavigationBar.color(
@@ -285,7 +287,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       case 0:
         return const HomeTabScreen();
       case 1:
-        return const Center(child: Text("Live Tab"));
+        return GoLivePage();
+        ;
       case 2:
         return const PaymentHistoryTab();
       case 3:
