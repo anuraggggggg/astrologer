@@ -166,7 +166,7 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
           Navigator.of(context).push(
             MaterialPageRoute(
               builder: (_) => AudioCallPage(
-                otherUserId: astroId,
+                // otherUserId: astroId,
                 astroId: astroId,
               ),
             ),
@@ -426,7 +426,7 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
                               Navigator.of(context).push(
                                 MaterialPageRoute(
                                   builder: (_) => AudioCallPage(
-                                    otherUserId: astroId,
+                                    // otherUserId: astroId,
                                     astroId: astroId,
                                   ),
                                 ),

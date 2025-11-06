@@ -12,7 +12,7 @@ class VideoCallRequests extends StatefulWidget {
 
 class _VideoCallRequestsState extends State<VideoCallRequests> {
   late Future<List<Map<String, dynamic>>> _requestsFuture;
-  bool _actBusy = false; // lock UI while accepting/declining
+  bool _actBusy = false;
 
   @override
   void initState() {
@@ -31,53 +31,54 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
     if (astroId.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text('Astrologer ID missing – please login again.')),
+          const SnackBar(content: Text('Astrologer ID missing — please login again.')),
         );
       }
       return;
     }
 
     if (!mounted) return;
+
     await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => VideoCallPage(
           astroId: astroId,
-          isAstrologer: true, // astrologer app uses astro token
+          isAstrologer: true,
         ),
       ),
     );
 
-    // After call ends, refresh list
     if (mounted) setState(_loadRequests);
   }
 
   Future<void> _respondToRequest(
-    int requestId,
-    String status,
-    Map<String, dynamic> req,
-  ) async {
+      int requestId,
+      String status,
+      Map<String, dynamic> req,
+      ) async {
     if (_actBusy) return;
     setState(() => _actBusy = true);
 
     try {
       final success = await FastApiServices().respondToRequest(
         requestId: requestId,
-        status: status, // "accepted" | "declined" | "pending"
+        status: status,
       );
 
       if (!mounted) return;
 
       if (success) {
-        // ✅ Do NOT navigate on accepted anymore
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text(status.toLowerCase() == 'accepted'
-                  ? 'Request accepted. Session locked.'
-                  : 'Request $status successfully!')),
-        );
-        setState(_loadRequests); // refresh list to reflect new status
+        if (status == 'accepted') {
+          // ✅ Direct navigation after accepting
+          await _goToCall(req);
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Request $status successfully.")),
+          );
+        }
+
+        if (mounted) setState(_loadRequests);
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Failed to update request.')),
@@ -146,11 +147,9 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
           return const _EmptyState();
         }
 
-        // Only video calls
         final videoRequests = snapshot.data!
             .where((req) =>
-                (req['session_type']?.toString() ?? '').toLowerCase() ==
-                'video_call')
+        (req['session_type']?.toString() ?? '').toLowerCase() == 'video_call')
             .toList();
 
         if (videoRequests.isEmpty) {
@@ -170,47 +169,34 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
             return Card(
               margin: const EdgeInsets.symmetric(vertical: 8),
               elevation: 2,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Header row with user info and status
+                    // Header
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Icon(Icons.person,
-                                      size: 16,
-                                      color: Theme.of(context).primaryColor),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    "User",
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey.shade600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                userName,
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
-                          ),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(Icons.person, size: 16, color: Theme.of(context).primaryColor),
+                                const SizedBox(width: 6),
+                                Text("User",
+                                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              userName,
+                              style: const TextStyle(
+                                  fontSize: 16, fontWeight: FontWeight.w600),
+                            ),
+                          ],
                         ),
                         _buildStatusChip(status),
                       ],
@@ -218,11 +204,9 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
 
                     const SizedBox(height: 16),
 
-                    // Session details
                     Row(
                       children: [
-                        Icon(Icons.videocam,
-                            size: 16, color: Colors.purple.shade600),
+                        Icon(Icons.videocam, size: 16, color: Colors.purple.shade600),
                         const SizedBox(width: 6),
                         Text(
                           "Video Call Session",
@@ -237,7 +221,7 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
 
                     const SizedBox(height: 12),
 
-                    // Buttons
+                    // ✅ Buttons
                     if (status == 'pending') ...[
                       Row(
                         children: [
@@ -245,25 +229,12 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
                             child: OutlinedButton(
                               onPressed: _actBusy
                                   ? null
-                                  : () => _respondToRequest(
-                                      req['id'], 'declined', req),
+                                  : () => _respondToRequest(req['id'], 'declined', req),
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: Colors.red,
                                 side: const BorderSide(color: Colors.red),
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 12),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
                               ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  const Icon(Icons.close, size: 18),
-                                  const SizedBox(width: 6),
-                                  Text(_actBusy ? "Please wait…" : "Reject"),
-                                ],
-                              ),
+                              child: const Text("Reject"),
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -271,52 +242,29 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
                             child: ElevatedButton(
                               onPressed: _actBusy
                                   ? null
-                                  : () => _respondToRequest(
-                                      req['id'], 'accepted', req),
+                                  : () => _respondToRequest(req['id'], 'accepted', req),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.green,
                                 foregroundColor: Colors.white,
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 12),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
                               ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  const Icon(Icons.check, size: 18),
-                                  const SizedBox(width: 6),
-                                  Text(_actBusy ? "Accepting…" : "Accept"),
-                                ],
-                              ),
+                              child: const Text("Accept & Join"),
                             ),
                           ),
                         ],
                       ),
                     ] else if (status == 'accepted') ...[
-                      // 🔒 Accepted requests: disable join, show "Session over"
-                      ElevatedButton.icon(
-                        onPressed: null, // disabled
+                      ElevatedButton(
+                        onPressed: () => _goToCall(req),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.grey,
+                          backgroundColor: Colors.blue,
                           foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
                         ),
-                        icon: const Icon(Icons.lock),
-                        label: const Text("Session over"),
+                        child: const Text("Join Call Again"),
                       ),
                     ] else ...[
-                      const SizedBox(height: 4),
                       Text(
                         "This request is $status.",
-                        style: TextStyle(
-                          color: Colors.grey.shade600,
-                          fontSize: 12,
-                        ),
+                        style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
                       ),
                     ],
                   ],
@@ -341,10 +289,8 @@ class _EmptyState extends StatelessWidget {
         children: [
           Icon(Icons.videocam_off, size: 64, color: Colors.grey),
           SizedBox(height: 16),
-          Text(
-            "No Video Requests",
-            style: TextStyle(fontSize: 18, color: Colors.grey),
-          ),
+          Text("No Video Requests",
+              style: TextStyle(fontSize: 18, color: Colors.grey)),
         ],
       ),
     );
