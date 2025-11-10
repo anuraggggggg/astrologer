@@ -3,7 +3,6 @@ import 'package:astrowaypartner/views/HomeScreen/tabs/homeTab/HostLiveRoomPage.d
 import 'package:flutter/material.dart';
 import 'package:clipboard/clipboard.dart';
 import 'package:astrowaypartner/fastApi/fastApiServices.dart';
-// ⬇️ import your HostLiveRoomPage
 
 class GoLivePage extends StatefulWidget {
   const GoLivePage({super.key});
@@ -16,11 +15,16 @@ class _GoLivePageState extends State<GoLivePage> {
   final FastApiServices _api = FastApiServices();
 
   bool _starting = false;
+  bool _ending = false;
   bool _live = false;
+
   String? _message;
   String? _channelName;
   String? _appId;
-  String? _hostToken; // ⬅️ NEW: optional RTC token for host
+
+  // We are NOT using any RTC token here.
+  // intensionally removed _hostToken and any token handling.
+
   int _ttlSeconds = 7200;
 
   Future<void> _startLive() async {
@@ -38,18 +42,10 @@ class _GoLivePageState extends State<GoLivePage> {
       final appId = (res['appID'] ?? '').toString();
       final msg = (res['message'] ?? 'Live started').toString();
 
-      // Try common token keys your backend might return
-      final token = (res['hostRtcToken'] ??
-              res['hostToken'] ??
-              res['rtcToken'] ??
-              res['token'])
-          ?.toString();
-
       setState(() {
         _live = status || channel.isNotEmpty;
         _channelName = channel.isNotEmpty ? channel : _channelName;
         _appId = appId.isNotEmpty ? appId : _appId;
-        _hostToken = (token != null && token.isNotEmpty) ? token : _hostToken;
         _message = msg;
       });
 
@@ -65,6 +61,31 @@ class _GoLivePageState extends State<GoLivePage> {
           .showSnackBar(SnackBar(content: Text('Failed to start live: $e')));
     } finally {
       if (mounted) setState(() => _starting = false);
+    }
+  }
+
+  Future<void> _endLive() async {
+    if (_ending) return;
+    setState(() => _ending = true);
+    try {
+      final res = await _api.endAgoraLive();
+      final msg = (res['message'] ?? 'Live ended').toString();
+      setState(() {
+        _live = false;
+        // Keep channel/appId for reference if backend returns the same channel
+        // You can also clear them if you prefer:
+        // _channelName = null;
+        // _appId = null;
+        _message = msg;
+      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('End live failed: $e')));
+    } finally {
+      if (mounted) setState(() => _ending = false);
     }
   }
 
@@ -89,7 +110,7 @@ class _GoLivePageState extends State<GoLivePage> {
         builder: (_) => HostLiveRoomPage(
           appId: _appId!, // required
           channelName: _channelName!, // required
-          rtcToken: _hostToken, // nullable; pass null if not provided
+          rtcToken: null, // ← DO NOT send any RTC token
         ),
       ),
     );
@@ -103,6 +124,29 @@ class _GoLivePageState extends State<GoLivePage> {
       appBar: AppBar(
         title: const Text('Go Live'),
         backgroundColor: Colors.deepPurple,
+        actions: [
+          if (_live)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: _ending
+                  ? const Center(
+                      child: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    )
+                  : TextButton.icon(
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        backgroundColor: Colors.redAccent,
+                      ),
+                      onPressed: _endLive,
+                      icon: const Icon(Icons.stop_circle_outlined),
+                      label: const Text('End Live'),
+                    ),
+            ),
+        ],
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
@@ -125,11 +169,16 @@ class _GoLivePageState extends State<GoLivePage> {
                   fontWeight: FontWeight.bold,
                 ),
               ),
+              const SizedBox(width: 12),
+              const Chip(
+                label: Text('Token: not used'),
+                visualDensity: VisualDensity(horizontal: -4, vertical: -4),
+              ),
             ],
           ),
           const SizedBox(height: 16),
           Text(
-            'When you tap Start Live, the server issues/returns your live channel and host token (if configured).',
+            'Tap Start Live to get channel & appId. We are NOT passing any RTC token to the host (requires App Certificate to be DISABLED in Agora project).',
             style: TextStyle(color: Colors.grey[700]),
           ),
           const SizedBox(height: 16),
@@ -211,12 +260,10 @@ class _GoLivePageState extends State<GoLivePage> {
                         : () => _copy('App ID', _appId!),
                   ),
                   const SizedBox(height: 8),
-                  _InfoRow(
+                  const _InfoRow(
                     label: 'Host Token',
-                    value: _hostToken ?? '(not required / not provided)',
-                    onCopy: (_hostToken ?? '').isEmpty
-                        ? null
-                        : () => _copy('Host Token', _hostToken!),
+                    value:
+                        '(not used – join with empty token; App Certificate must be DISABLED)',
                   ),
                   const SizedBox(height: 8),
                   _InfoRow(label: 'Message', value: _message ?? '-'),
@@ -261,13 +308,19 @@ class _InfoRow extends StatelessWidget {
                 style: const TextStyle(fontWeight: FontWeight.w600))),
         const SizedBox(width: 12),
         Expanded(
-            child: Text(value, maxLines: 2, overflow: TextOverflow.ellipsis)),
+          child: Text(
+            value,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
         if (onCopy != null) ...[
           const SizedBox(width: 6),
           IconButton(
-              icon: const Icon(Icons.copy, size: 18),
-              onPressed: onCopy,
-              tooltip: 'Copy'),
+            icon: const Icon(Icons.copy, size: 18),
+            onPressed: onCopy,
+            tooltip: 'Copy',
+          ),
         ],
       ],
     );

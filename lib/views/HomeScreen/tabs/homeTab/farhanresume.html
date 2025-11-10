@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Farhan Shaikh - Resume</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* Reset and base styles */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        body {
+            background-color: #f5f7fa;
+            color: #333;
+            line-height: 1.5;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        
+        /* Resume container optimized for single page */
+        .resume-container {
+            width: 210mm; /* A4 width */
+            min-height: 297mm; /* A4 height */
+            background: white;
+            box-shadow: 0 5px 25px rgba(0, 0, 0, 0.1);
+            padding: 25mm; /* Reduced padding for more content space */
+            position: relative;
+        }
+        
+        /* Header Section */
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #3498db;
+        }
+        
+        .name {
+            font-size: 32px;
+            font-weight: 700;
+            color: #2c3e50;
+            margin-bottom: 5px;
+            letter-spacing: 1px;
+        }
+        
+        .title {
+            font-size: 18px;
+            color: #3498db;
+            margin-bottom: 15px;
+            font-weight: 500;
+        }
+        
+        .contact-info {
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+        
+        .contact-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            color: #555;
+        }
+        
+        /* Two-column layout */
+        .content {
+            display: flex;
+            gap: 25px;
+        }
+        
+        .left-column {
+            flex: 1;
+        }
+        
+        .right-column {
+            flex: 1.2;
+        }
+        
+        /* Section Styling */
+        .section {
+            margin-bottom: 20px;
+        }
+        
+        .section-title {
+            color: #2c3e50;
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid #3498db;
+            display: flex;
+            align-items: center;
+        }
+        
+        .section-title i {
+            margin-right: 8px;
+            color: #3498db;
+            font-size: 16px;
+        }
+        
+        /* Skills Styling - compact */
+        .skills-list {
+            list-style-type: none;
+        }
+        
+        .skill-item {
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+        }
+        
+        .skill-name {
+            flex: 1;
+            font-size: 14px;
+        }
+        
+        .skill-bar {
+            height: 6px;
+            background-color: #e0e0e0;
+            border-radius: 3px;
+            overflow: hidden;
+            flex: 1.5;
+        }
+        
+        .skill-level {
+            height: 100%;
+            background-color: #3498db;
+            border-radius: 3px;
+        }
+        
+        /* Education Styling - compact */
+        .education-item {
+            margin-bottom: 15px;
+            padding-bottom: 12px;
+            border-bottom: 1px dashed #e0e0e0;
+        }
+        
+        .education-item:last-child {
+            border-bottom: none;
+        }
+        
+        .education-title {
+            font-weight: 600;
+            color: #2c3e50;
+            font-size: 15px;
+        }
+        
+        .education-institution {
+            color: #3498db;
+            margin: 3px 0;
+            font-size: 14px;
+        }
+        
+        .education-date {
+            color: #e74c3c;
+            font-weight: 500;
+            font-size: 13px;
+        }
+        
+        /* Projects Styling - compact */
+        .project-item {
+            margin-bottom: 15px;
+        }
+        
+        .project-title {
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 3px;
+            font-size: 15px;
+        }
+        
+        .project-description {
+            color: #555;
+            font-size: 14px;
+        }
+        
+        /* Languages Styling */
+        .language-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        
+        .language-name {
+            flex: 1;
+            font-size: 14px;
+        }
+        
+        .language-level {
+            flex: 1.5;
+            font-size: 13px;
+            color: #3498db;
+            font-weight: 500;
+        }
+        
+        /* *** UPDATED PRINT-SPECIFIC STYLES FOR SINGLE-PAGE FIT *** */
+        @media print {
+            body {
+                background: white;
+                padding: 0;
+            }
+            
+            .resume-container {
+                width: 100%;
+                height: 100%;
+                box-shadow: none;
+                padding: 10mm; 
+                margin: 0;
+            }
+
+            /* 💡 FIX: Force the main content area to remain a horizontal flex container */
+            .content {
+                display: flex;
+                flex-direction: row !important; /* Ensure it stays in a row */
+                flex-wrap: nowrap !important; /* Prevent columns from stacking */
+            }
+
+            /* Smaller Font Sizes and Margins for Print */
+            .name { font-size: 28px; }
+            .title { font-size: 16px; margin-bottom: 10px; }
+            
+            .contact-item, .project-description, .skill-name, .language-name {
+                font-size: 12px !important; 
+            }
+            
+            .education-title, .education-institution, .education-date, .project-title {
+                font-size: 13px !important; 
+            }
+
+            .section { 
+                margin-bottom: 10px;
+            }
+            .section-title { 
+                font-size: 16px; 
+                margin-bottom: 8px;
+            }
+
+            .education-item {
+                margin-bottom: 8px; 
+                padding-bottom: 5px; 
+            }
+            
+            .contact-info {
+                gap: 10px; 
+            }
+        }
+        
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            .content {
+                flex-direction: column;
+            }
+            
+            .contact-info {
+                flex-direction: column;
+                gap: 8px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="resume-container">
+        <div class="header">
+            <h1 class="name">FARHAN SHAIKH</h1>
+            <p class="title">Aspiring Human Resource Professional</p>
+            <div class="contact-info">
+                <div class="contact-item">
+                    <i class="fas fa-map-marker-alt"></i>
+                    <span>Bandra, Mumbai</span>
+                </div>
+                <div class="contact-item">
+                    <i class="fas fa-phone"></i>
+                    <span>9699957974</span>
+                </div>
+                <div class="contact-item">
+                    <i class="fas fa-envelope"></i>
+                    <span>farhan9324shaikh@gmail.com</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="content">
+            <div class="left-column">
+                <div class="section">
+                    <h2 class="section-title">
+                        <i class="fas fa-bullseye"></i>Career Objective
+                    </h2>
+                    <p style="font-size: 14px; color: #555;">Motivated and people-focused BBA graduate seeking an entry-level Human Resource role. Strong interest in **recruitment**, **employee engagement**, and **HR operations**. Eager to contribute to a dynamic organization by utilizing strong communication, adaptability, and interpersonal skills.</p>
+                </div>
+                
+                <div class="section">
+                    <h2 class="section-title">
+                        <i class="fas fa-tools"></i>Key HR Skills
+                    </h2>
+                    <ul class="skills-list">
+                        <li class="skill-item">
+                            <span class="skill-name">Recruitment & Selection</span>
+                            <div class="skill-bar"><div class="skill-level" style="width: 90%"></div></div>
+                        </li>
+                        <li class="skill-item">
+                            <span class="skill-name">Screening & Shortlisting</span>
+                            <div class="skill-bar"><div class="skill-level" style="width: 85%"></div></div>
+                        </li>
+                        <li class="skill-item">
+                            <span class="skill-name">Interview Coordination</span>
+                            <div class="skill-bar"><div class="skill-level" style="width: 80%"></div></div>
+                        </li>
+                        <li class="skill-item">
+                            <span class="skill-name">Onboarding & Documentation</span>
+                            <div class="skill-bar"><div class="skill-level" style="width: 75%"></div></div>
+                        </li>
+                        <li class="skill-item">
+                            <span class="skill-name">Employee Engagement</span>
+                            <div class="skill-bar"><div class="skill-level" style="width: 85%"></div></div>
+                        </li>
+                        <li class="skill-item">
+                            <span class="skill-name">HRMS / MS Excel</span>
+                            <div class="skill-bar"><div class="skill-level" style="width: 70%"></div></div>
+                        </li>
+                    </ul>
+                </div>
+                
+                <div class="section">
+                    <h2 class="section-title">
+                        <i class="fas fa-users"></i>Soft Skills
+                    </h2>
+                    <ul class="skills-list">
+                        <li class="skill-item">
+                            <span class="skill-name">Communication</span>
+                            <div class="skill-bar"><div class="skill-level" style="width: 95%"></div></div>
+                        </li>
+                        <li class="skill-item">
+                            <span class="skill-name">Problem Solving</span>
+                            <div class="skill-bar"><div class="skill-level" style="width: 85%"></div></div>
+                        </li>
+                        <li class="skill-item">
+                            <span class="skill-name">Team Collaboration</span>
+                            <div class="skill-bar"><div class="skill-level" style="width: 90%"></div></div>
+                        </li>
+                        <li class="skill-item">
+                            <span class="skill-name">Adaptability</span>
+                            <div class="skill-bar"><div class="skill-level" style="width: 88%"></div></div>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+            
+            <div class="right-column">
+                <div class="section">
+                    <h2 class="section-title">
+                        <i class="fas fa-graduation-cap"></i>Education
+                    </h2>
+                    <div class="education-item">
+                        <div class="education-title">Bachelor of Business Administration (BBA)</div>
+                        <div class="education-institution">Tilak Maharashtra Vidyapeeth , Pune | Specialization: Communication</div>
+                        <div class="education-date">Graduation: 2025</div>
+                    </div>
+                    <div class="education-item">
+                        <div class="education-title">Higher Secondary Certificate (HSC)</div>
+                        <div class="education-institution">Nitin Godiwala College of Commerce</div>
+                        <div class="education-date">Completed: 2022</div>
+                    </div>
+                    <div class="education-item">
+                        <div class="education-title">Secondary School Certificate (SSC)</div>
+                        <div class="education-institution">Purshottam High School</div>
+                        <div class="education-date">Completed: 2020</div>
+                    </div>
+                </div>
+                
+                <div class="section">
+                    <h2 class="section-title">
+                        <i class="fas fa-project-diagram"></i>Projects & Academic Activities
+                    </h2>
+                    <div class="project-item">
+                        <div class="project-title">Employee Communication & Workflow Mini-Project</div>
+                        <div class="project-description">Conducted as part of the BBA curriculum, focusing on analyzing and improving internal communication channels and workflow efficiency within organizations.</div>
+                    </div>
+                    <div class="project-item">
+                        <div class="project-title">College Event Organizer</div>
+                        <div class="project-description">Assisted in organizing college events, enhancing leadership, coordination, and team management skills through practical experience.</div>
+                    </div>
+                </div>
+                
+                <div class="section">
+                    <h2 class="section-title">
+                        <i class="fas fa-language"></i>Languages
+                    </h2>
+                    <div class="language-item">
+                        <span class="language-name">English</span>
+                        <span class="language-level">Fluent</span>
+                    </div>
+                    <div class="language-item">
+                        <span class="language-name">Hindi</span>
+                        <span class="language-level">Native</span>
+                    </div>
+                    <div class="language-item">
+                        <span class="language-name">Marathi</span>
+                        <span class="language-level">Proficient</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Function to handle printing
+        function printResume() {
+            window.print();
+        }
+        
+        // Add print button for convenience (optional)
+        document.addEventListener('DOMContentLoaded', function() {
+            const printButton = document.createElement('button');
+            printButton.innerHTML = 'Print / Save as PDF';
+            printButton.style.position = 'fixed';
+            printButton.style.top = '20px';
+            printButton.style.right = '20px';
+            printButton.style.padding = '10px 15px';
+            printButton.style.backgroundColor = '#3498db';
+            printButton.style.color = 'white';
+            printButton.style.border = 'none';
+            printButton.style.borderRadius = '5px';
+            printButton.style.cursor = 'pointer';
+            printButton.style.zIndex = '1000';
+            printButton.addEventListener('click', printResume);
+            
+            document.body.appendChild(printButton);
+        });
+    </script>
+</body>
+</html>

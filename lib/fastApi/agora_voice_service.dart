@@ -1,95 +1,37 @@
 // lib/fastApi/agora_voice_service.dart
 import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
-import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/foundation.dart';
 
-class AgoraVoiceAuth {
-  final String appId;        // "appID"
-  final String channelName;  // "channelName"
-  final String? token;       // "voice_token" (nullable/empty if no certificate)
-  final String user;         // "user" (string userAccount for registerLocalUserAccount)
-  final int expiresIn;       // "timer" seconds
+import 'agora_service.dart'; // <-- we reuse AgoraService + AgoraJoinParams
 
-  const AgoraVoiceAuth({
-    required this.appId,
-    required this.channelName,
-    required this.token,
-    required this.user,
-    required this.expiresIn,
-  });
-
-  factory AgoraVoiceAuth.fromJson(Map<String, dynamic> j) {
-    String readStr(String k) => (j[k] ?? '').toString();
-
-    int readInt(dynamic v) {
-      if (v is int) return v;
-      if (v is String) return int.tryParse(v) ?? 0;
-      return 0;
-    }
-
-    final tok = j['voice_token']?.toString() ?? j['token']?.toString() ?? '';
-
-    final auth = AgoraVoiceAuth(
-      appId: readStr('appID').isNotEmpty ? readStr('appID') : readStr('appId'),
-      channelName: readStr('channelName'),
-      token: tok.isNotEmpty ? tok : null, // normalize empty -> null
-      user: readStr('user'),
-      expiresIn: readInt(j['timer'] ?? j['expireIn']),
-    );
-
-    if (auth.appId.isEmpty || auth.channelName.isEmpty) {
-      throw const FormatException('Invalid voice auth: appID/channelName missing');
-    }
-    return auth;
-  }
-
-  @override
-  String toString() =>
-      'AgoraVoiceAuth(appId=$appId, channel=$channelName, hasToken=${token != null}, user=$user, ttl=$expiresIn)';
-}
-
+/// Thin wrapper that reuses the *video* token API for AUDIO calls.
+/// This guarantees both sides join the same channel with matching
+/// userAccount + token pairs.
 class AgoraVoiceService {
-  static const String _base = 'https://fastapi.jyotishionline.com';
-
-  /// GET /agora/token/voice?other_user_id=<ASTRO_ID>
-  static Future<AgoraVoiceAuth> getVoiceToken({
-    required String otherUserId,
-    Duration timeout = const Duration(seconds: 15),
+  /// Build AUDIO join params for either role using the video-token payload.
+  ///
+  /// - isAstrologer = true  → token = astro_token,     account = astro_id
+  /// - isAstrologer = false → token = current_user_token, account = current_user_id
+  static Future<AgoraJoinParams> getAudioJoinParams({
+    required String astroId,
+    required bool isAstrologer,
   }) async {
-    print('🎧 [AgoraVoiceService] Fetch voice token for other_user_id=$otherUserId');
+    debugPrint('🎧 [AgoraVoiceService] fetching video tokens for audio… astroId=$astroId, role=${isAstrologer ? 'ASTRO' : 'CUSTOMER'}');
 
-    final prefs = await SharedPreferences.getInstance();
-    final bearer = prefs.getString('access_token') ?? '';
+    // 1) Fetch the standard video tokens (your stable endpoint)
+    final auth = await AgoraService.getVideoTokens(astroId);
 
-    final uri = Uri.parse('$_base/agora/token/voice')
-        .replace(queryParameters: {'other_user_id': otherUserId});
-    final headers = <String, String>{
-      'accept': 'application/json',
-      if (bearer.isNotEmpty) 'Authorization': 'Bearer $bearer',
-    };
+    // 2) Convert to the token+account pair required for this role
+    final params = AgoraService.buildJoinParams(auth: auth, isAstrologer: isAstrologer);
 
-    late http.Response res;
-    try {
-      res = await http.get(uri, headers: headers).timeout(timeout);
-    } on SocketException {
-      throw Exception('Network error: unable to reach server');
-    } on HttpException catch (e) {
-      throw Exception('HTTP error: $e');
-    } on FormatException {
-      throw Exception('Bad response from server');
-    } on TimeoutException {
-      throw Exception('Server timed out while fetching voice token');
-    }
-
-    print('⬅️ [AgoraVoiceService] ${res.statusCode} ${res.body}');
-    if (res.statusCode == 200) {
-      return AgoraVoiceAuth.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
-    }
-    if (res.statusCode == 401) {
-      throw Exception('Unauthorized (401). Please log in again.');
-    }
-    throw Exception('Voice token fetch failed: ${res.statusCode} ${res.body}');
+    debugPrint('✅ [AgoraVoiceService] join params → $params');
+    return params;
   }
+
+  /// Convenience helpers if you prefer explicit methods.
+  static Future<AgoraJoinParams> getCustomerAudioParams(String astroId) =>
+      getAudioJoinParams(astroId: astroId, isAstrologer: false);
+
+  static Future<AgoraJoinParams> getAstrologerAudioParams(String astroId) =>
+      getAudioJoinParams(astroId: astroId, isAstrologer: true);
 }

@@ -1,13 +1,13 @@
 {
   "project_info": {
-    "project_number": "946296603847",
-    "project_id": "jyotishi-ef7e6",
-    "storage_bucket": "jyotishi-ef7e6.firebasestorage.app"
+    "project_number": "955839680655",
+    "project_id": "astro-app-notifications",
+    "storage_bucket": "astro-app-notifications.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:946296603847:android:a428a78352a74a99b06ae2",
+        "mobilesdk_app_id": "1:955839680655:android:92a2f673eebe015dea60fa",
         "android_client_info": {
           "package_name": "com.jyotishi.astro"
         }
@@ -15,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyCXbdAXDCEn1GdDkWHfO6FInEbwv29zZVE"
+          "current_key": "AIzaSyDsCXYrCAePbP26XFmXc1pWWjb09-AwlPo"
         }
       ],
       "services": {

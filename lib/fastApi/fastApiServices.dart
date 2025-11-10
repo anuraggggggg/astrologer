@@ -480,50 +480,6 @@ class FastApiServices {
     }
   }
 
-    /// 🔴 End (stop) the current Agora Live started by the astrologer
-/// POST /agora/live/end
-/// Returns: { "status": true, "message": "Live ended", "channelName": "..." }
-Future<Map<String, dynamic>> endAgoraLive() async {
-  // Ensure we have a valid token; _getOrLoginToken will auto-login if missing
-  final token = await _getOrLoginToken();
-  _accessToken = token;
-
-  if (_accessToken == null || _accessToken!.isEmpty) {
-    throw Exception("Not authenticated: missing access token");
-  }
-
-  final url = Uri.parse("https://fastapi.jyotishionline.com/agora/live/end");
-  debugPrint("🛑 [AGORA LIVE END] POST $url");
-
-  final resp = await http.post(
-    url,
-    headers: {
-      "accept": "application/json",
-      "Authorization": "Bearer $_accessToken",
-    },
-  );
-
-  debugPrint("🛑 [AGORA LIVE END] status=${resp.statusCode}");
-  debugPrint("🛑 [AGORA LIVE END] body=${resp.body}");
-
-  if (resp.statusCode == 200) {
-    final data = resp.body.isNotEmpty
-        ? (jsonDecode(resp.body) as Map<String, dynamic>)
-        : <String, dynamic>{};
-    return data;
-  }
-
-  // Helpful errors for common cases
-  if (resp.statusCode == 401) {
-    throw Exception("Unauthorized (401): Please log in again.");
-  }
-  if (resp.statusCode == 403) {
-    throw Exception("Forbidden (403): Only the astrologer who started the live can end it.");
-  }
-
-  throw Exception("Live end failed (${resp.statusCode}): ${resp.body}");
-}
-
   // ---------------- HELPERS ----------------
   static Future<String?> getUserId() async {
     final prefs = await SharedPreferences.getInstance();
@@ -747,7 +703,35 @@ Future<Map<String, dynamic>> endAgoraLive() async {
     }
   }
 
+  Future<Map<String, dynamic>> endAgoraLive({String? overrideToken}) async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = overrideToken ??
+        prefs.getString('access_token') ??
+        prefs.getString('accessToken');
 
+    if (token == null || token.isEmpty) {
+      throw Exception('Missing access token. Please log in again.');
+    }
 
+    final res = await http.post(
+      Uri.parse(FastApiEndpoints.endAgoraLive),
+      headers: {
+        'accept': 'application/json',
+        'authorization': 'Bearer $token',
+        // NOTE: No body and no content-type required!
+      },
+    );
 
+    if (res.statusCode == 200) {
+      return jsonDecode(res.body) as Map<String, dynamic>;
+    }
+
+    // Bubble server errors nicely just like your start method
+    try {
+      final err = jsonDecode(res.body);
+      throw Exception('Live end failed (${res.statusCode}): $err');
+    } catch (_) {
+      throw Exception('Live end failed (${res.statusCode}): ${res.body}');
+    }
+  }
 }

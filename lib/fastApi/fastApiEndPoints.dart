@@ -43,4 +43,5 @@ class FastApiEndpoints {
       "$fastApiBaseUrl/chat/history/$participantId?page=$page&size=$size";
 
       static const String startAgoraLive = "$fastApiBaseUrl/agora/live/start";
+      static const String endAgoraLive   = "$fastApiBaseUrl/agora/live/end";
 }

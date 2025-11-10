@@ -1,8 +1,10 @@
+// lib/views/HomeScreen/tabs/homeTab/VideoCallRequests.dart
 import 'package:astrowaypartner/fastApi/fastApiServices.dart';
 import 'package:astrowaypartner/views/HomeScreen/tabs/homeTab/videoCallPage.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+// ✅ Import the actual call page (this is where the navigation goes)
 class VideoCallRequests extends StatefulWidget {
   const VideoCallRequests({super.key});
 
@@ -24,27 +26,26 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
     _requestsFuture = FastApiServices().fetchAstrologerRequests();
   }
 
-  Future<void> _goToCall(Map<String, dynamic> req) async {
+  Future<void> _goToCall() async {
     final prefs = await SharedPreferences.getInstance();
     final astroId = prefs.getString('astro_id') ?? '';
 
     if (astroId.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Astrologer ID missing — please login again.')),
-        );
-      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Astrologer ID missing — please login again.')),
+      );
       return;
     }
 
     if (!mounted) return;
-
     await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => VideoCallPage(
           astroId: astroId,
-          isAstrologer: true,
+          isAstrologer: true, // astrologer app
         ),
       ),
     );
@@ -53,10 +54,10 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
   }
 
   Future<void> _respondToRequest(
-      int requestId,
-      String status,
-      Map<String, dynamic> req,
-      ) async {
+    int requestId,
+    String status,
+    Map<String, dynamic> req,
+  ) async {
     if (_actBusy) return;
     setState(() => _actBusy = true);
 
@@ -69,16 +70,18 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
       if (!mounted) return;
 
       if (success) {
-        if (status == 'accepted') {
-          // ✅ Direct navigation after accepting
-          await _goToCall(req);
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("Request $status successfully.")),
-          );
+        if (status.toLowerCase() == 'accepted') {
+          // ✅ Navigate to the call screen on accept
+          // release busy state before navigating so buttons don't stay disabled on back
+          setState(() => _actBusy = false);
+          await _goToCall();
+          return;
         }
 
-        if (mounted) setState(_loadRequests);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Request $status successfully.")),
+        );
+        setState(_loadRequests);
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Failed to update request.')),
@@ -149,7 +152,8 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
 
         final videoRequests = snapshot.data!
             .where((req) =>
-        (req['session_type']?.toString() ?? '').toLowerCase() == 'video_call')
+                (req['session_type']?.toString() ?? '').toLowerCase() ==
+                'video_call')
             .toList();
 
         if (videoRequests.isEmpty) {
@@ -169,7 +173,8 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
             return Card(
               margin: const EdgeInsets.symmetric(vertical: 8),
               elevation: 2,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Column(
@@ -184,10 +189,14 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
                           children: [
                             Row(
                               children: [
-                                Icon(Icons.person, size: 16, color: Theme.of(context).primaryColor),
+                                Icon(Icons.person,
+                                    size: 16,
+                                    color: Theme.of(context).primaryColor),
                                 const SizedBox(width: 6),
                                 Text("User",
-                                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                                    style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey.shade600)),
                               ],
                             ),
                             const SizedBox(height: 4),
@@ -206,7 +215,8 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
 
                     Row(
                       children: [
-                        Icon(Icons.videocam, size: 16, color: Colors.purple.shade600),
+                        Icon(Icons.videocam,
+                            size: 16, color: Colors.purple.shade600),
                         const SizedBox(width: 6),
                         Text(
                           "Video Call Session",
@@ -221,7 +231,7 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
 
                     const SizedBox(height: 12),
 
-                    // ✅ Buttons
+                    // ✅ Buttons/Status
                     if (status == 'pending') ...[
                       Row(
                         children: [
@@ -229,7 +239,11 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
                             child: OutlinedButton(
                               onPressed: _actBusy
                                   ? null
-                                  : () => _respondToRequest(req['id'], 'declined', req),
+                                  : () => _respondToRequest(
+                                        req['id'],
+                                        'declined',
+                                        req,
+                                      ),
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: Colors.red,
                                 side: const BorderSide(color: Colors.red),
@@ -242,7 +256,11 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
                             child: ElevatedButton(
                               onPressed: _actBusy
                                   ? null
-                                  : () => _respondToRequest(req['id'], 'accepted', req),
+                                  : () => _respondToRequest(
+                                        req['id'],
+                                        'accepted',
+                                        req,
+                                      ),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.green,
                                 foregroundColor: Colors.white,
@@ -253,18 +271,24 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
                         ],
                       ),
                     ] else if (status == 'accepted') ...[
-                      ElevatedButton(
-                        onPressed: () => _goToCall(req),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue,
-                          foregroundColor: Colors.white,
+                      // ✅ Show Join button for already-accepted sessions
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: _actBusy ? null : _goToCall,
+                          icon: const Icon(Icons.play_arrow),
+                          label: const Text('Join Call'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.indigo,
+                            foregroundColor: Colors.white,
+                          ),
                         ),
-                        child: const Text("Join Call Again"),
                       ),
                     ] else ...[
                       Text(
                         "This request is $status.",
-                        style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                        style: TextStyle(
+                            color: Colors.grey.shade600, fontSize: 12),
                       ),
                     ],
                   ],
