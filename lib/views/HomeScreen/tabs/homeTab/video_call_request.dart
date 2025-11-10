@@ -272,18 +272,34 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
                       ),
                     ] else if (status == 'accepted') ...[
                       // ✅ Show Join button for already-accepted sessions
+                      // SizedBox(
+                      //   width: double.infinity,
+                      //   child: ElevatedButton.icon(
+                      //     onPressed: _actBusy ? null : _goToCall,
+                      //     icon: const Icon(Icons.play_arrow),
+                      //     label: const Text('Join Call'),
+                      //     style: ElevatedButton.styleFrom(
+                      //       backgroundColor: Colors.indigo,
+                      //       foregroundColor: Colors.white,
+                      //     ),
+                      //   ),
+                      // ),
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton.icon(
-                          onPressed: _actBusy ? null : _goToCall,
-                          icon: const Icon(Icons.play_arrow),
-                          label: const Text('Join Call'),
+                          onPressed: null, // disabled
+                          icon: const Icon(Icons.lock),
+                          label: const Text('Session over'),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.indigo,
+                            backgroundColor: Colors.grey,
                             foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
                           ),
                         ),
-                      ),
+                      )
                     ] else ...[
                       Text(
                         "This request is $status.",

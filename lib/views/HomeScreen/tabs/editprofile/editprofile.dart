@@ -278,27 +278,77 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
     const SizedBox(height: 10),
     TextFormField(
       controller: _audioCallController,
-      decoration: const InputDecoration(labelText: "Audio Call Charge"),
+      decoration: const InputDecoration(
+        labelText: "Audio Call Charge ₹/10 min — min 200",
+      ),
       keyboardType: TextInputType.number,
-      validator: (value) =>
-      value!.isEmpty ? "Please enter audio call charge" : null,
+      validator: (value) {
+        if (value == null || value.isEmpty) {
+          return "Please enter audio call charge";
+        }
+
+        final charge = int.tryParse(value);
+        if (charge == null) {
+          return "Please enter a valid number";
+        }
+
+        if (charge < 50) {
+          return "Minimum charge must be ₹200";
+        }
+
+        return null;
+      },
     ),
+
     const SizedBox(height: 10),
     TextFormField(
       controller: _chatController,
-      decoration: const InputDecoration(labelText: "Chat Charge"),
+      decoration: const InputDecoration(
+        labelText: "Chat Charge ₹/10 min — min 50",
+      ),
       keyboardType: TextInputType.number,
-      validator: (value) =>
-      value!.isEmpty ? "Please enter chat charge" : null,
+      validator: (value) {
+        if (value == null || value.isEmpty) {
+          return "Please enter chat charge";
+        }
+
+        final charge = int.tryParse(value);
+        if (charge == null) {
+          return "Please enter a valid number";
+        }
+
+        if (charge < 50) {
+          return "Minimum charge must be ₹50";
+        }
+
+        return null;
+      },
     ),
     const SizedBox(height: 10),
     TextFormField(
       controller: _videoCallController,
-      decoration: const InputDecoration(labelText: "Video Call Charge"),
+      decoration: const InputDecoration(
+        labelText: "Video Call Charge ₹/10 min — min 250",
+      ),
       keyboardType: TextInputType.number,
-      validator: (value) =>
-      value!.isEmpty ? "Please enter video call charge" : null,
+      validator: (value) {
+        if (value == null || value.isEmpty) {
+          return "Please enter video call charge";
+        }
+
+        final charge = int.tryParse(value);
+        if (charge == null) {
+          return "Please enter a valid number";
+        }
+
+        if (charge < 250) {
+          return "Minimum charge must be ₹250";
+        }
+
+        return null;
+      },
     ),
+
     const SizedBox(height: 10),
     TextFormField(
       controller: _languageController,
