@@ -734,4 +734,56 @@ class FastApiServices {
       throw Exception('Live end failed (${res.statusCode}): ${res.body}');
     }
   }
+
+    // ----------------------------------------------------------
+  // 🚀 Auto Register FCM Token on App Start
+  // ----------------------------------------------------------
+  Future<void> autoRegisterAstrologerFcmToken(String fcmToken) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString("fcm_token", fcmToken);
+      print("💾 Saved FCM token locally: $fcmToken");
+
+      final astroId = prefs.getString("astro_id");
+      if (astroId == null || astroId.isEmpty) {
+        print("🚨 Cannot register FCM token — Astrologer ID missing.");
+        return;
+      }
+
+      final url = Uri.parse(
+          "https://fastapi.jyotishionline.com/Astrologer_notification/register-token");
+
+      final body = jsonEncode({
+        "astrologer_id": astroId,
+        "fcm_token": fcmToken,
+      });
+
+      print("📡 Registering FCM Token to FastAPI...");
+      print("🔗 URL: $url");
+      print("🧾 Body: $body");
+
+      final response = await http.post(
+        url,
+        headers: {
+          "accept": "application/json",
+          "Content-Type": "application/json",
+        },
+        body: body,
+      );
+
+      print("⬅️ Response Status: ${response.statusCode}");
+      print("⬅️ Response Body: ${response.body}");
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final data = jsonDecode(response.body);
+        print("✅ FCM Token Registered Successfully!");
+        print("   🔹 Message: ${data["message"] ?? "Success"}");
+      } else {
+        print("❌ Failed to register FCM token: ${response.body}");
+      }
+    } catch (e, stack) {
+      print("🔥 Exception while registering FCM token: $e");
+      print(stack);
+    }
+  }
 }
