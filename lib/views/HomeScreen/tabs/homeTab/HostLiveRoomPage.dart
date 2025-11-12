@@ -145,12 +145,23 @@
     void dispose() {
       _commentCtrl.dispose();
       _commentScroll.dispose();
+
+      // 🟣 Automatically end the live session when host leaves the page
       () async {
+        try {
+          await FastApiServices().endAgoraLive();
+        } catch (e) {
+          debugPrint('Auto end live failed: $e');
+        }
+
         try {
           await _engine.leaveChannel();
           await _engine.release();
-        } catch (_) {}
+        } catch (e) {
+          debugPrint('Agora cleanup failed: $e');
+        }
       }();
+
       super.dispose();
     }
 
@@ -211,10 +222,15 @@
                       ),
                     )
                   : IconButton(
-                      icon: const Icon(Icons.logout),
-                      onPressed: _endLive,
-                      tooltip: 'End',
-                    ),
+                icon: const Icon(
+                  Icons.stop_circle_outlined, // 🎯 change icon shape
+                  color: Colors.redAccent, // 🔴 make icon red
+                  size: 30, // a bit larger for better visibility
+                ),
+                tooltip: 'End Live Session',
+                onPressed: _endLive,
+              ),
+
             ),
           ],
         ),

@@ -213,7 +213,7 @@ class FastApiServices {
 
     // ✅ Remove '+' sign if present
     final formattedCountryCode =
-        countryCode.startsWith('+') ? countryCode.substring(1) : countryCode;
+    countryCode.startsWith('+') ? countryCode.substring(1) : countryCode;
 
     final sendWhatsapp = true;
     final sendSms = true;
@@ -328,7 +328,7 @@ class FastApiServices {
 
   Future<Map<String, dynamic>> getChatHistoryForAstrologerSelf({
     required String
-        otherUserId, // currently you pass astrologer id (self) due to backend quirk
+    otherUserId, // currently you pass astrologer id (self) due to backend quirk
     int page = 1,
     int size = 20,
   }) async {
@@ -351,7 +351,7 @@ class FastApiServices {
     debugPrint("   • Token present: ${token != null && token.isNotEmpty}");
     if (token != null && token.isNotEmpty) {
       final tail =
-          token.length > 12 ? token.substring(token.length - 12) : token;
+      token.length > 12 ? token.substring(token.length - 12) : token;
       debugPrint("   • Token tail: ...$tail");
     }
 
@@ -590,7 +590,8 @@ class FastApiServices {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         print(
-            'Full Response:\n${const JsonEncoder.withIndent('  ').convert(data)}');
+            'Full Response:\n${const JsonEncoder.withIndent('  ').convert(
+                data)}');
         return data; // ✅ Return full JSON
       } else {
         print('Failed to load data. Status code: ${response.statusCode}');
@@ -612,10 +613,10 @@ class FastApiServices {
     }
 
     final url =
-        Uri.parse('${FastApiEndpoints.transactionHistory}$astrologerId');
+    Uri.parse('${FastApiEndpoints.transactionHistory}$astrologerId');
 
     final response =
-        await http.get(url, headers: {'accept': 'application/json'});
+    await http.get(url, headers: {'accept': 'application/json'});
 
     if (response.statusCode == 200) {
       final List<dynamic> jsonList = jsonDecode(response.body);
@@ -682,7 +683,8 @@ class FastApiServices {
 
     // 👇 Query params in URL
     final url = Uri.parse(
-      "${FastApiEndpoints.startAgoraLive}?astrologer_id=$astrologerId&ttlSeconds=$ttlSeconds",
+      "${FastApiEndpoints
+          .startAgoraLive}?astrologer_id=$astrologerId&ttlSeconds=$ttlSeconds",
     );
 
     final res = await http.post(
@@ -710,6 +712,8 @@ class FastApiServices {
 
   Future<Map<String, dynamic>> endAgoraLive({String? overrideToken}) async {
     final prefs = await SharedPreferences.getInstance();
+
+    // token from shared preferences
     final token = overrideToken ??
         prefs.getString('access_token') ??
         prefs.getString('accessToken');
@@ -718,12 +722,21 @@ class FastApiServices {
       throw Exception('Missing access token. Please log in again.');
     }
 
+    // astrologer_id from shared preferences
+    final astrologerId = prefs.getString('astro_id');
+    if (astrologerId == null || astrologerId.isEmpty) {
+      throw Exception('Missing astrologer_id in SharedPreferences.');
+    }
+
+    // full URL with query param
+    final url =
+        '${FastApiEndpoints.endAgoraLive}?astrologer_id=$astrologerId';
+
     final res = await http.post(
-      Uri.parse(FastApiEndpoints.endAgoraLive),
+      Uri.parse(url),
       headers: {
         'accept': 'application/json',
         'authorization': 'Bearer $token',
-        // NOTE: No body and no content-type required!
       },
     );
 
@@ -731,7 +744,6 @@ class FastApiServices {
       return jsonDecode(res.body) as Map<String, dynamic>;
     }
 
-    // Bubble server errors nicely just like your start method
     try {
       final err = jsonDecode(res.body);
       throw Exception('Live end failed (${res.statusCode}): $err');

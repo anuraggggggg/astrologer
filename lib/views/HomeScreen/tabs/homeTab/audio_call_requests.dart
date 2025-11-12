@@ -13,7 +13,8 @@ class AudioCallRequests extends StatefulWidget {
 }
 
 class _AudioCallRequestsState extends State<AudioCallRequests> {
-  late Future<List<Map<String, dynamic>>> _requestsFuture;
+  Future<List<Map<String, dynamic>>>? _requestsFuture;
+
 
   /// Saved/self astrologer id from SharedPreferences (fallback when list items don’t include it)
   String _selfAstroId = '';

@@ -3,6 +3,7 @@ import 'package:astrowaypartner/views/HomeScreen/tabs/homeTab/HostLiveRoomPage.d
 import 'package:flutter/material.dart';
 import 'package:clipboard/clipboard.dart';
 import 'package:astrowaypartner/fastApi/fastApiServices.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class GoLivePage extends StatefulWidget {
   const GoLivePage({super.key});
@@ -37,15 +38,23 @@ class _GoLivePageState extends State<GoLivePage> {
     });
 
     try {
+      // 🔹 Get astrologer_id dynamically
+      final prefs = await SharedPreferences.getInstance();
+      final astrologerId = prefs.getString('astro_id');
+
+      if (astrologerId == null || astrologerId.isEmpty) {
+        throw Exception('Astrologer ID not found in SharedPreferences');
+      }
+
+      // 🔹 Now call API
       final res = await _api.startAgoraLive(
-        astrologerId: "fea423d4-3f23-43a9-9ecb-a5cd4d0d5247",
+        astrologerId: astrologerId,
         ttlSeconds: _ttlSeconds,
       );
 
-      // === DEBUG: print the whole response so you can inspect keys ===
       debugPrint('startAgoraLive response: $res');
 
-      // Some backends wrap data under 'data' key. try to normalize:
+      // Some backends wrap data under 'data' key.
       final payload = (res['data'] is Map) ? res['data'] : res;
 
       final status = (res['status'] == true);
@@ -56,16 +65,19 @@ class _GoLivePageState extends State<GoLivePage> {
           payload['room_name'] ??
           '')
           .toString();
+
       final appId = (payload['appID'] ??
           payload['app_id'] ??
           payload['appId'] ??
           payload['appid'] ??
           '')
           .toString();
+
       final msg = (res['message'] ??
           payload['message'] ??
           'Live started')
           .toString();
+
       final rtcToken = (payload['rtc_token'] ??
           payload['rtcToken'] ??
           payload['token'] ??
@@ -73,13 +85,43 @@ class _GoLivePageState extends State<GoLivePage> {
           .toString();
 
       setState(() {
-        // only mark live when we have a valid channel OR status true & channel present
         _live = (status && channel.isNotEmpty) || channel.isNotEmpty;
         if (channel.isNotEmpty) _channelName = channel;
         if (appId.isNotEmpty) _appId = appId;
         _rtcToken = rtcToken.isNotEmpty ? rtcToken : null;
         _message = msg;
       });
+
+      // ✅ If token received, navigate to live page
+      if (_rtcToken != null && _rtcToken!.isNotEmpty) {
+        final result = await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => HostLiveRoomPage(
+              appId: _appId!,
+              channelName: _channelName!,
+              rtcToken: _rtcToken!,
+            ),
+          ),
+        );
+
+// 🟢 When host ends and returns, reset UI
+        if (mounted) {
+          setState(() {
+            _live = false;
+            _starting = false;
+            _ending = false;
+            _message = "Session ended successfully";
+          });
+        }
+
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('RTC token missing in response. Cannot go live.'),
+          ),
+        );
+      }
     } catch (e) {
       setState(() {
         _message = e.toString();
@@ -92,6 +134,7 @@ class _GoLivePageState extends State<GoLivePage> {
       if (mounted) setState(() => _starting = false);
     }
   }
+
 
   Future<void> _endLive() async {
     if (_ending) return;
@@ -130,10 +173,16 @@ class _GoLivePageState extends State<GoLivePage> {
     final channel = _channelName ?? '';
 
     // debug logs + short snackbar for quick feedback
-    debugPrint('Attempt enterLiveRoom -> appId: "$appId", channel: "$channel", rtcTokenPresent: ${_rtcToken != null}');
+    debugPrint(
+        'Attempt enterLiveRoom -> appId: "$appId", channel: "$channel", rtcTokenPresent: ${_rtcToken !=
+            null}');
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('appId: ${appId.isEmpty ? "<empty>" : "present"}  •  channel: ${channel.isEmpty ? "<empty>" : "present"}'),
+        content: Text('appId: ${appId.isEmpty
+            ? "<empty>"
+            : "present"}  •  channel: ${channel.isEmpty
+            ? "<empty>"
+            : "present"}'),
         duration: const Duration(seconds: 2),
       ),
     );
@@ -149,11 +198,12 @@ class _GoLivePageState extends State<GoLivePage> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => HostLiveRoomPage(
-          appId: appId,
-          channelName: channel,
-          rtcToken: _rtcToken, // pass nullable token
-        ),
+        builder: (_) =>
+            HostLiveRoomPage(
+              appId: appId,
+              channelName: channel,
+              rtcToken: _rtcToken, // pass nullable token
+            ),
       ),
     );
   }
@@ -164,212 +214,141 @@ class _GoLivePageState extends State<GoLivePage> {
     final canStart = !_starting;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Go Live'),
-        backgroundColor: Colors.deepPurple,
-        actions: [
-          if (_live)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: _ending
-                  ? const Center(
-                      child: SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    )
-                  : TextButton.icon(
-                      style: TextButton.styleFrom(
-                        foregroundColor: Colors.white,
-                        backgroundColor: Colors.redAccent,
-                      ),
-                      onPressed: _endLive,
-                      icon: const Icon(Icons.stop_circle_outlined),
-                      label: const Text('End Live'),
-                    ),
-            ),
-        ],
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Row(
+      backgroundColor: Colors.white,
+      // appBar: AppBar(
+      //   title: const Text('Go Live'),
+      //   backgroundColor: Colors.deepPurple,
+        // actions: [
+        //   if (_live)
+        //     Padding(
+        //       padding: const EdgeInsets.symmetric(horizontal: 8),
+        //       child: _ending
+        //           ? const Center(
+        //         child: SizedBox(
+        //           width: 20,
+        //           height: 20,
+        //           child: CircularProgressIndicator(
+        //               strokeWidth: 2, color: Colors.white),
+        //         ),
+        //       )
+        //           : TextButton.icon(
+        //         style: TextButton.styleFrom(
+        //           foregroundColor: Colors.white,
+        //           backgroundColor: Colors.redAccent,
+        //         ),
+        //         onPressed: _endLive,
+        //         icon: const Icon(Icons.stop_circle_outlined),
+        //         label: const Text('End Live'),
+        //       ),
+        //     ),
+        // ],
+      // ),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Container(
-                width: 10,
-                height: 10,
+              // Live indicator
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 600),
+                width: _live ? 120 : 100,
+                height: _live ? 120 : 100,
                 decoration: BoxDecoration(
-                  color: _live ? Colors.green : Colors.red,
                   shape: BoxShape.circle,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                _live ? 'LIVE' : 'Offline',
-                style: TextStyle(
-                  color: _live ? Colors.green : Colors.red,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(width: 12),
-              const Chip(
-                label: Text('Token: not used'),
-                visualDensity: VisualDensity(horizontal: -4, vertical: -4),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Tap Start Live to get channel & appId. We are NOT passing any RTC token to the host (requires App Certificate to be DISABLED in Agora project).',
-            style: TextStyle(color: Colors.grey[700]),
-          ),
-          const SizedBox(height: 16),
-
-          // TTL selector
-          Row(
-            children: [
-              const Text('Session TTL:'),
-              const SizedBox(width: 12),
-              DropdownButton<int>(
-                value: _ttlSeconds,
-                items: const [
-                  DropdownMenuItem(value: 1800, child: Text('30 min')),
-                  DropdownMenuItem(value: 3600, child: Text('1 hour')),
-                  DropdownMenuItem(value: 7200, child: Text('2 hours')),
-                  DropdownMenuItem(value: 14400, child: Text('4 hours')),
-                ],
-                onChanged: canStart
-                    ? (v) => setState(() => _ttlSeconds = v ?? 7200)
-                    : null,
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-
-          // Start / Refresh
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.deepPurple,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
-              ),
-              onPressed: canStart ? _startLive : null,
-              icon: _starting
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white),
+                  gradient: LinearGradient(
+                    colors: _live
+                        ? [Colors.redAccent, Colors.pinkAccent]
+                        : [Colors.yellow.shade700, Colors.yellow.shade200,],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: _live ? Colors.redAccent.withOpacity(0.5) : Colors
+                          .yellow.withOpacity(0.4),
+                      blurRadius: 20,
+                      spreadRadius: 4,
                     )
-                  : const Icon(Icons.wifi_tethering),
-              label: Text(_starting
-                  ? 'Starting…'
-                  : (_live ? 'Refresh / Resume' : 'Start Live')),
-            ),
-          ),
-
-          const SizedBox(height: 24),
-
-          // Result panel
-          Card(
-            elevation: 1,
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Live Details',
-                      style: TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 8),
-                  _InfoRow(
-                    label: 'Channel Name',
-                    value: _channelName ?? '-',
-                    onCopy: (_channelName ?? '').isEmpty
-                        ? null
-                        : () => _copy('Channel name', _channelName!),
+                  ],
+                ),
+                child: Center(
+                  child: Icon(
+                    _live ? Icons.videocam : Icons.videocam_outlined,
+                    color: Colors.white,
+                    size: 50,
                   ),
-                  const SizedBox(height: 8),
-                  _InfoRow(
-                    label: 'App ID',
-                    value: _appId ?? '-',
-                    onCopy: (_appId ?? '').isEmpty
-                        ? null
-                        : () => _copy('App ID', _appId!),
-                  ),
-                  const SizedBox(height: 8),
-                  const _InfoRow(
-                    label: 'Host Token',
-                    value:
-                        '(not used – join with empty token; App Certificate must be DISABLED)',
-                  ),
-                  const SizedBox(height: 8),
-                  _InfoRow(label: 'Message', value: _message ?? '-'),
-                ],
+                ),
               ),
-            ),
-          ),
 
-          const SizedBox(height: 24),
-
-          // 👉 Navigate to live room
-          // 👉 Navigate to live room (only when BOTH appId & channelName are available)
-          if (_live &&
-              (_channelName ?? '').isNotEmpty &&
-              (_appId ?? '').isNotEmpty)
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: _enterLiveRoom,
-                icon: const Icon(Icons.video_call),
-                label: const Text('Enter Live Room'),
+              const SizedBox(height: 24),
+              Text(
+                _live ? 'You’re Live Now 🎥' : 'Go Live Instantly!',
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: _live ? Colors.redAccent : Colors.yellow.shade700,
+                ),
               ),
-            ),
 
-        ],
-      ),
-    );
-  }
-}
+              const SizedBox(height: 12),
+              Text(
+                _live
+                    ? 'Streaming live for your followers...'
+                    : 'Tap below to start your live session.',
+                style: TextStyle(color: Colors.grey.shade700),
+                textAlign: TextAlign.center,
+              ),
 
-class _InfoRow extends StatelessWidget {
-  const _InfoRow({required this.label, required this.value, this.onCopy});
+              const SizedBox(height: 40),
 
-  final String label;
-  final String value;
-  final VoidCallback? onCopy;
+              // Start / End button
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _live ? Colors.redAccent : Colors.yellow.shade700,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                  ),
+                  onPressed: _live
+                      ? _endLive
+                      : (canStart ? _startLive : null),
+                  icon: _starting
+                      ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: Colors.white),
+                  )
+                      : Icon(_live ? Icons.stop : Icons.play_arrow),
+                  label: Text(
+                    _starting
+                        ? 'Starting…'
+                        : _live
+                        ? 'End Live'
+                        : 'Start Live',
+                    style: const TextStyle(fontSize: 18),
+                  ),
+                ),
+              ),
 
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        SizedBox(
-            width: 110,
-            child: Text(label,
-                style: const TextStyle(fontWeight: FontWeight.w600))),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Text(
-            value,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
+              const SizedBox(height: 30),
+
+              if (_message != null)
+                Text(
+                  _message!,
+                  style: TextStyle(
+                      color: _live ? Colors.green : Colors.red,
+                      fontWeight: FontWeight.w500),
+                  textAlign: TextAlign.center,
+                ),
+            ],
           ),
         ),
-        if (onCopy != null) ...[
-          const SizedBox(width: 6),
-          IconButton(
-            icon: const Icon(Icons.copy, size: 18),
-            onPressed: onCopy,
-            tooltip: 'Copy',
-          ),
-        ],
-      ],
+      ),
     );
   }
 }
