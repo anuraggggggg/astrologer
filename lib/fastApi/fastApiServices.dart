@@ -667,6 +667,7 @@ class FastApiServices {
   }
 
   Future<Map<String, dynamic>> startAgoraLive({
+    required String astrologerId,
     int ttlSeconds = 7200,
     String? overrideToken,
   }) async {
@@ -679,22 +680,26 @@ class FastApiServices {
       throw Exception('Missing access token. Please log in again.');
     }
 
+    // 👇 Query params in URL
+    final url = Uri.parse(
+      "${FastApiEndpoints.startAgoraLive}?astrologer_id=$astrologerId&ttlSeconds=$ttlSeconds",
+    );
+
     final res = await http.post(
-      Uri.parse(FastApiEndpoints.startAgoraLive),
+      url,
       headers: {
         'accept': 'application/json',
-        'content-type': 'application/json',
         'authorization': 'Bearer $token',
       },
-      // Backend expects a raw JSON number (not an object)
-      body: jsonEncode(ttlSeconds),
     );
+
+    print('🔹 Response Code: ${res.statusCode}');
+    print('🔹 Response Body: ${res.body}');
 
     if (res.statusCode == 200) {
       return jsonDecode(res.body) as Map<String, dynamic>;
     }
 
-    // Bubble up server detail when possible
     try {
       final err = jsonDecode(res.body);
       throw Exception('Live start failed (${res.statusCode}): $err');

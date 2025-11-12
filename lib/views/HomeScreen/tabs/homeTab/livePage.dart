@@ -26,6 +26,8 @@ class _GoLivePageState extends State<GoLivePage> {
   // intensionally removed _hostToken and any token handling.
 
   int _ttlSeconds = 7200;
+  String? _rtcToken;
+
 
   Future<void> _startLive() async {
     if (_starting) return;
@@ -35,22 +37,49 @@ class _GoLivePageState extends State<GoLivePage> {
     });
 
     try {
-      final res = await _api.startAgoraLive(ttlSeconds: _ttlSeconds);
+      final res = await _api.startAgoraLive(
+        astrologerId: "fea423d4-3f23-43a9-9ecb-a5cd4d0d5247",
+        ttlSeconds: _ttlSeconds,
+      );
+
+      // === DEBUG: print the whole response so you can inspect keys ===
+      debugPrint('startAgoraLive response: $res');
+
+      // Some backends wrap data under 'data' key. try to normalize:
+      final payload = (res['data'] is Map) ? res['data'] : res;
 
       final status = (res['status'] == true);
-      final channel = (res['channelName'] ?? '').toString();
-      final appId = (res['appID'] ?? '').toString();
-      final msg = (res['message'] ?? 'Live started').toString();
+      final channel = (payload['channelName'] ??
+          payload['channel_name'] ??
+          payload['channel'] ??
+          payload['room'] ??
+          payload['room_name'] ??
+          '')
+          .toString();
+      final appId = (payload['appID'] ??
+          payload['app_id'] ??
+          payload['appId'] ??
+          payload['appid'] ??
+          '')
+          .toString();
+      final msg = (res['message'] ??
+          payload['message'] ??
+          'Live started')
+          .toString();
+      final rtcToken = (payload['rtc_token'] ??
+          payload['rtcToken'] ??
+          payload['token'] ??
+          '')
+          .toString();
 
       setState(() {
-        _live = status || channel.isNotEmpty;
-        _channelName = channel.isNotEmpty ? channel : _channelName;
-        _appId = appId.isNotEmpty ? appId : _appId;
+        // only mark live when we have a valid channel OR status true & channel present
+        _live = (status && channel.isNotEmpty) || channel.isNotEmpty;
+        if (channel.isNotEmpty) _channelName = channel;
+        if (appId.isNotEmpty) _appId = appId;
+        _rtcToken = rtcToken.isNotEmpty ? rtcToken : null;
         _message = msg;
       });
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     } catch (e) {
       setState(() {
         _message = e.toString();
@@ -97,7 +126,20 @@ class _GoLivePageState extends State<GoLivePage> {
   }
 
   void _enterLiveRoom() {
-    if ((_appId ?? '').isEmpty || (_channelName ?? '').isEmpty) {
+    final appId = _appId ?? '';
+    final channel = _channelName ?? '';
+
+    // debug logs + short snackbar for quick feedback
+    debugPrint('Attempt enterLiveRoom -> appId: "$appId", channel: "$channel", rtcTokenPresent: ${_rtcToken != null}');
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('appId: ${appId.isEmpty ? "<empty>" : "present"}  •  channel: ${channel.isEmpty ? "<empty>" : "present"}'),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+
+    if (appId.isEmpty || channel.isEmpty) {
+      // keep the original error message for user
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Missing appId or channelName')),
       );
@@ -108,13 +150,14 @@ class _GoLivePageState extends State<GoLivePage> {
       context,
       MaterialPageRoute(
         builder: (_) => HostLiveRoomPage(
-          appId: _appId!, // required
-          channelName: _channelName!, // required
-          rtcToken: null, // ← DO NOT send any RTC token
+          appId: appId,
+          channelName: channel,
+          rtcToken: _rtcToken, // pass nullable token
         ),
       ),
     );
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -275,7 +318,10 @@ class _GoLivePageState extends State<GoLivePage> {
           const SizedBox(height: 24),
 
           // 👉 Navigate to live room
-          if (_live && (_channelName ?? '').isNotEmpty)
+          // 👉 Navigate to live room (only when BOTH appId & channelName are available)
+          if (_live &&
+              (_channelName ?? '').isNotEmpty &&
+              (_appId ?? '').isNotEmpty)
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
@@ -284,6 +330,7 @@ class _GoLivePageState extends State<GoLivePage> {
                 label: const Text('Enter Live Room'),
               ),
             ),
+
         ],
       ),
     );
