@@ -7,9 +7,6 @@ import 'package:http_parser/http_parser.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 
-/// AstrologerSignupPage
-/// Full multi-step signup form wired to:
-/// POST https://fastapi.jyotishionline.com/api/v1/users/signup/astrologer
 class AstrologerSignupPage extends StatefulWidget {
   const AstrologerSignupPage({Key? key}) : super(key: key);
 
@@ -55,6 +52,14 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
   final TextEditingController youtubeCtrl = TextEditingController();
   final TextEditingController websiteCtrl = TextEditingController();
 
+  // KYC / Bank fields
+  final TextEditingController aadhaarNumberCtrl = TextEditingController();
+  final TextEditingController panNumberCtrl = TextEditingController();
+  final TextEditingController bankNameCtrl = TextEditingController();
+  final TextEditingController accountNumberCtrl = TextEditingController();
+  final TextEditingController ifscCtrl = TextEditingController();
+  final TextEditingController upiCtrl = TextEditingController();
+
   // Settings switches & selection
   bool isVerified = false;
   bool isActive = true;
@@ -63,8 +68,13 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
   // Password visibility toggle
   bool _obscurePassword = true;
 
-  // Profile Image
+  // Profile Image + KYC images
   File? profileImageFile;
+  File? aadhaarFrontFile;
+  File? aadhaarBackFile;
+  File? panCardFile;
+  File? bankPassbookFile;
+
   final ImagePicker _picker = ImagePicker();
 
   @override
@@ -108,20 +118,52 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     youtubeCtrl.dispose();
     websiteCtrl.dispose();
 
+    // KYC
+    aadhaarNumberCtrl.dispose();
+    panNumberCtrl.dispose();
+    bankNameCtrl.dispose();
+    accountNumberCtrl.dispose();
+    ifscCtrl.dispose();
+    upiCtrl.dispose();
+
     super.dispose();
   }
 
   // ---------------------------
-  // Pick profile image
+  // Pick image helper
   // ---------------------------
-  Future<void> _pickProfileImage() async {
+  Future<File?> _pickImage({required String purpose}) async {
     final XFile? pickedFile =
-        await _picker.pickImage(source: ImageSource.gallery);
-    if (pickedFile != null) {
-      setState(() {
-        profileImageFile = File(pickedFile.path);
-      });
+        await _picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
+    if (pickedFile != null) return File(pickedFile.path);
+    return null;
+  }
+
+  Future<void> _pickProfileImage() async {
+    final file = await _pickImage(purpose: 'profile');
+    if (file != null) {
+      setState(() => profileImageFile = file);
     }
+  }
+
+  Future<void> _pickAadhaarFront() async {
+    final file = await _pickImage(purpose: 'aadhaar_front');
+    if (file != null) setState(() => aadhaarFrontFile = file);
+  }
+
+  Future<void> _pickAadhaarBack() async {
+    final file = await _pickImage(purpose: 'aadhaar_back');
+    if (file != null) setState(() => aadhaarBackFile = file);
+  }
+
+  Future<void> _pickPanCard() async {
+    final file = await _pickImage(purpose: 'pan_card');
+    if (file != null) setState(() => panCardFile = file);
+  }
+
+  Future<void> _pickBankPassbook() async {
+    final file = await _pickImage(purpose: 'bank_passbook');
+    if (file != null) setState(() => bankPassbookFile = file);
   }
 
   // ---------------------------
@@ -161,6 +203,37 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     return null;
   }
 
+  String? _validateAadhaar(String? v) {
+    if (v == null || v.trim().isEmpty) return "Aadhaar number is required";
+    final digits = v.replaceAll(RegExp(r'\D'), '');
+    if (digits.length != 12) return "Aadhaar must be exactly 12 digits";
+    return null;
+  }
+
+  String? _validatePAN(String? v) {
+    if (v == null || v.trim().isEmpty) return "PAN is required";
+    final pan = v.trim().toUpperCase();
+    final panRegex = RegExp(r'^[A-Z]{5}[0-9]{4}[A-Z]$');
+    if (!panRegex.hasMatch(pan)) return "Enter a valid PAN (e.g. AAAAA9999A)";
+    return null;
+  }
+
+  String? _validateIFSC(String? v) {
+    if (v == null || v.trim().isEmpty) return "IFSC is required";
+    final ifsc = v.trim().toUpperCase();
+    final ifscRegex = RegExp(r'^[A-Z]{4}0[0-9A-Z]{6}$');
+    if (ifsc.length != 11 || !ifscRegex.hasMatch(ifsc))
+      return "Enter a valid IFSC (11 chars, e.g. ABCD0XXXXX)";
+    return null;
+  }
+
+  String? _validateAccount(String? v) {
+    if (v == null || v.trim().isEmpty) return "Account number is required";
+    final digits = v.replaceAll(RegExp(r'\D'), '');
+    if (digits.length < 8) return "Account number must be at least 8 digits";
+    return null;
+  }
+
   // ---------------------------
   // Submit form -> API
   // ---------------------------
@@ -170,92 +243,114 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
       return;
     }
 
+    // Ensure KYC images are provided
+    if (aadhaarFrontFile == null ||
+        aadhaarBackFile == null ||
+        panCardFile == null ||
+        bankPassbookFile == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+          content: Text("❌ Please attach all required KYC documents."),
+        ),
+      );
+      _pageController.jumpToPage(3);
+      return;
+    }
+
     setState(() => isLoading = true);
 
     final uri = Uri.parse(
         "https://fastapi.jyotishionline.com/api/v1/users/signup/astrologer");
+
+    print("====================================");
+    print("🟡 DEBUG: Preparing Signup Request");
+    print("API: $uri");
+    print("====================================");
+
     final request = http.MultipartRequest("POST", uri);
 
-    // Parse & enforce minimums (already validated)
-    final int chatCharge = int.parse(chatChargeCtrl.text.trim()); // min 50
-    final int audioCharge = int.parse(audioChargeCtrl.text.trim()); // min 200
-    final int videoCharge = int.parse(videoChargeCtrl.text.trim()); // min 250
+    // DEBUG: print all fields
+    Map<String, dynamic> debugFields = {
+      "email": emailCtrl.text.trim(),
+      "password": passwordCtrl.text.trim(),
+      "contactNo": contactNoCtrl.text.trim(),
+      "countryCode": countryCodeCtrl.text.trim(),
+      "name": nameCtrl.text.trim(),
+      "gender": selectedGender,
+      "birthDate": DateTime.now().toIso8601String(),
+      "primarySkill": skillCtrl.text.trim(),
+      "languageKnown": languageCtrl.text.trim(),
+      "chatCharge": chatChargeCtrl.text.trim(),
+      "audioCallCharge": audioChargeCtrl.text.trim(),
+      "videoCallCharge": videoChargeCtrl.text.trim(),
+      "experienceInYears": expCtrl.text.trim(),
+      "currentCity": cityCtrl.text.trim(),
+      "highestQualification": qualificationCtrl.text.trim(),
+      "learnAstrology": learnAstroCtrl.text.trim(),
+      "aadhaarNumber": aadhaarNumberCtrl.text.trim(),
+      "panNumber": panNumberCtrl.text.trim(),
+      "bankName": bankNameCtrl.text.trim(),
+      "accountNumber": accountNumberCtrl.text.trim(),
+      "ifscCode": ifscCtrl.text.trim(),
+      "upiId": upiCtrl.text.trim(),
+    };
 
-    // Add all text fields
-    request.fields['email'] = emailCtrl.text.trim();
-    request.fields['password'] = passwordCtrl.text.trim();
-    request.fields['contactNo'] = contactNoCtrl.text.trim().isNotEmpty
-        ? contactNoCtrl.text.trim()
-        : "0000000000";
-    // API shows countryCode as string; strip + if present
-    final cc = countryCodeCtrl.text.trim();
-    request.fields['countryCode'] = cc.startsWith('+') ? cc.substring(1) : cc;
+    print("🟡 DEBUG: Fields Being Sent:");
+    debugFields.forEach((key, value) {
+      print("$key => $value");
+    });
 
-    request.fields['name'] =
-        nameCtrl.text.trim().isNotEmpty ? nameCtrl.text.trim() : "Unknown";
-    request.fields['gender'] = selectedGender;
-    // you can replace this with a proper date field if required by backend
-    request.fields['birthDate'] = DateTime.now().toIso8601String();
+    // Add fields to request
+    debugFields.forEach((key, value) {
+      request.fields[key] = value;
+    });
 
-    request.fields['primarySkill'] = skillCtrl.text.trim();
-    request.fields['languageKnown'] = languageCtrl.text.trim();
-
-    // IMPORTANT: charges mapped to API fields
-    request.fields['chatCharge'] = chatCharge.toString(); // 💬 minimum 50
-    request.fields['audioCallCharge'] =
-        audioCharge.toString(); // 🎧 minimum 200
-    request.fields['videoCallCharge'] =
-        videoCharge.toString(); // 🎥 minimum 250
-
-    request.fields['experienceInYears'] = expCtrl.text.trim();
-    request.fields['currentCity'] = cityCtrl.text.trim();
-    request.fields['highestQualification'] = qualificationCtrl.text.trim();
-    request.fields['learnAstrology'] = learnAstroCtrl.text.trim();
-
-    // If your API expects this, fill it; otherwise leave empty string
-    request.fields['astrologerCategoryId'] = "";
-
-    // Optionals / extras you had (these are harmless to include if backend ignores)
+    // Optional extras
     request.fields['instaProfileLink'] = instaCtrl.text.trim();
     request.fields['facebookProfileLink'] = fbCtrl.text.trim();
     request.fields['linkedInProfileLink'] = linkedinCtrl.text.trim();
     request.fields['youtubeChannelLink'] = youtubeCtrl.text.trim();
     request.fields['websiteProfileLink'] = websiteCtrl.text.trim();
-    request.fields['minimumEarning'] = "0";
-    request.fields['maximumEarning'] = "0";
-    request.fields['monthlyEarning'] = "";
-    request.fields['totalOrder'] = "0";
-    request.fields['currentlyworkingfulltimejob'] = "";
-    request.fields['nameofplateform'] = "";
-    request.fields['referedPerson'] = "";
-    request.fields['loginBio'] = bioCtrl.text.trim();
-    request.fields['goodQuality'] = "";
-    request.fields['whatwillDo'] = "";
-    request.fields['isVerified'] = isVerified.toString();
-    request.fields['isActive'] = isActive.toString();
-    request.fields['isDelete'] = "false";
-    request.fields['chatStatus'] = "";
-    request.fields['chatWaitTime'] = "";
-    request.fields['callStatus'] = "";
-    request.fields['callWaitTime'] = "";
-    request.fields['videoCallRate'] = "0";
-    request.fields['reportRate'] = "0";
-    request.fields['createdBy'] = "0";
-    request.fields['modifiedBy'] = "0";
+    request.fields['astrologerCategoryId'] = "";
 
-    // Add profile image file if available
-    if (profileImageFile != null) {
-      request.files.add(await http.MultipartFile.fromPath(
-        'profileImage',
-        profileImageFile!.path,
-        contentType: MediaType('image', 'jpeg'),
-        filename: p.basename(profileImageFile!.path),
-      ));
+    print("🟡 DEBUG: Optional Fields Added");
+
+    // Add image files
+    Future<void> addFile(String fieldName, File? file) async {
+      if (file != null) {
+        final bytes = await file.length();
+        print(
+            "📸 DEBUG: Adding File => $fieldName :: ${file.path} :: $bytes bytes");
+
+        request.files.add(await http.MultipartFile.fromPath(
+          fieldName,
+          file.path,
+          contentType: MediaType('image', 'jpeg'),
+          filename: p.basename(file.path),
+        ));
+      }
     }
+
+    await addFile("profileImage", profileImageFile);
+    await addFile("aadhaarFront", aadhaarFrontFile);
+    await addFile("aadhaarBack", aadhaarBackFile);
+    await addFile("panCardImage", panCardFile);
+    await addFile("bankPassbookImage", bankPassbookFile);
+
+    print("====================================");
+    print("🚀 DEBUG: Sending Request to API...");
+    print("====================================");
 
     try {
       final streamedResponse = await request.send();
       final responseStr = await streamedResponse.stream.bytesToString();
+
+      print("====================================");
+      print("🟢 Response Status: ${streamedResponse.statusCode}");
+      print("🟢 Response Body: $responseStr");
+      print("====================================");
 
       if (streamedResponse.statusCode == 200 ||
           streamedResponse.statusCode == 201) {
@@ -279,6 +374,8 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
         );
       }
     } catch (e) {
+      print("❌ DEBUG ERROR: $e");
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: Colors.red,
@@ -316,10 +413,22 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     youtubeCtrl.clear();
     websiteCtrl.clear();
 
+    // KYC
+    aadhaarNumberCtrl.clear();
+    panNumberCtrl.clear();
+    bankNameCtrl.clear();
+    accountNumberCtrl.clear();
+    ifscCtrl.clear();
+    upiCtrl.clear();
+
     selectedGender = "Male";
     isVerified = false;
     isActive = true;
     profileImageFile = null;
+    aadhaarFrontFile = null;
+    aadhaarBackFile = null;
+    panCardFile = null;
+    bankPassbookFile = null;
   }
 
   // ---------------------------
@@ -357,9 +466,10 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
   }
 
   Widget _buildPageIndicator() {
+    // now 4 pages
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
-      children: List.generate(3, (i) {
+      children: List.generate(4, (i) {
         final active = _currentPage == i;
         return AnimatedContainer(
           duration: const Duration(milliseconds: 250),
@@ -429,7 +539,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
   // ---------------------------
   Widget _buildRequiredSection() {
     return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 12.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -580,6 +690,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
             maxLines: 4,
           ),
           const SizedBox(height: 24),
+          _buildPageIndicator(),
         ],
       ),
     );
@@ -588,7 +699,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
   // Optional & Settings sections remain the same
   Widget _buildOptionalSection() {
     return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 12.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -617,6 +728,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
           const SizedBox(height: 12),
           _buildTextField(websiteCtrl, "Website", icon: Icons.web_outlined),
           const SizedBox(height: 24),
+          _buildPageIndicator(),
         ],
       ),
     );
@@ -624,7 +736,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
 
   Widget _buildSettingsSection() {
     return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 12.0),
       child: Column(
         children: [
           _buildSectionHeader(
@@ -639,6 +751,91 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
             onChanged: (v) => setState(() => isActive = v),
             title: const Text("Active"),
           ),
+          const SizedBox(height: 24),
+          _buildPageIndicator(),
+        ],
+      ),
+    );
+  }
+
+  Widget _kycFileTile(String title, File? file, VoidCallback onTap) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: Container(
+        width: 64,
+        height: 48,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(8),
+          color: Colors.grey[200],
+          image: file != null ? DecorationImage(image: FileImage(file)) : null,
+        ),
+        child:
+            file == null ? const Icon(Icons.insert_drive_file_outlined) : null,
+      ),
+      title: Text(title),
+      trailing: ElevatedButton(
+        onPressed: onTap,
+        style:
+            ElevatedButton.styleFrom(backgroundColor: const Color(0xFFFFC107)),
+        child: Text(file == null ? "Attach" : "Change"),
+      ),
+    );
+  }
+
+  Widget _buildKycSection() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 12.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildSectionHeader("KYC & Bank Details",
+              "Upload Aadhaar, PAN and bank details for verification."),
+          _buildTextField(aadhaarNumberCtrl, "Aadhaar Number",
+              required: true,
+              keyboardType: TextInputType.number,
+              icon: Icons.credit_card,
+              validator: _validateAadhaar),
+          const SizedBox(height: 12),
+          _buildTextField(panNumberCtrl, "PAN Number",
+              required: true,
+              keyboardType: TextInputType.text,
+              icon: Icons.credit_card,
+              validator: _validatePAN),
+          const SizedBox(height: 12),
+          _buildTextField(bankNameCtrl, "Bank Name",
+              required: true, icon: Icons.account_balance),
+          const SizedBox(height: 12),
+          _buildTextField(accountNumberCtrl, "Account Number",
+              required: true,
+              keyboardType: TextInputType.number,
+              icon: Icons.numbers,
+              validator: _validateAccount),
+          const SizedBox(height: 12),
+          _buildTextField(ifscCtrl, "IFSC Code",
+              required: true,
+              keyboardType: TextInputType.text,
+              icon: Icons.code,
+              validator: _validateIFSC),
+          const SizedBox(height: 12),
+          _buildTextField(upiCtrl, "UPI ID (optional)",
+              required: false, icon: Icons.send_to_mobile),
+          const SizedBox(height: 16),
+          Text("Required Documents",
+              style: Theme.of(context)
+                  .textTheme
+                  .titleLarge
+                  ?.copyWith(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 12),
+          _kycFileTile("Aadhaar Front", aadhaarFrontFile, _pickAadhaarFront),
+          const SizedBox(height: 8),
+          _kycFileTile("Aadhaar Back", aadhaarBackFile, _pickAadhaarBack),
+          const SizedBox(height: 8),
+          _kycFileTile("PAN Card", panCardFile, _pickPanCard),
+          const SizedBox(height: 8),
+          _kycFileTile("Bank Passbook / Cancelled Cheque", bankPassbookFile,
+              _pickBankPassbook),
+          const SizedBox(height: 24),
+          _buildPageIndicator(),
         ],
       ),
     );
@@ -681,6 +878,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
                 _buildRequiredSection(),
                 _buildOptionalSection(),
                 _buildSettingsSection(),
+                _buildKycSection(), // new KYC page (index 3)
               ],
             ),
           ),
@@ -715,22 +913,126 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
             Expanded(
               child: ElevatedButton(
                 onPressed: () {
-                  if (_currentPage < 2) {
-                    _pageController.nextPage(
-                        duration: const Duration(milliseconds: 300),
-                        curve: Curves.easeInOut);
+                  if (_currentPage < 3) {
+                    // validate current page's fields before moving forward
+                    final valid = _validateCurrentPage(_currentPage);
+                    if (valid) {
+                      _pageController.nextPage(
+                          duration: const Duration(milliseconds: 300),
+                          curve: Curves.easeInOut);
+                    }
                   } else {
                     submitForm();
                   }
                 },
                 style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFFFFC107)),
-                child: Text(_currentPage < 2 ? "Next" : "Submit"),
+                child: Text(_currentPage < 3 ? "Next" : "Submit"),
               ),
             ),
           ],
         ),
       ),
     );
+  }
+
+  bool _validateCurrentPage(int pageIndex) {
+    // For simple UX: run form validation for all fields, but if invalid,
+    // jump to the first page so user sees errors. We still allow navigating
+    // step-by-step, but prevent moving forward if required fields on current page fail.
+    // We'll do a minimal check per page to avoid forcing user to fill everything at once.
+    switch (pageIndex) {
+      case 0:
+        // required section validations
+        final emailValid = _validateEmail(emailCtrl.text) == null;
+        final pwdValid = _validatePassword(passwordCtrl.text) == null;
+        final phoneValid = _validatePhone(contactNoCtrl.text) == null;
+        final nameValid = _validateRequired(nameCtrl.text, "Full Name") == null;
+        final skillValid =
+            _validateRequired(skillCtrl.text, "Primary Skill") == null;
+        final langValid =
+            _validateRequired(languageCtrl.text, "Languages Known") == null;
+        final cityValid =
+            _validateRequired(cityCtrl.text, "Current City") == null;
+        final chatValid =
+            _validateMinInt(chatChargeCtrl.text, "Chat charge", 50) == null;
+        final audioValid =
+            _validateMinInt(audioChargeCtrl.text, "Audio call charge", 200) ==
+                null;
+        final videoValid =
+            _validateMinInt(videoChargeCtrl.text, "Video call charge", 250) ==
+                null;
+        final expValid =
+            _validateRequired(expCtrl.text, "Experience (Years)") == null;
+        final bioValid =
+            _validateRequired(bioCtrl.text, "Bio / Introduction") == null;
+        if (!emailValid ||
+            !pwdValid ||
+            !phoneValid ||
+            !nameValid ||
+            !skillValid ||
+            !langValid ||
+            !cityValid ||
+            !chatValid ||
+            !audioValid ||
+            !videoValid ||
+            !expValid ||
+            !bioValid) {
+          // show errors visually
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              backgroundColor: Colors.red,
+              behavior: SnackBarBehavior.floating,
+              content: Text("Please fill all required fields on this page."),
+            ),
+          );
+          return false;
+        }
+        return true;
+      case 1:
+        // Optional page - always allow moving forward
+        return true;
+      case 2:
+        // Settings page - nothing required
+        return true;
+      case 3:
+        // KYC page checks
+        final aadhaarValid = _validateAadhaar(aadhaarNumberCtrl.text) == null;
+        final panValid = _validatePAN(panNumberCtrl.text) == null;
+        final bankNameValid =
+            _validateRequired(bankNameCtrl.text, "Bank Name") == null;
+        final accValid = _validateAccount(accountNumberCtrl.text) == null;
+        final ifscValid = _validateIFSC(ifscCtrl.text) == null;
+        if (!aadhaarValid ||
+            !panValid ||
+            !bankNameValid ||
+            !accValid ||
+            !ifscValid) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              backgroundColor: Colors.red,
+              behavior: SnackBarBehavior.floating,
+              content: Text("Please fill all required KYC fields correctly."),
+            ),
+          );
+          return false;
+        }
+        if (aadhaarFrontFile == null ||
+            aadhaarBackFile == null ||
+            panCardFile == null ||
+            bankPassbookFile == null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              backgroundColor: Colors.red,
+              behavior: SnackBarBehavior.floating,
+              content: Text("Please attach all required KYC documents."),
+            ),
+          );
+          return false;
+        }
+        return true;
+      default:
+        return true;
+    }
   }
 }
