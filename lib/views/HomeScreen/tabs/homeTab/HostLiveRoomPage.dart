@@ -149,7 +149,7 @@
       // 🟣 Automatically end the live session when host leaves the page
       () async {
         try {
-          await FastApiServices().endAgoraLive();
+          await FastApiServices(). endAgoraLive();
         } catch (e) {
           debugPrint('Auto end live failed: $e');
         }
