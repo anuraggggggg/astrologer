@@ -3,6 +3,7 @@ import 'package:astrowaypartner/views/HomeScreen/tabs/homeTab/HostLiveRoomPage.d
 import 'package:flutter/material.dart';
 import 'package:clipboard/clipboard.dart';
 import 'package:astrowaypartner/fastApi/fastApiServices.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class GoLivePage extends StatefulWidget {
@@ -23,15 +24,33 @@ class _GoLivePageState extends State<GoLivePage> {
   String? _channelName;
   String? _appId;
 
-  // We are NOT using any RTC token here.
-  // intensionally removed _hostToken and any token handling.
-
   int _ttlSeconds = 7200;
   String? _rtcToken;
 
+  // 🚨 NEW: PERMISSION HANDLER
+  Future<bool> _checkPermissions() async {
+    final statuses = await [
+      Permission.camera,
+      Permission.microphone,
+    ].request();
 
+    bool cam = statuses[Permission.camera]!.isGranted;
+    bool mic = statuses[Permission.microphone]!.isGranted;
+
+    if (!cam || !mic) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text("Camera & Microphone permissions are required")),
+      );
+      return false;
+    }
+    return true;
+  }
+
+  // 🔴 Start live
   Future<void> _startLive() async {
     if (_starting) return;
+
     setState(() {
       _starting = true;
       _message = null;
@@ -46,53 +65,46 @@ class _GoLivePageState extends State<GoLivePage> {
         throw Exception('Astrologer ID not found in SharedPreferences');
       }
 
-      // 🔹 Now call API
+      // 🔹 Hit API
       final res = await _api.startAgoraLive(
         astrologerId: astrologerId,
         ttlSeconds: _ttlSeconds,
       );
 
-      debugPrint('startAgoraLive response: $res');
-
-      // Some backends wrap data under 'data' key.
       final payload = (res['data'] is Map) ? res['data'] : res;
 
       final status = (res['status'] == true);
+
       final channel = (payload['channelName'] ??
-          payload['channel_name'] ??
-          payload['channel'] ??
-          payload['room'] ??
-          payload['room_name'] ??
-          '')
+              payload['channel_name'] ??
+              payload['channel'] ??
+              payload['room'] ??
+              '')
           .toString();
 
-      final appId = (payload['appID'] ??
-          payload['app_id'] ??
-          payload['appId'] ??
-          payload['appid'] ??
-          '')
-          .toString();
+      final appId =
+          (payload['appID'] ?? payload['appid'] ?? payload['app_id'] ?? '')
+              .toString();
 
-      final msg = (res['message'] ??
-          payload['message'] ??
-          'Live started')
-          .toString();
+      final msg = (res['message'] ?? 'Live started').toString();
 
-      final rtcToken = (payload['rtc_token'] ??
-          payload['rtcToken'] ??
-          payload['token'] ??
-          '')
-          .toString();
+      final rtcToken =
+          (payload['rtc_token'] ?? payload['token'] ?? '').toString();
 
       setState(() {
-        _live = (status && channel.isNotEmpty) || channel.isNotEmpty;
-        if (channel.isNotEmpty) _channelName = channel;
-        if (appId.isNotEmpty) _appId = appId;
+        _live = status && channel.isNotEmpty;
+        _channelName = channel.isNotEmpty ? channel : null;
+        _appId = appId.isNotEmpty ? appId : null;
         _rtcToken = rtcToken.isNotEmpty ? rtcToken : null;
         _message = msg;
       });
 
-      // ✅ If token received, navigate to live page
+      // 🚨 ASK PERMISSIONS BEFORE ENTERING LIVE ROOM
+      if (!await _checkPermissions()) {
+        return;
+      }
+
+      // 🔹 Enter live room
       if (_rtcToken != null && _rtcToken!.isNotEmpty) {
         final result = await Navigator.push(
           context,
@@ -105,7 +117,7 @@ class _GoLivePageState extends State<GoLivePage> {
           ),
         );
 
-// 🟢 When host ends and returns, reset UI
+        // Reset UI after returning
         if (mounted) {
           setState(() {
             _live = false;
@@ -114,12 +126,10 @@ class _GoLivePageState extends State<GoLivePage> {
             _message = "Session ended successfully";
           });
         }
-
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('RTC token missing in response. Cannot go live.'),
-          ),
+              content: Text('RTC Token missing. Cannot start live session.')),
         );
       }
     } catch (e) {
@@ -135,21 +145,21 @@ class _GoLivePageState extends State<GoLivePage> {
     }
   }
 
-
+  // 🔴 End live
   Future<void> _endLive() async {
     if (_ending) return;
+
     setState(() => _ending = true);
+
     try {
       final res = await _api.endAgoraLive();
       final msg = (res['message'] ?? 'Live ended').toString();
+
       setState(() {
         _live = false;
-        // Keep channel/appId for reference if backend returns the same channel
-        // You can also clear them if you prefer:
-        // _channelName = null;
-        // _appId = null;
         _message = msg;
       });
+
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     } catch (e) {
@@ -161,95 +171,19 @@ class _GoLivePageState extends State<GoLivePage> {
     }
   }
 
-  void _copy(String label, String value) {
-    if (value.isEmpty) return;
-    FlutterClipboard.copy(value);
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text('$label copied')));
-  }
-
-  void _enterLiveRoom() {
-    final appId = _appId ?? '';
-    final channel = _channelName ?? '';
-
-    // debug logs + short snackbar for quick feedback
-    debugPrint(
-        'Attempt enterLiveRoom -> appId: "$appId", channel: "$channel", rtcTokenPresent: ${_rtcToken !=
-            null}');
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('appId: ${appId.isEmpty
-            ? "<empty>"
-            : "present"}  •  channel: ${channel.isEmpty
-            ? "<empty>"
-            : "present"}'),
-        duration: const Duration(seconds: 2),
-      ),
-    );
-
-    if (appId.isEmpty || channel.isEmpty) {
-      // keep the original error message for user
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Missing appId or channelName')),
-      );
-      return;
-    }
-
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) =>
-            HostLiveRoomPage(
-              appId: appId,
-              channelName: channel,
-              rtcToken: _rtcToken, // pass nullable token
-            ),
-      ),
-    );
-  }
-
-
   @override
   Widget build(BuildContext context) {
     final canStart = !_starting;
 
     return Scaffold(
       backgroundColor: Colors.white,
-      // appBar: AppBar(
-      //   title: const Text('Go Live'),
-      //   backgroundColor: Colors.deepPurple,
-        // actions: [
-        //   if (_live)
-        //     Padding(
-        //       padding: const EdgeInsets.symmetric(horizontal: 8),
-        //       child: _ending
-        //           ? const Center(
-        //         child: SizedBox(
-        //           width: 20,
-        //           height: 20,
-        //           child: CircularProgressIndicator(
-        //               strokeWidth: 2, color: Colors.white),
-        //         ),
-        //       )
-        //           : TextButton.icon(
-        //         style: TextButton.styleFrom(
-        //           foregroundColor: Colors.white,
-        //           backgroundColor: Colors.redAccent,
-        //         ),
-        //         onPressed: _endLive,
-        //         icon: const Icon(Icons.stop_circle_outlined),
-        //         label: const Text('End Live'),
-        //       ),
-        //     ),
-        // ],
-      // ),
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // Live indicator
+              // Circle animation
               AnimatedContainer(
                 duration: const Duration(milliseconds: 600),
                 width: _live ? 120 : 100,
@@ -259,14 +193,13 @@ class _GoLivePageState extends State<GoLivePage> {
                   gradient: LinearGradient(
                     colors: _live
                         ? [Colors.redAccent, Colors.pinkAccent]
-                        : [Colors.yellow.shade700, Colors.yellow.shade200,],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
+                        : [Colors.yellow.shade700, Colors.yellow.shade200],
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: _live ? Colors.redAccent.withOpacity(0.5) : Colors
-                          .yellow.withOpacity(0.4),
+                      color: _live
+                          ? Colors.redAccent.withOpacity(0.5)
+                          : Colors.yellow.withOpacity(0.4),
                       blurRadius: 20,
                       spreadRadius: 4,
                     )
@@ -282,6 +215,7 @@ class _GoLivePageState extends State<GoLivePage> {
               ),
 
               const SizedBox(height: 24),
+
               Text(
                 _live ? 'You’re Live Now 🎥' : 'Go Live Instantly!',
                 style: TextStyle(
@@ -292,6 +226,7 @@ class _GoLivePageState extends State<GoLivePage> {
               ),
 
               const SizedBox(height: 12),
+
               Text(
                 _live
                     ? 'Streaming live for your followers...'
@@ -307,29 +242,28 @@ class _GoLivePageState extends State<GoLivePage> {
                 width: double.infinity,
                 child: ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: _live ? Colors.redAccent : Colors.yellow.shade700,
+                    backgroundColor:
+                        _live ? Colors.redAccent : Colors.yellow.shade700,
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(30),
                     ),
                   ),
-                  onPressed: _live
-                      ? _endLive
-                      : (canStart ? _startLive : null),
+                  onPressed: _live ? _endLive : (canStart ? _startLive : null),
                   icon: _starting
                       ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                        strokeWidth: 2, color: Colors.white),
-                  )
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white),
+                        )
                       : Icon(_live ? Icons.stop : Icons.play_arrow),
                   label: Text(
                     _starting
                         ? 'Starting…'
                         : _live
-                        ? 'End Live'
-                        : 'Start Live',
+                            ? 'End Live'
+                            : 'Start Live',
                     style: const TextStyle(fontSize: 18),
                   ),
                 ),
