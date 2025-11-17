@@ -141,13 +141,15 @@ class _VideoCallPageState extends State<VideoCallPage> {
               '🎉 [VC] onJoinChannelSuccess ch=${conn.channelId} elapsed=${elapsed}ms');
           if (mounted) {
             setState(() => _joined = true);
-            _startCallTimer(); // ⬅️ start 10-minute timer on successful join
+           // _startCallTimer(); // ⬅️ start 10-minute timer on successful join
           }
         },
         onUserJoined: (RtcConnection conn, int remoteUid, int elapsed) {
           debugPrint(
               '👋 [VC] onUserJoined uid=$remoteUid elapsed=${elapsed}ms');
           if (mounted) setState(() => _remoteUid = remoteUid);
+          _startCallTimer();
+
         },
         onUserOffline:
             (RtcConnection conn, int remoteUid, UserOfflineReasonType reason) {
@@ -198,6 +200,7 @@ class _VideoCallPageState extends State<VideoCallPage> {
           autoSubscribeVideo: true,
         ),
       );
+      // _startCallTimer();
 
       _pulse = Timer.periodic(const Duration(seconds: 10), (_) {
         debugPrint('💓 [VC] pulse joined=$_joined remoteUid=$_remoteUid');

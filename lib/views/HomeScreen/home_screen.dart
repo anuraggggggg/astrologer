@@ -104,12 +104,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         final response = await FastApiServices().balanceAmountAstro(astroId);
 
         if (response != null) {
-          final amount =
-              (response['amount'] as num).toDouble(); // ensures it's a double
-          final formattedAmount = amount.toStringAsFixed(2); // 2 decimal places
+          final amount = double.tryParse(response['amount'].toString()) ?? 0.0;
+          final formattedAmount = amount.toStringAsFixed(2);
+
           print("💰 Wallet Amount (API): $formattedAmount");
 
-          // ✅ Update UI safely
           setState(() {
             walletAmount = formattedAmount;
           });

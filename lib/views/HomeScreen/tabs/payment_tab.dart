@@ -74,7 +74,9 @@ class _PaymentHistoryTabState extends State<PaymentHistoryTab> {
       if (astroId != null) {
         final data = await FastApiServices().balanceAmountAstro(astroId);
         if (data != null) {
-          final amount = (data['amount'] as num).toDouble();
+
+          final amount = double.tryParse(data['amount'].toString()) ?? 0.0;
+
           setState(() => _availableBalance = amount);
           print("💰 Wallet Amount: $amount");
           return amount;

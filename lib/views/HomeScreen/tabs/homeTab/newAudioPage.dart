@@ -5,10 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 
-// ⬇️ We reuse your VIDEO token service for audio-only joining
-
 class AudioCallPage extends StatefulWidget {
-  /// Pass the ASTROLOGER ID here (this is the id your /agora/token/video expects)
   final String astroId;
 
   const AudioCallPage({super.key, required this.astroId});
@@ -20,18 +17,25 @@ class AudioCallPage extends StatefulWidget {
 class _AudioCallPageState extends State<AudioCallPage> {
   RtcEngine? _engine;
 
-  // From token API (via AgoraService)
   String _appId = '';
   String _channel = '';
   String _token = '';
-  String _account = ''; // userAccount for joinChannelWithUserAccount
+  String _account = '';
 
   bool _loading = true;
   bool _joined = false;
   bool _muted = false;
   bool _speakerOn = true;
 
-  void _d(Object m) => debugPrint('🎧 [AstroVC] $m');
+  int? _remoteUid;
+
+  // === 10-minute call timer ===
+  static const Duration _maxCallDuration = Duration(minutes: 10);
+  DateTime? _callDeadline;
+  Duration _remaining = Duration.zero;
+  Timer? _callTimer;
+
+  void _d(Object m) => debugPrint('🎧 [AudioVC] $m');
 
   @override
   void initState() {
@@ -41,35 +45,60 @@ class _AudioCallPageState extends State<AudioCallPage> {
 
   @override
   void dispose() {
+    _callTimer?.cancel();
     () async {
       try {
         await _engine?.leaveChannel();
-      } catch (_) {}
-      try {
-        await _engine?.release();
-      } catch (_) {}
-      _engine = null;
+    } catch (_) {}
+    try {
+    await _engine?.release();
+    } catch (_) {}
+    _engine = null;
     }();
     super.dispose();
   }
 
+  // === Start the timer exactly like VIDEO PAGE ===
+  void _startCallTimer() {
+    _callTimer?.cancel();
+    _callDeadline = DateTime.now().add(_maxCallDuration);
+    _remaining = _maxCallDuration;
+
+    _callTimer = Timer.periodic(const Duration(seconds: 1), (t) async {
+      final deadline = _callDeadline;
+      if (deadline == null) return;
+
+      final rem = deadline.difference(DateTime.now());
+      if (rem <= Duration.zero) {
+        t.cancel();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Call ended (10 min limit reached)")),
+          );
+        }
+        await _leave();
+        return;
+      }
+      if (mounted) setState(() => _remaining = rem);
+    });
+  }
+
+  String _formatRemaining(Duration d) {
+    final m = (d.inMinutes % 60).toString().padLeft(2, '0');
+    final s = (d.inSeconds % 60).toString().padLeft(2, '0');
+    return "$m:$s";
+  }
+
   Future<void> _bootstrap() async {
     try {
-      final incoming = widget.astroId.trim();
-      _d('Bootstrapping with astroId="$incoming"');
-      if (incoming.isEmpty || incoming.toLowerCase() == 'null') {
-        throw 'Invalid astrologer id';
-      }
-
-      // 1) Mic permission only (audio call)
+      // Mic permission
       final statuses = await [Permission.microphone].request();
       if (statuses[Permission.microphone] != PermissionStatus.granted) {
         throw 'Microphone permission denied';
       }
 
-      // 2) Fetch tokens using VIDEO API and pick ASTRO credentials
-      _d('Fetching video tokens for astroId=$incoming …');
-      final auth = await AgoraService.getVideoTokens(incoming);
+      // Token fetch
+      final auth = await AgoraService.getVideoTokens(widget.astroId);
       final join = AgoraService.buildJoinParams(auth: auth, isAstrologer: true);
 
       _appId = join.appId;
@@ -77,117 +106,55 @@ class _AudioCallPageState extends State<AudioCallPage> {
       _token = join.token;
       _account = join.account;
 
-      if (_appId.isEmpty ||
-          _channel.isEmpty ||
-          _token.isEmpty ||
-          _account.isEmpty) {
-        throw 'Missing required join fields (appId/channel/token/account).';
+      if (_appId.isEmpty || _channel.isEmpty || _token.isEmpty || _account.isEmpty) {
+        throw 'Missing join fields';
       }
-      _d('Auth OK → appId=$_appId | channel=$_channel | account=$_account');
 
-      // 3) Init engine (audio-only)
       final engine = createAgoraRtcEngine();
       await engine.initialize(RtcEngineContext(appId: _appId));
       _engine = engine;
 
-      await engine
-          .setChannelProfile(ChannelProfileType.channelProfileCommunication);
       await engine.enableAudio();
-      await engine.disableVideo(); // ensure audio-only
-      _d('ChannelProfile=Communication, audio ✅, video ❌');
+      await engine.disableVideo();
+      await engine.setDefaultAudioRouteToSpeakerphone(true);
 
-      // Hint route to speaker BEFORE join
-      try {
-        await engine.setDefaultAudioRouteToSpeakerphone(true);
-        _d('Default audio route → speaker (pre-join)');
-      } catch (e) {
-        _d('setDefaultAudioRouteToSpeakerphone error: $e');
-      }
+      engine.registerEventHandler(RtcEngineEventHandler(
+        onJoinChannelSuccess: (RtcConnection conn, int elapsed) async {
+          if (!mounted) return;
+          setState(() => _joined = true);
+          await Future.delayed(const Duration(milliseconds: 200));
+          await engine.setEnableSpeakerphone(true);
+        },
 
-      // 4) Events
-      engine.registerEventHandler(
-        RtcEngineEventHandler(
-          onError: (ErrorCodeType code, String msg) {
-            _d('ERROR $code $msg');
-          },
-          onConnectionStateChanged: (RtcConnection c, ConnectionStateType s,
-              ConnectionChangedReasonType r) {
-            _d('ConnState=$s reason=$r');
-          },
-          onJoinChannelSuccess: (RtcConnection conn, int elapsed) async {
-            _d('Joined ${conn.channelId} in ${elapsed}ms');
-            if (!mounted) return;
-            setState(() => _joined = true);
+        onUserJoined: (RtcConnection c, int uid, int elapsed) {
+          _remoteUid = uid;
+          _startCallTimer();      // ⬅ START TIMER WHEN OTHER USER JOINS
+          setState(() {});
+        },
 
-            // Flip speaker AFTER join to avoid -3
-            try {
-              await Future.delayed(const Duration(milliseconds: 150));
-              await engine.setEnableSpeakerphone(true);
-              _speakerOn = true;
-              _d('Speakerphone ON ✅');
-            } catch (e) {
-              _d('setEnableSpeakerphone post-join error: $e');
-            }
-          },
-          onUserJoined: (RtcConnection c, int uid, int elapsed) {
-            _d('Remote JOINED uid=$uid (elapsed=${elapsed}ms)');
-          },
-          onUserOffline:
-              (RtcConnection c, int uid, UserOfflineReasonType reason) {
-            _d('Remote OFFLINE uid=$uid reason=$reason');
-          },
-          onLeaveChannel: (RtcConnection c, RtcStats stats) {
-            _d('Left channel. stats=${stats.toJson()}');
-            if (mounted) setState(() => _joined = false);
-          },
-          onTokenPrivilegeWillExpire: (RtcConnection c, String oldToken) {
-            _d('Token will expire soon → (optional) refresh + renew');
-            // If needed:
-            // final fresh = await AgoraService.getVideoTokens(widget.astroId);
-            // final freshJoin = AgoraService.buildJoinParams(auth: fresh, isAstrologer: true);
-            // await _engine?.renewToken(freshJoin.token);
-          },
-          onAudioVolumeIndication: (
-            RtcConnection c,
-            List<AudioVolumeInfo> speakers,
-            int speakerNumber,
-            int totalVolume,
-          ) {
-            for (final s in speakers) {
-              _d('VOLUME uid=${s.uid} vol=${s.volume} vad=${s.vad}');
-            }
-          },
-        ),
-      );
+        onUserOffline: (RtcConnection c, int uid, UserOfflineReasonType r) {
+          _remoteUid = null;
+          setState(() {});
+        },
+      ));
 
-      // 5) Join via userAccount (MUST match token’s subject)
-      await engine.registerLocalUserAccount(
-          appId: _appId, userAccount: _account);
-      _d('registerLocalUserAccount($_account) → OK');
-
-      final tokPreview = _token.length > 12
-          ? '${_token.substring(0, 6)}…${_token.substring(_token.length - 6)}'
-          : _token;
-      _d('Joining "$_channel" with account="$_account", token=$tokPreview');
+      await engine.registerLocalUserAccount(appId: _appId, userAccount: _account);
 
       await engine.joinChannelWithUserAccount(
         token: _token,
         channelId: _channel,
         userAccount: _account,
         options: const ChannelMediaOptions(
-          clientRoleType: ClientRoleType.clientRoleBroadcaster,
           publishMicrophoneTrack: true,
           publishCameraTrack: false,
           autoSubscribeAudio: true,
-          autoSubscribeVideo: false,
         ),
       );
-      _d('joinChannelWithUserAccount() sent');
     } catch (e) {
-      _d('INIT FAILED: $e');
+      _d("INIT FAILED: $e");
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Audio init failed: $e')),
+        SnackBar(content: Text("Audio call failed: $e")),
       );
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -195,7 +162,6 @@ class _AudioCallPageState extends State<AudioCallPage> {
   }
 
   Future<void> _leave() async {
-    _d('Leaving…');
     try {
       await _engine?.leaveChannel();
     } catch (_) {}
@@ -204,65 +170,102 @@ class _AudioCallPageState extends State<AudioCallPage> {
 
   Future<void> _toggleMute() async {
     _muted = !_muted;
-    try {
-      await _engine?.muteLocalAudioStream(_muted);
-      _d('muteLocalAudioStream($_muted)');
-    } catch (e) {
-      _d('muteLocalAudioStream error: $e');
-    }
+    await _engine?.muteLocalAudioStream(_muted);
     if (mounted) setState(() {});
   }
 
-  Future<void> _setSpeaker(bool on) async {
-    _speakerOn = on;
-    try {
-      await _engine?.setEnableSpeakerphone(_speakerOn);
-      _d('Speaker ${_speakerOn ? 'ON' : 'OFF'}');
-    } catch (e) {
-      _d('setEnableSpeakerphone error: $e');
-    }
+  Future<void> _toggleSpeaker() async {
+    _speakerOn = !_speakerOn;
+    await _engine?.setEnableSpeakerphone(_speakerOn);
     if (mounted) setState(() {});
   }
-
-  Future<void> _toggleSpeaker() => _setSpeaker(!_speakerOn);
 
   @override
   Widget build(BuildContext context) {
+    final showTimer = _remoteUid != null;
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Audio Call (Astrologer)')),
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: const Text("Audio Call"),
+        backgroundColor: Colors.black,
+        actions: [
+          if (showTimer)
+            Padding(
+              padding: const EdgeInsets.all(10),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.white10,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.white30),
+                ),
+                child: Text(
+                  _formatRemaining(_remaining),
+                  style: const TextStyle(color: Colors.white, fontSize: 16),
+                ),
+              ),
+            ),
+        ],
+      ),
+
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.phone_in_talk, size: 80),
-                const SizedBox(height: 12),
-                Text(_joined ? 'Connected • $_channel' : 'Connecting…'),
-                const SizedBox(height: 24),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    IconButton(
-                      icon: Icon(_muted ? Icons.mic_off : Icons.mic),
-                      onPressed: _toggleMute,
-                      tooltip: _muted ? 'Unmute' : 'Mute',
-                    ),
-                    const SizedBox(width: 24),
-                    IconButton(
-                      icon: Icon(_speakerOn ? Icons.volume_up : Icons.hearing),
-                      onPressed: _toggleSpeaker,
-                      tooltip: _speakerOn ? 'Speaker off' : 'Speaker on',
-                    ),
-                    const SizedBox(width: 24),
-                    IconButton(
-                      icon: const Icon(Icons.call_end, color: Colors.red),
-                      onPressed: _leave,
-                      tooltip: 'Hang up',
-                    ),
-                  ],
-                ),
-              ],
-            ),
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.call, size: 120, color: Colors.white70),
+          const SizedBox(height: 12),
+          Text(
+            _remoteUid == null ? "Waiting for other user…" : "Connected",
+            style: const TextStyle(color: Colors.white70, fontSize: 18),
+          ),
+          const SizedBox(height: 40),
+
+          // Controls
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _circleBtn(
+                icon: _muted ? Icons.mic_off : Icons.mic,
+                color: _muted ? Colors.red : Colors.white,
+                onTap: _toggleMute,
+              ),
+              const SizedBox(width: 30),
+              _circleBtn(
+                icon: _speakerOn ? Icons.volume_up : Icons.hearing,
+                onTap: _toggleSpeaker,
+              ),
+              const SizedBox(width: 30),
+              _circleBtn(
+                icon: Icons.call_end,
+                bg: Colors.red,
+                onTap: _leave,
+              ),
+            ],
+          )
+        ],
+      ),
+    );
+  }
+
+  Widget _circleBtn({
+    required IconData icon,
+    Color color = Colors.white,
+    Color bg = const Color(0x33FFFFFF),
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        width: 60,
+        height: 60,
+        decoration: BoxDecoration(
+          color: bg,
+          shape: BoxShape.circle,
+        ),
+        child: Icon(icon, color: color, size: 30),
+      ),
     );
   }
 }
