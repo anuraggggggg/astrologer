@@ -32,6 +32,8 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage> {
   int? _dataStreamId;
   late final int _myUid;
 
+  String _displayName = ''; // <-- will be replaced by real name if fetch succeeds
+
   final List<_Comment> _comments = [];
   final TextEditingController _commentCtrl = TextEditingController();
   final ScrollController _commentScroll = ScrollController();
@@ -72,9 +74,22 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage> {
       onJoinChannelSuccess: (RtcConnection connection, int elapsed) async {
         _log('onJoinChannelSuccess channel=${connection.channelId} uid=${connection.localUid}');
         if (!mounted) return;
-
         setState(() => _joined = true);
 
+        // Try to fetch profile name (non-blocking)
+        (() async {
+          try {
+            final api = FastApiServices();
+            final fetched = await api.getAstrologerById(); // your existing method
+            final name = (fetched?['name'] ?? fetched?['displayName'] ?? '').toString();
+            if (name.isNotEmpty && mounted) {
+              setState(() => _displayName = name);
+              _log('Display name loaded: $_displayName');
+            }
+          } catch (e) {
+            _log('Could not fetch profile name: $e');
+          }
+        })();
         try {
           final id = await _engine.createDataStream(
             const DataStreamConfig(syncWithAudio: false, ordered: true),
@@ -255,10 +270,11 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage> {
 
     final payloadMap = {
       "type": "chat",
-      "user": "Host",
+      "user": _displayName,
       "text": text.trim(),
       "ts": DateTime.now().toIso8601String(),
     };
+
 
     final payloadBytes = utf8.encode(jsonEncode(payloadMap));
     final id = '${DateTime.now().millisecondsSinceEpoch}-${Random().nextInt(9999)}';
@@ -295,7 +311,8 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage> {
       }
 
       if (mounted) {
-        setState(() => _comments.add(_Comment('Host', text.trim(), DateTime.now())));
+        setState(() => _comments.add(_Comment('$_displayName (You)', text.trim(), DateTime.now())));
+
         _commentCtrl.clear();
 
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -361,30 +378,44 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage> {
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
-        title: Text(_joined ? 'Live: ${widget.channelName}' : 'Connecting…'),
-        actions: [
-          PopupMenuButton<int>(
-            onSelected: (v) async {
-              setState(() => _fps = v);
-              await _engine.setVideoEncoderConfiguration(
-                VideoEncoderConfiguration(
-                  dimensions: const VideoDimensions(width: 720, height: 1280),
-                  frameRate: v,
-                  bitrate: 1130,
-                  orientationMode: OrientationMode.orientationModeFixedPortrait,
-                ),
-              );
-            },
-            itemBuilder: (_) => const [
-              PopupMenuItem(value: 15, child: Text('FPS: 15')),
-              PopupMenuItem(value: 24, child: Text('FPS: 24')),
-              PopupMenuItem(value: 30, child: Text('FPS: 30')),
-            ],
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Center(child: Text('$_fps FPS')),
+        leading: Padding(
+          padding: const EdgeInsets.only(left: 8),
+          child: Container(
+            decoration: BoxDecoration(
+                  // BLOCK COLOR
+              borderRadius: BorderRadius.circular(10), // ROUND CORNERS
+            ),
+            child: IconButton(
+              icon: const Icon(Icons.arrow_back, color: Colors.white),
+              onPressed: _endLive,
             ),
           ),
+        ),
+
+        title: Text(_joined ? 'Live: ${_displayName}' : 'Connecting…'),
+        actions: [
+          // PopupMenuButton<int>(
+          //   onSelected: (v) async {
+          //     setState(() => _fps = v);
+          //     await _engine.setVideoEncoderConfiguration(
+          //       VideoEncoderConfiguration(
+          //         dimensions: const VideoDimensions(width: 720, height: 1280),
+          //         frameRate: v,
+          //         bitrate: 1130,
+          //         orientationMode: OrientationMode.orientationModeFixedPortrait,
+          //       ),
+          //     );
+          //   },
+          //   itemBuilder: (_) => const [
+          //     PopupMenuItem(value: 15, child: Text('FPS: 15')),
+          //     PopupMenuItem(value: 24, child: Text('FPS: 24')),
+          //     PopupMenuItem(value: 30, child: Text('FPS: 30')),
+          //   ],
+          //   child: Padding(
+          //     padding: const EdgeInsets.symmetric(horizontal: 12),
+          //     child: Center(child: Text('$_fps FPS')),
+          //   ),
+          // ),
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: _ending

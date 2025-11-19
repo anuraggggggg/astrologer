@@ -26,7 +26,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
   final TextEditingController emailCtrl = TextEditingController();
   final TextEditingController passwordCtrl = TextEditingController();
   final TextEditingController countryCodeCtrl =
-      TextEditingController(text: "+91");
+  TextEditingController(text: "+91");
   final TextEditingController contactNoCtrl = TextEditingController();
   final TextEditingController nameCtrl = TextEditingController();
   final TextEditingController skillCtrl = TextEditingController();
@@ -37,11 +37,11 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
 
   // NEW: separate charges with minimums
   final TextEditingController chatChargeCtrl =
-      TextEditingController(); // min 50
+  TextEditingController(); // min 50
   final TextEditingController audioChargeCtrl =
-      TextEditingController(); // min 200
+  TextEditingController(); // min 200
   final TextEditingController videoChargeCtrl =
-      TextEditingController(); // min 250
+  TextEditingController(); // min 250
 
   // Optional fields
   final TextEditingController qualificationCtrl = TextEditingController();
@@ -65,6 +65,9 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
   bool isActive = true;
   String selectedGender = "Male"; // Male / Female / Other
 
+  // Payment method selection: 'none' | 'upi' | 'bank'
+  String paymentMethod = 'none';
+
   // Password visibility toggle
   bool _obscurePassword = true;
 
@@ -73,7 +76,11 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
   File? aadhaarFrontFile;
   File? aadhaarBackFile;
   File? panCardFile;
+
+  // Bank-specific files
   File? bankPassbookFile;
+  File? cancelledChequeFile;
+  File? bankStatementFile;
 
   final ImagePicker _picker = ImagePicker();
 
@@ -130,13 +137,27 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
   }
 
   // ---------------------------
-  // Pick image helper
+  // Pick image helper (with 2 MB size limit for bank docs)
   // ---------------------------
-  Future<File?> _pickImage({required String purpose}) async {
+  Future<File?> _pickImage({required String purpose, bool enforce2MB = false}) async {
     final XFile? pickedFile =
-        await _picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
-    if (pickedFile != null) return File(pickedFile.path);
-    return null;
+    await _picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
+    if (pickedFile == null) return null;
+    final file = File(pickedFile.path);
+    if (enforce2MB) {
+      final bytes = await file.length();
+      if (bytes > 2 * 1024 * 1024) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('File too large. Maximum allowed size is 2 MB.'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return null;
+      }
+    }
+    return file;
   }
 
   Future<void> _pickProfileImage() async {
@@ -161,9 +182,20 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     if (file != null) setState(() => panCardFile = file);
   }
 
+  // Bank-specific pickers enforce 2MB
   Future<void> _pickBankPassbook() async {
-    final file = await _pickImage(purpose: 'bank_passbook');
+    final file = await _pickImage(purpose: 'bank_passbook', enforce2MB: true);
     if (file != null) setState(() => bankPassbookFile = file);
+  }
+
+  Future<void> _pickCancelledCheque() async {
+    final file = await _pickImage(purpose: 'cancelled_cheque', enforce2MB: true);
+    if (file != null) setState(() => cancelledChequeFile = file);
+  }
+
+  Future<void> _pickBankStatement() async {
+    final file = await _pickImage(purpose: 'bank_statement', enforce2MB: true);
+    if (file != null) setState(() => bankStatementFile = file);
   }
 
   // ---------------------------
@@ -189,19 +221,74 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
   }
 
   String? _validatePhone(String? v) {
-    if (v == null || v.trim().isEmpty) return "Contact number is required";
-    final digits = v.replaceAll(RegExp(r'\D'), '');
-    if (digits.length < 6) return "Enter a valid contact number";
+    if (v == null || v.trim().isEmpty) {
+      return "Contact number is required";
+    }
+
+    // Must be exactly 10 digits, no letters, no special chars
+    final reg = RegExp(r'^[0-9]{10}$');
+
+    if (!reg.hasMatch(v.trim())) {
+      return "Enter a valid 10-digit mobile number";
+    }
+
     return null;
   }
 
-  String? _validateMinInt(String? v, String label, int min) {
-    if (v == null || v.trim().isEmpty) return "$label is required";
-    final parsed = int.tryParse(v.trim());
-    if (parsed == null) return "$label must be a number";
-    if (parsed < min) return "$label must be at least ₹$min";
+
+  String? _validateDigitsOnly(String text, String label) {
+    if (text.isEmpty) return "$label is required";
+    if (!RegExp(r'^[0-9]+$').hasMatch(text)) {
+      return "$label should contain digits only";
+    }
     return null;
   }
+
+  String? _validateLettersOnly(String text, String label) {
+    if (text.trim().isEmpty) return "$label is required";
+
+    final value = text.trim();
+
+    // Length check: min 3, max 30
+    if (value.length < 3) {
+      return "$label must be at least 3 characters";
+    }
+    if (value.length > 30) {
+      return "$label cannot be more than 30 characters";
+    }
+
+    // Only letters + spaces
+    if (!RegExp(r'^[a-zA-Z ]+$').hasMatch(value)) {
+      return "$label should contain letters only";
+    }
+
+    return null;
+  }
+
+
+  String? _validateBio(String? v) {
+    if (v == null || v.trim().isEmpty) {
+      return "Bio is required";
+    }
+
+    final text = v.trim();
+
+    if (text.length < 3) return "Bio must be at least 3 characters";
+    if (text.length > 500) return "Bio cannot exceed 500 characters";
+
+    return null;
+  }
+
+
+  String? _validateMinInt(String? value, String label, int min) {
+    if (value == null || value.isEmpty) return "$label is required";
+    final intVal = int.tryParse(value);
+    if (intVal == null) return "$label must be a number";
+    if (intVal < min) return "$label must be at least ₹$min / 10 min";
+    return null;
+  }
+
+
 
   String? _validateAadhaar(String? v) {
     if (v == null || v.trim().isEmpty) return "Aadhaar number is required";
@@ -234,6 +321,13 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     return null;
   }
 
+  String? _validateUPI(String? v) {
+    if (v == null || v.trim().isEmpty) return "UPI ID is required";
+    // basic pattern check (not exhaustive)
+    if (!v.contains('@')) return "Enter a valid UPI ID (e.g. name@bank)";
+    return null;
+  }
+
   // ---------------------------
   // Submit form -> API
   // ---------------------------
@@ -243,20 +337,69 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
       return;
     }
 
-    // Ensure KYC images are provided
+    // Ensure mandatory KYC images are provided (Aadhaar + PAN)
     if (aadhaarFrontFile == null ||
         aadhaarBackFile == null ||
-        panCardFile == null ||
-        bankPassbookFile == null) {
+        panCardFile == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           backgroundColor: Colors.red,
           behavior: SnackBarBehavior.floating,
-          content: Text("❌ Please attach all required KYC documents."),
+          content: Text("❌ Please attach Aadhaar and PAN images."),
         ),
       );
       _pageController.jumpToPage(3);
       return;
+    }
+
+    // If bank chosen -> ensure bank fields and bank images exist
+    if (paymentMethod == 'bank') {
+      final bankNameValid =
+          _validateRequired(bankNameCtrl.text, "Bank Name") == null;
+      final accValid = _validateAccount(accountNumberCtrl.text) == null;
+      final ifscValid = _validateIFSC(ifscCtrl.text) == null;
+
+      if (!bankNameValid || !accValid || !ifscValid) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+            content: Text("Please fill all required bank details correctly."),
+          ),
+        );
+        _pageController.jumpToPage(3);
+        return;
+      }
+
+      if (bankPassbookFile == null ||
+          cancelledChequeFile == null ||
+          bankStatementFile == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+            content: Text("Please attach all required bank documents (2 MB max each)."),
+          ),
+        );
+        _pageController.jumpToPage(3);
+        return;
+      }
+    }
+
+    // If UPI chosen -> ensure UPI field present
+    if (paymentMethod == 'upi') {
+      final upiValid = _validateUPI(upiCtrl.text) == null;
+      if (!upiValid) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+            content: Text("Please enter a valid UPI ID."),
+          ),
+        );
+        _pageController.jumpToPage(3);
+        return;
+      }
     }
 
     setState(() => isLoading = true);
@@ -291,10 +434,11 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
       "learnAstrology": learnAstroCtrl.text.trim(),
       "aadhaarNumber": aadhaarNumberCtrl.text.trim(),
       "panNumber": panNumberCtrl.text.trim(),
-      "bankName": bankNameCtrl.text.trim(),
-      "accountNumber": accountNumberCtrl.text.trim(),
-      "ifscCode": ifscCtrl.text.trim(),
-      "upiId": upiCtrl.text.trim(),
+      // bank/upi fields - send depending on selection
+      "bankName": paymentMethod == 'bank' ? bankNameCtrl.text.trim() : "",
+      "accountNumber": paymentMethod == 'bank' ? accountNumberCtrl.text.trim() : "",
+      "ifscCode": paymentMethod == 'bank' ? ifscCtrl.text.trim() : "",
+      "upiId": paymentMethod == 'upi' ? upiCtrl.text.trim() : "",
     };
 
     print("🟡 DEBUG: Fields Being Sent:");
@@ -304,7 +448,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
 
     // Add fields to request
     debugFields.forEach((key, value) {
-      request.fields[key] = value;
+      request.fields[key] = value ?? "";
     });
 
     // Optional extras
@@ -337,7 +481,13 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     await addFile("aadhaarFront", aadhaarFrontFile);
     await addFile("aadhaarBack", aadhaarBackFile);
     await addFile("panCardImage", panCardFile);
-    await addFile("bankPassbookImage", bankPassbookFile);
+
+    // bank files only sent if bank selected
+    if (paymentMethod == 'bank') {
+      await addFile("bankPassbookImage", bankPassbookFile);
+      await addFile("cancelledChequeImage", cancelledChequeFile);
+      await addFile("bankStatementImage", bankStatementFile);
+    }
 
     print("====================================");
     print("🚀 DEBUG: Sending Request to API...");
@@ -429,29 +579,31 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     aadhaarBackFile = null;
     panCardFile = null;
     bankPassbookFile = null;
+    cancelledChequeFile = null;
+    bankStatementFile = null;
+    paymentMethod = 'none';
   }
 
   // ---------------------------
   // UI helpers
   // ---------------------------
   Widget _buildTextField(
-    TextEditingController controller,
-    String label, {
-    bool required = false,
-    TextInputType keyboardType = TextInputType.text,
-    IconData? icon,
-    int maxLines = 1,
-    String? Function(String?)? validator,
-    bool obscure = false,
-    Widget? suffix,
-  }) {
+      TextEditingController controller,
+      String label, {
+        bool required = false,
+        TextInputType keyboardType = TextInputType.text,
+        IconData? icon,
+        int maxLines = 1,
+        String? Function(String?)? validator,
+        bool obscure = false,
+        Widget? suffix,
+      }) {
     return TextFormField(
       controller: controller,
       keyboardType: keyboardType,
       maxLines: maxLines,
       obscureText: obscure,
-      validator:
-          validator ?? (required ? (v) => _validateRequired(v, label) : null),
+      validator: validator ?? (required ? (v) => _validateRequired(v, label) : null),
       decoration: InputDecoration(
         labelText: label,
         prefixIcon: icon != null
@@ -461,9 +613,11 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
         filled: true,
         fillColor: Colors.yellow[50],
+        errorMaxLines: 2,  // 👈 Important
       ),
     );
   }
+
 
   Widget _buildPageIndicator() {
     // now 4 pages
@@ -533,6 +687,25 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
       ],
     );
   }
+  String? _validateExperience(String? v) {
+    if (v == null || v.trim().isEmpty) {
+      return "Experience is required";
+    }
+
+    // Check digits only
+    if (!RegExp(r'^\d+$').hasMatch(v.trim())) {
+      return "Experience must be a number";
+    }
+
+    final years = int.tryParse(v.trim()) ?? -1;
+
+    if (years < 0 || years > 60) {
+      return "Experience must be between 0 to 60 years";
+    }
+
+    return null;
+  }
+
 
   // ---------------------------
   // Sections (PageView children)
@@ -570,7 +743,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
                         shape: BoxShape.circle,
                       ),
                       child:
-                          const Icon(Icons.edit, size: 20, color: Colors.white),
+                      const Icon(Icons.camera_alt, size: 20, color: Colors.white),
                     ),
                   ),
                 ),
@@ -648,29 +821,32 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
           const SizedBox(height: 20),
           _buildTextField(
             chatChargeCtrl,
-            "Chat Charge (₹/min) — min 50",
+            "Chat Charge (₹/10min) — min 50",
             required: true,
             keyboardType: TextInputType.number,
             icon: Icons.chat_bubble_outline,
             validator: (v) => _validateMinInt(v, "Chat charge", 50),
+
           ),
           const SizedBox(height: 20),
           _buildTextField(
             audioChargeCtrl,
-            "Audio Call Charge (₹/min) — min 200",
+            "Audio Call Charge (₹/10min) — min 200",
             required: true,
             keyboardType: TextInputType.number,
             icon: Icons.call_outlined,
             validator: (v) => _validateMinInt(v, "Audio call charge", 200),
+
           ),
           const SizedBox(height: 20),
           _buildTextField(
             videoChargeCtrl,
-            "Video Call Charge (₹/min) — min 250",
+            "Video Call Charge (₹/10min) — min 250",
             required: true,
             keyboardType: TextInputType.number,
             icon: Icons.videocam_outlined,
             validator: (v) => _validateMinInt(v, "Video call charge", 250),
+
           ),
 
           const SizedBox(height: 20),
@@ -680,7 +856,9 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
             required: true,
             keyboardType: TextInputType.number,
             icon: Icons.work_outline,
+            validator: _validateExperience,
           ),
+
           const SizedBox(height: 20),
           _buildTextField(
             bioCtrl,
@@ -689,6 +867,9 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
             icon: Icons.description_outlined,
             maxLines: 4,
           ),
+
+          // _buildTextField(nameCtrl, "Full Name",
+          //     required: true, icon: Icons.person_outline),
           const SizedBox(height: 24),
           _buildPageIndicator(),
         ],
@@ -758,7 +939,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     );
   }
 
-  Widget _kycFileTile(String title, File? file, VoidCallback onTap) {
+  Widget _kycFileTile(String title, File? file, VoidCallback onTap, {String? subtitle}) {
     return ListTile(
       contentPadding: EdgeInsets.zero,
       leading: Container(
@@ -767,16 +948,17 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(8),
           color: Colors.grey[200],
-          image: file != null ? DecorationImage(image: FileImage(file)) : null,
+          image: file != null ? DecorationImage(image: FileImage(file), fit: BoxFit.cover) : null,
         ),
         child:
-            file == null ? const Icon(Icons.insert_drive_file_outlined) : null,
+        file == null ? const Icon(Icons.insert_drive_file_outlined) : null,
       ),
       title: Text(title),
+      subtitle: subtitle != null ? Text(subtitle, style: TextStyle(fontSize: 12)) : null,
       trailing: ElevatedButton(
         onPressed: onTap,
         style:
-            ElevatedButton.styleFrom(backgroundColor: const Color(0xFFFFC107)),
+        ElevatedButton.styleFrom(backgroundColor: const Color(0xFFFFC107)),
         child: Text(file == null ? "Attach" : "Change"),
       ),
     );
@@ -789,8 +971,9 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildSectionHeader("KYC & Bank Details",
-              "Upload Aadhaar, PAN and bank details for verification."),
-          _buildTextField(aadhaarNumberCtrl, "Aadhaar Number",
+              "Upload Aadhaar, PAN and optionally provide UPI or bank details for payouts."),
+          _buildTextField(aadhaarNumberCtrl,
+              "Aadhaar Number",
               required: true,
               keyboardType: TextInputType.number,
               icon: Icons.credit_card,
@@ -802,23 +985,80 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
               icon: Icons.credit_card,
               validator: _validatePAN),
           const SizedBox(height: 12),
-          _buildTextField(bankNameCtrl, "Bank Name",
-              required: true, icon: Icons.account_balance),
-          const SizedBox(height: 12),
-          _buildTextField(accountNumberCtrl, "Account Number",
-              required: true,
-              keyboardType: TextInputType.number,
-              icon: Icons.numbers,
-              validator: _validateAccount),
-          const SizedBox(height: 12),
-          _buildTextField(ifscCtrl, "IFSC Code",
-              required: true,
-              keyboardType: TextInputType.text,
-              icon: Icons.code,
-              validator: _validateIFSC),
-          const SizedBox(height: 12),
-          _buildTextField(upiCtrl, "UPI ID (optional)",
-              required: false, icon: Icons.send_to_mobile),
+
+          // Payment method selector
+          Text("Payout Method",
+              style: Theme.of(context)
+                  .textTheme
+                  .titleSmall
+                  ?.copyWith(fontWeight: FontWeight.w600)),
+          const SizedBox(height: 8),
+          RadioListTile<String>(
+            title: const Text("None (provide later)"),
+            value: 'none',
+            groupValue: paymentMethod,
+            onChanged: (v) => setState(() => paymentMethod = v ?? 'none'),
+            activeColor: const Color(0xFFFFC107),
+            dense: true,
+          ),
+          RadioListTile<String>(
+            title: const Text("UPI"),
+            value: 'upi',
+            groupValue: paymentMethod,
+            onChanged: (v) => setState(() => paymentMethod = v ?? 'upi'),
+            activeColor: const Color(0xFFFFC107),
+            dense: true,
+          ),
+          if (paymentMethod == 'upi') ...[
+            const SizedBox(height: 8),
+            _buildTextField(upiCtrl, "UPI ID",
+                required: true,
+                icon: Icons.send_to_mobile,
+                validator: _validateUPI),
+          ],
+          RadioListTile<String>(
+            title: const Text("Bank Account"),
+            value: 'bank',
+            groupValue: paymentMethod,
+            onChanged: (v) => setState(() => paymentMethod = v ?? 'bank'),
+            activeColor: const Color(0xFFFFC107),
+            dense: true,
+          ),
+          if (paymentMethod == 'bank') ...[
+            const SizedBox(height: 8),
+            _buildTextField(bankNameCtrl, "Bank Name",
+                required: true, icon: Icons.account_balance),
+            const SizedBox(height: 12),
+            _buildTextField(accountNumberCtrl, "Account Number",
+                required: true,
+                keyboardType: TextInputType.number,
+                icon: Icons.numbers,
+                validator: _validateAccount),
+            const SizedBox(height: 12),
+            _buildTextField(ifscCtrl, "IFSC Code",
+                required: true,
+                keyboardType: TextInputType.text,
+                icon: Icons.code,
+                validator: _validateIFSC),
+            const SizedBox(height: 12),
+
+            Text("Bank Documents (each ≤ 2 MB)",
+                style: Theme.of(context)
+                    .textTheme
+                    .titleLarge
+                    ?.copyWith(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 12),
+            _kycFileTile("Bank Passbook / Statement (or first page)", bankPassbookFile, _pickBankPassbook,
+                subtitle: "Max 2 MB"),
+            const SizedBox(height: 8),
+            _kycFileTile("Cancelled Cheque (or cheque image)", cancelledChequeFile, _pickCancelledCheque,
+                subtitle: "Max 2 MB"),
+            const SizedBox(height: 8),
+            _kycFileTile("Bank Statement (last 3 months)", bankStatementFile, _pickBankStatement,
+                subtitle: "Max 2 MB"),
+            const SizedBox(height: 12),
+          ],
+
           const SizedBox(height: 16),
           Text("Required Documents",
               style: Theme.of(context)
@@ -831,9 +1071,6 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
           _kycFileTile("Aadhaar Back", aadhaarBackFile, _pickAadhaarBack),
           const SizedBox(height: 8),
           _kycFileTile("PAN Card", panCardFile, _pickPanCard),
-          const SizedBox(height: 8),
-          _kycFileTile("Bank Passbook / Cancelled Cheque", bankPassbookFile,
-              _pickBankPassbook),
           const SizedBox(height: 24),
           _buildPageIndicator(),
         ],
@@ -903,10 +1140,9 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
                           curve: Curves.easeInOut);
                     }
                   },
-                  style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.grey[300]),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.grey[300]),
                   child:
-                      const Text("Back", style: TextStyle(color: Colors.black)),
+                  const Text("Back", style: TextStyle(color: Colors.black)),
                 ),
               ),
             if (_currentPage > 0) const SizedBox(width: 12),
@@ -936,103 +1172,194 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     );
   }
 
-  bool _validateCurrentPage(int pageIndex) {
-    // For simple UX: run form validation for all fields, but if invalid,
-    // jump to the first page so user sees errors. We still allow navigating
-    // step-by-step, but prevent moving forward if required fields on current page fail.
-    // We'll do a minimal check per page to avoid forcing user to fill everything at once.
-    switch (pageIndex) {
-      case 0:
-        // required section validations
-        final emailValid = _validateEmail(emailCtrl.text) == null;
-        final pwdValid = _validatePassword(passwordCtrl.text) == null;
-        final phoneValid = _validatePhone(contactNoCtrl.text) == null;
-        final nameValid = _validateRequired(nameCtrl.text, "Full Name") == null;
-        final skillValid =
-            _validateRequired(skillCtrl.text, "Primary Skill") == null;
-        final langValid =
-            _validateRequired(languageCtrl.text, "Languages Known") == null;
-        final cityValid =
-            _validateRequired(cityCtrl.text, "Current City") == null;
-        final chatValid =
-            _validateMinInt(chatChargeCtrl.text, "Chat charge", 50) == null;
-        final audioValid =
-            _validateMinInt(audioChargeCtrl.text, "Audio call charge", 200) ==
-                null;
-        final videoValid =
-            _validateMinInt(videoChargeCtrl.text, "Video call charge", 250) ==
-                null;
-        final expValid =
-            _validateRequired(expCtrl.text, "Experience (Years)") == null;
-        final bioValid =
-            _validateRequired(bioCtrl.text, "Bio / Introduction") == null;
-        if (!emailValid ||
-            !pwdValid ||
-            !phoneValid ||
-            !nameValid ||
-            !skillValid ||
-            !langValid ||
-            !cityValid ||
-            !chatValid ||
-            !audioValid ||
-            !videoValid ||
-            !expValid ||
-            !bioValid) {
-          // show errors visually
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              backgroundColor: Colors.red,
-              behavior: SnackBarBehavior.floating,
-              content: Text("Please fill all required fields on this page."),
-            ),
-          );
-          return false;
-        }
-        return true;
-      case 1:
-        // Optional page - always allow moving forward
-        return true;
-      case 2:
-        // Settings page - nothing required
-        return true;
-      case 3:
-        // KYC page checks
-        final aadhaarValid = _validateAadhaar(aadhaarNumberCtrl.text) == null;
-        final panValid = _validatePAN(panNumberCtrl.text) == null;
-        final bankNameValid =
-            _validateRequired(bankNameCtrl.text, "Bank Name") == null;
-        final accValid = _validateAccount(accountNumberCtrl.text) == null;
-        final ifscValid = _validateIFSC(ifscCtrl.text) == null;
-        if (!aadhaarValid ||
-            !panValid ||
-            !bankNameValid ||
-            !accValid ||
-            !ifscValid) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              backgroundColor: Colors.red,
-              behavior: SnackBarBehavior.floating,
-              content: Text("Please fill all required KYC fields correctly."),
-            ),
-          );
-          return false;
-        }
-        if (aadhaarFrontFile == null ||
-            aadhaarBackFile == null ||
-            panCardFile == null ||
-            bankPassbookFile == null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              backgroundColor: Colors.red,
-              behavior: SnackBarBehavior.floating,
-              content: Text("Please attach all required KYC documents."),
-            ),
-          );
-          return false;
-        }
-        return true;
-      default:
-        return true;
-    }
+
+  void _showError(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
+        content: Text(msg),
+      ),
+    );
   }
-}
+
+
+
+
+
+    bool _validateCurrentPage(int pageIndex) {
+      switch (pageIndex) {
+        case 0:
+
+        // EMAIL
+          final emailError = _validateEmail(emailCtrl.text);
+          if (emailError != null) {
+            _showError(emailError);
+            return false;
+          }
+
+          // PASSWORD
+          final pwdError = _validatePassword(passwordCtrl.text);
+          if (pwdError != null) {
+            _showError(pwdError);
+            return false;
+          }
+
+          // PHONE (ONLY DIGITS)
+          final phoneError = _validatePhone(contactNoCtrl.text);
+
+          if (phoneError != null) {
+            _showError(phoneError);
+            return false;
+          }
+
+          // NAME (LETTERS ONLY)
+          final nameError = _validateLettersOnly(nameCtrl.text, "Full Name");
+          if (nameError != null) {
+            _showError(nameError);
+            return false;
+          }
+
+          // SKILL
+          final skillError =
+          _validateLettersOnly(skillCtrl.text, "Primary Skill");
+          if (skillError != null) {
+            _showError(skillError);
+            return false;
+          }
+
+          // LANGUAGE
+          final langError =
+          _validateLettersOnly(languageCtrl.text, "Languages Known");
+          if (langError != null) {
+            _showError(langError);
+            return false;
+          }
+
+          // CITY
+          final cityError =
+          _validateLettersOnly(cityCtrl.text, "Current City");
+          if (cityError != null) {
+            _showError(cityError);
+            return false;
+          }
+
+          // CHAT CHARGE
+          final chatError =
+          _validateMinInt(chatChargeCtrl.text, "Chat charge", 50);
+          if (chatError != null) {
+            _showError(chatError);
+            return false;
+          }
+
+          // AUDIO CHARGE
+          final audioError =
+          _validateMinInt(audioChargeCtrl.text, "Audio call charge", 200);
+          if (audioError != null) {
+            _showError(audioError);
+            return false;
+          }
+
+          // VIDEO CHARGE
+          final videoError =
+          _validateMinInt(videoChargeCtrl.text, "Video call charge", 250);
+          if (videoError != null) {
+            _showError(videoError);
+            return false;
+          }
+
+          // EXPERIENCE
+          final expError = _validateExperience(expCtrl.text);
+          if (expError != null) {
+            _showError(expError);
+            return false;
+          }
+
+          // BIO
+          final bioError =
+          _validateBio(bioCtrl.text);
+          if (bioError != null) {
+            _showError(bioError);
+            return false;
+          }
+
+          return true;
+
+        case 1:
+          return true;
+
+        case 2:
+          return true;
+
+        case 3:
+
+          final aadhaarError = _validateAadhaar(aadhaarNumberCtrl.text);
+          if (aadhaarError != null) {
+            _showError(aadhaarError);
+            return false;
+          }
+
+          final panError = _validatePAN(panNumberCtrl.text);
+          if (panError != null) {
+            _showError(panError);
+            return false;
+          }
+
+          // BANK VALIDATION
+          if (paymentMethod == 'bank') {
+            final bankNameError =
+            _validateRequired(bankNameCtrl.text, "Bank Name");
+            if (bankNameError != null) {
+              _showError(bankNameError);
+              return false;
+            }
+
+            final accError = _validateAccount(accountNumberCtrl.text);
+            if (accError != null) {
+              _showError(accError);
+              return false;
+            }
+
+            final ifscError = _validateIFSC(ifscCtrl.text);
+            if (ifscError != null) {
+              _showError(ifscError);
+              return false;
+            }
+          }
+
+          // UPI VALIDATION
+          if (paymentMethod == 'upi') {
+            final upiError = _validateUPI(upiCtrl.text);
+            if (upiError != null) {
+              _showError(upiError);
+              return false;
+            }
+          }
+
+          // DOCUMENT VALIDATION
+          if (aadhaarFrontFile == null ||
+              aadhaarBackFile == null ||
+              panCardFile == null) {
+            _showError("Please attach Aadhaar and PAN images.");
+            return false;
+          }
+
+          if (paymentMethod == 'bank') {
+            if (bankPassbookFile == null ||
+                cancelledChequeFile == null ||
+                bankStatementFile == null) {
+              _showError(
+                  "Please attach all required bank documents (2 MB max each).");
+              return false;
+            }
+          }
+
+          return true;
+
+        default:
+          return true;
+      }
+    }
+
+
+  }
