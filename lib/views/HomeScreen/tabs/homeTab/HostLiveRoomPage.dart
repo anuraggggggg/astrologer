@@ -1,16 +1,18 @@
 // lib/views/HomeScreen/tabs/homeTab/HostLiveRoomPage.dart
+
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
-import 'package:astrowaypartner/fastApi/fastApiServices.dart'; // must expose endAgoraLive()
+import 'package:astrowaypartner/fastApi/fastApiServices.dart';
 
 class HostLiveRoomPage extends StatefulWidget {
   final String appId;
   final String channelName;
-  final String? rtcToken; // use if provided
+  final String? rtcToken;
 
   const HostLiveRoomPage({
     super.key,
@@ -28,6 +30,7 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage> {
   bool _joined = false;
   int _fps = 15;
   int? _dataStreamId;
+  late final int _myUid;
 
   final List<_Comment> _comments = [];
   final TextEditingController _commentCtrl = TextEditingController();
@@ -35,194 +38,176 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage> {
 
   bool _ending = false;
 
+  /// Message reassembly buffer
+  final Map<String, List<String?>> _recvParts = {};
+  final Map<String, int> _recvTotal = {};
+
+  String _tag(String s) => '[HostLiveRoom] $s';
+  void _log(String msg) => debugPrint('$_tag ${DateTime.now().toIso8601String()} -> $msg');
+
   @override
   void initState() {
     super.initState();
+    _myUid = Random().nextInt(900000) + 1000;
     _init();
   }
 
-  // place inside _HostLiveRoomPageState (near other members)
-  String _tag(String s) => '[HostLiveRoom] $s';
-
-  void _log(String msg) {
-    final now = DateTime.now().toIso8601String();
-    debugPrint('$_tag $now -> $msg');
-  }
-
+  // ---------------------------------------------------------------------------
+  // INIT
+  // ---------------------------------------------------------------------------
   Future<void> _init() async {
-    _log('INIT START');
-
-    try {
-      _engine = createAgoraRtcEngine();
-      _log('RtcEngine created');
-    } catch (e) {
-      _log('FAILED createAgoraRtcEngine: $e');
-      rethrow;
-    }
+    _log('INIT START (uid=$_myUid)');
+    _engine = createAgoraRtcEngine();
 
     try {
       await _engine.initialize(RtcEngineContext(appId: widget.appId));
-      _log('RtcEngine.initialize SUCCESS (appId=${widget.appId})');
+      _log('RtcEngine.initialize OK');
     } catch (e) {
       _log('RtcEngine.initialize FAILED: $e');
       rethrow;
     }
 
-    try {
-      await _engine.setChannelProfile(ChannelProfileType.channelProfileLiveBroadcasting);
-      _log('setChannelProfile -> channelProfileLiveBroadcasting');
-    } catch (e) {
-      _log('setChannelProfile FAILED: $e');
-    }
+    // Register events
+    _engine.registerEventHandler(RtcEngineEventHandler(
+      onJoinChannelSuccess: (RtcConnection connection, int elapsed) async {
+        _log('onJoinChannelSuccess channel=${connection.channelId} uid=${connection.localUid}');
+        if (!mounted) return;
 
-    try {
-      await _engine.setClientRole(role: ClientRoleType.clientRoleBroadcaster);
-      _log('setClientRole -> Broadcaster');
-    } catch (e) {
-      _log('setClientRole FAILED: $e');
-    }
+        setState(() => _joined = true);
 
-    try {
-      await _engine.enableVideo();
-      await _engine.startPreview();
-      _log('enableVideo + startPreview done');
-    } catch (e) {
-      _log('enableVideo/startPreview FAILED: $e');
-    }
+        try {
+          final id = await _engine.createDataStream(
+            const DataStreamConfig(syncWithAudio: false, ordered: true),
+          );
+          _dataStreamId = id;
+          _log('createDataStream SUCCESS id=$_dataStreamId');
+        } catch (e) {
+          _log('createDataStream FAILED: $e');
+        }
+      },
 
-    try {
-      await _engine.setVideoEncoderConfiguration(
-        const VideoEncoderConfiguration(
-          dimensions: VideoDimensions(width: 720, height: 1280),
-          frameRate: 15,
-          bitrate: 1130,
-          orientationMode: OrientationMode.orientationModeFixedPortrait,
-        ),
-      );
-      _log('setVideoEncoderConfiguration set (720x1280, fps=15)');
-    } catch (e) {
-      _log('setVideoEncoderConfiguration FAILED: $e');
-    }
+      onUserJoined: (RtcConnection connection, int remoteUid, int elapsed) {
+        _log('onUserJoined uid=$remoteUid');
+      },
 
-    // Register detailed event handler with extra logging
-    _engine.registerEventHandler(
-      RtcEngineEventHandler(
-        onJoinChannelSuccess: (RtcConnection connection, int elapsed) async {
-          _log('onJoinChannelSuccess channel=${connection.channelId} uid=${connection.localUid} elapsed=$elapsed');
-          if (!mounted) return;
-          setState(() => _joined = true);
+      onUserOffline: (RtcConnection connection, int remoteUid, UserOfflineReasonType reason) {
+        _log('onUserOffline uid=$remoteUid reason=$reason');
+      },
 
-          // (re)create data stream on every join to be safe
-          try {
-            final id = await _engine.createDataStream(
-              const DataStreamConfig(syncWithAudio: false, ordered: true),
-            );
-            _dataStreamId = id;
-            _log('createDataStream SUCCESS id=$_dataStreamId');
-          } catch (e) {
-            _dataStreamId = null;
-            _log('createDataStream FAILED: $e');
+      onError: (ErrorCodeType err, String msg) {
+        _log('onError $err $msg');
+
+        if (!mounted) return;
+        final text = err == ErrorCodeType.errInvalidToken
+            ? 'Invalid/expired RTC token.'
+            : 'Agora error $err: $msg';
+
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+      },
+
+      // -----------------------------------------------------------------------
+      // RECEIVE STREAM MESSAGE (chunk-based)
+      // -----------------------------------------------------------------------
+      onStreamMessage: (RtcConnection connection, int uid, int streamId, Uint8List data, int offset, int length) {
+        try {
+          final trimmed = _trimNulls(Uint8List.fromList(data));
+          final text = utf8.decode(trimmed);
+
+          // Envelope decode
+          final Map<String, dynamic> envelope = jsonDecode(text);
+          final m = envelope['m'];
+          final d = envelope['d'];
+          if (m == null || d == null) {
+            _log('Invalid envelope');
+            return;
           }
-        },
 
-        onUserJoined: (RtcConnection connection, int remoteUid, int elapsed) {
-          _log('onUserJoined uid=$remoteUid channel=${connection.channelId} elapsed=$elapsed');
-        },
+          final id = m['id'].toString();
+          final part = int.tryParse(m['part'].toString()) ?? 0;
+          final total = int.tryParse(m['total'].toString()) ?? 1;
 
-        onUserOffline: (RtcConnection connection, int remoteUid, UserOfflineReasonType reason) {
-          _log('onUserOffline uid=$remoteUid reason=$reason channel=${connection.channelId}');
-        },
+          _recvParts.putIfAbsent(id, () => List<String?>.filled(total, null));
+          _recvTotal[id] = total;
 
-        onError: (ErrorCodeType err, String msg) {
-          _log('onError err=$err msg=$msg');
-          if (!mounted) return;
-          final text = err == ErrorCodeType.errInvalidToken
-              ? 'Invalid/expired RTC token. Make sure token is valid or App Certificate is disabled.'
-              : 'Agora error $err: $msg';
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
-        },
-
-        onConnectionStateChanged: (RtcConnection connection, ConnectionStateType state, ConnectionChangedReasonType reason) {
-          _log('onConnectionStateChanged channel=${connection.channelId} state=$state reason=$reason');
-          // If reconnected, ensure dataStream exists (safety)
-          if (state == ConnectionStateType.connectionStateConnected) {
-            _log('Connection re-established on channel=${connection.channelId}');
-            // optional: recreate data stream if missing
-            if (_dataStreamId == null) {
-              _log('Data stream missing after reconnect — attempting to create');
-              () async {
-                try {
-                  final id = await _engine.createDataStream(const DataStreamConfig(syncWithAudio: false, ordered: true));
-                  _dataStreamId = id;
-                  _log('createDataStream after reconnect SUCCESS id=$_dataStreamId');
-                } catch (e) {
-                  _log('createDataStream after reconnect FAILED: $e');
-                }
-              }();
-            }
+          if (part < 0 || part >= total) {
+            _log('Invalid part index');
+            return;
           }
-        },
 
-        onStreamMessage: (RtcConnection connection, int uid, int streamId, Uint8List data, int offset, int length) {
-          try {
-            final bytes = data.sublist(offset, offset + length);
-            final payload = utf8.decode(bytes);
-            _log('onStreamMessage received streamId=$streamId from uid=$uid length=$length payload=$payload');
+          _recvParts[id]![part] = d;
 
-            // parse safely
+          // Check if all parts arrived
+          final parts = _recvParts[id]!;
+          if (!parts.every((p) => p != null)) {
+            return;
+          }
+
+          // Assemble
+          final combinedBytes = <int>[];
+          for (final b64 in parts) {
+            combinedBytes.addAll(base64.decode(b64!));
+          }
+
+          _recvParts.remove(id);
+          _recvTotal.remove(id);
+
+          final payload = utf8.decode(combinedBytes);
+          _log('Assembled payload=$payload');
+
+          final Map<String, dynamic> obj = jsonDecode(payload);
+          final textMsg = obj['text']?.toString() ?? '';
+          final user = obj['user']?.toString() ?? 'User';
+          final ts = obj['ts']?.toString();
+
+          DateTime at = DateTime.now();
+          if (ts != null) {
             try {
-              final obj = jsonDecode(payload) as Map<String, dynamic>;
-              final user = obj['user']?.toString() ?? 'User';
-              final text = obj['text']?.toString() ?? '';
-              final ts = obj['ts']?.toString();
-              DateTime at = DateTime.now();
-              if (ts != null) {
-                try {
-                  at = DateTime.parse(ts);
-                } catch (_) {}
-              }
-
-              if (mounted) {
-                setState(() {
-                  _comments.add(_Comment(user, text, at));
-                });
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (_commentScroll.hasClients) {
-                    _commentScroll.animateTo(
-                      _commentScroll.position.maxScrollExtent + 80,
-                      duration: const Duration(milliseconds: 200),
-                      curve: Curves.easeOut,
-                    );
-                  }
-                });
-              }
-            } catch (e) {
-              _log('onStreamMessage json parse FAILED: $e payload=$payload');
-            }
-          } catch (e) {
-            _log('onStreamMessage processing FAILED: $e');
+              at = DateTime.parse(ts);
+            } catch (_) {}
           }
-        },
 
-        onStreamMessageError: (RtcConnection connection, int uid, int streamId, ErrorCodeType error, int missed, int cached) {
-          _log('onStreamMessageError uid=$uid streamId=$streamId error=$error missed=$missed cached=$cached');
-        },
+          if (mounted) {
+            setState(() => _comments.add(_Comment(user, textMsg, at)));
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (_commentScroll.hasClients) {
+                _commentScroll.animateTo(
+                  _commentScroll.position.maxScrollExtent + 80,
+                  duration: const Duration(milliseconds: 250),
+                  curve: Curves.easeOut,
+                );
+              }
+            });
+          }
+        } catch (e, st) {
+          _log('onStreamMessage FAILED: $e\n$st');
+        }
+      },
 
-        onLeaveChannel: (RtcConnection connection, RtcStats stats) {
-          _log('onLeaveChannel channel=${connection.channelId}');
-//        if (mounted) setState(() => _joined = false);
-        },
-      ),
-    );
+      onConnectionStateChanged: (RtcConnection connection, ConnectionStateType state, ConnectionChangedReasonType reason) {
+        _log('Connection changed state=$state reason=$reason');
+      },
+    ));
 
-    final String tokenToUse = widget.rtcToken ?? '';
-    _log('About to join channel=${widget.channelName} tokenPresent=${widget.rtcToken != null}');
+    // Video config
+    await _engine.setChannelProfile(ChannelProfileType.channelProfileLiveBroadcasting);
+    await _engine.setClientRole(role: ClientRoleType.clientRoleBroadcaster);
+    await _engine.enableVideo();
 
+    await _engine.startPreview();
+
+    await _engine.setVideoEncoderConfiguration(VideoEncoderConfiguration(
+      dimensions: const VideoDimensions(width: 720, height: 1280),
+      frameRate: _fps,
+      bitrate: 1130,
+      orientationMode: OrientationMode.orientationModeFixedPortrait,
+    ));
+
+    // Join channel
     try {
       await _engine.joinChannel(
-        token: tokenToUse,
+        token: widget.rtcToken ?? '',
         channelId: widget.channelName,
-        uid: 0,
+        uid: _myUid,
         options: const ChannelMediaOptions(
           clientRoleType: ClientRoleType.clientRoleBroadcaster,
           channelProfile: ChannelProfileType.channelProfileLiveBroadcasting,
@@ -232,34 +217,119 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage> {
           autoSubscribeVideo: true,
         ),
       );
-      _log('joinChannel call completed (await returned)');
+      _log('joinChannel requested');
     } catch (e) {
-      _log('joinChannel FAILED: $e');
+      _log('join FAILED: $e');
     }
 
     _log('INIT END');
   }
 
+  // ---------------------------------------------------------------------------
+  // HELPERS
+  // ---------------------------------------------------------------------------
 
+  Uint8List _trimNulls(Uint8List bytes) {
+    int start = 0;
+    int end = bytes.length;
+
+    while (start < end && bytes[start] == 0) start++;
+    while (end > start && bytes[end - 1] == 0) end--;
+
+    return bytes.sublist(start, end);
+  }
+
+  // ---------------------------------------------------------------------------
+  // SEND CHAT (Chunked)
+  // ---------------------------------------------------------------------------
+  Future<void> _sendChat(String text) async {
+    if (text.trim().isEmpty) return;
+
+    if (_dataStreamId == null) {
+      try {
+        _dataStreamId = await _engine.createDataStream(
+          const DataStreamConfig(syncWithAudio: false, ordered: true),
+        );
+      } catch (_) {}
+    }
+
+    final payloadMap = {
+      "type": "chat",
+      "user": "Host",
+      "text": text.trim(),
+      "ts": DateTime.now().toIso8601String(),
+    };
+
+    final payloadBytes = utf8.encode(jsonEncode(payloadMap));
+    final id = '${DateTime.now().millisecondsSinceEpoch}-${Random().nextInt(9999)}';
+
+    const chunkSize = 900;
+    final total = ((payloadBytes.length + chunkSize - 1) / chunkSize).floor();
+
+    int sent = 0;
+    int part = 0;
+
+    try {
+      while (sent < payloadBytes.length) {
+        final take = min(chunkSize, payloadBytes.length - sent);
+        final chunk = payloadBytes.sublist(sent, sent + take);
+
+        final envelope = jsonEncode({
+          "m": {"id": id, "part": part, "total": total},
+          "d": base64.encode(chunk),
+        });
+
+        final bytesToSend = Uint8List.fromList(utf8.encode(envelope));
+
+        if (_dataStreamId != null) {
+          await _engine.sendStreamMessage(
+            streamId: _dataStreamId!,
+            data: bytesToSend,
+            length: bytesToSend.length,
+          );
+        }
+
+        sent += take;
+        part++;
+        await Future.delayed(const Duration(milliseconds: 6));
+      }
+
+      if (mounted) {
+        setState(() => _comments.add(_Comment('Host', text.trim(), DateTime.now())));
+        _commentCtrl.clear();
+
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (_commentScroll.hasClients) {
+            _commentScroll.animateTo(
+              _commentScroll.position.maxScrollExtent + 80,
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOut,
+            );
+          }
+        });
+      }
+    } catch (e) {
+      _log('sendStreamMessage failed: $e');
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // END LIVE
+  // ---------------------------------------------------------------------------
   Future<void> _endLive() async {
     if (_ending) return;
     setState(() => _ending = true);
+
     try {
-      final res = await FastApiServices().endAgoraLive();
-      final msg = (res['message'] ?? 'Live ended').toString();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('End live failed: $e')));
-      }
-    } finally {
-      try {
-        await _engine.leaveChannel();
-        await _engine.release();
-      } catch (_) {}
-      if (mounted) Navigator.pop(context);
-    }
+      await FastApiServices().endAgoraLive();
+    } catch (_) {}
+
+    try {
+      await _engine.leaveChannel();
+      await _engine.release();
+    } catch (_) {}
+
+    if (mounted) Navigator.pop(context);
   }
 
   @override
@@ -267,83 +337,25 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage> {
     _commentCtrl.dispose();
     _commentScroll.dispose();
 
-    // cleanup & auto end (fire-and-forget)
     () async {
       try {
         await FastApiServices().endAgoraLive();
-      } catch (e) {
-        debugPrint('Auto end live failed: $e');
-      }
+      } catch (_) {}
+
       try {
         await _engine.leaveChannel();
         await _engine.release();
-      } catch (e) {
-        debugPrint('Agora cleanup failed: $e');
-      }
+      } catch (_) {}
     }();
 
     super.dispose();
   }
 
-  // send message using new sendStreamMessage named params
-  Future<void> _sendChatViaDataStream(String text) async {
-    if (text.trim().isEmpty) return;
+  void _onSendPressed() => _sendChat(_commentCtrl.text);
 
-    if (_dataStreamId == null) {
-      try {
-        final id = await _engine.createDataStream(
-          const DataStreamConfig(syncWithAudio: false, ordered: true),
-        );
-        debugPrint('Created data stream on-demand id=$id');
-        _dataStreamId = id;
-      } catch (e) {
-        debugPrint('Failed to create data stream on-demand: $e');
-      }
-    }
-
-    final payload = jsonEncode({
-      "type": "chat",
-      "user": "Host", // replace with real name/uid if available
-      "text": text.trim(),
-      "ts": DateTime.now().toIso8601String(),
-    });
-
-    final bytes = Uint8List.fromList(utf8.encode(payload));
-
-    try {
-      if (_dataStreamId != null) {
-        await _engine.sendStreamMessage(streamId: _dataStreamId!, data: bytes, length: bytes.length);
-      } else {
-        debugPrint('No data stream id available, added locally only');
-      }
-
-      // local UI update
-      setState(() {
-        _comments.add(_Comment('Host', text.trim(), DateTime.now()));
-      });
-      _commentCtrl.clear();
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_commentScroll.hasClients) {
-          _commentScroll.animateTo(
-            _commentScroll.position.maxScrollExtent + 80,
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeOut,
-          );
-        }
-      });
-    } catch (e) {
-      debugPrint('sendStreamMessage failed: $e');
-      setState(() {
-        _comments.add(_Comment('Host', text.trim(), DateTime.now()));
-      });
-      _commentCtrl.clear();
-    }
-  }
-
-  void _addCommentFromInput(String text) {
-    _sendChatViaDataStream(text);
-  }
-
+  // ---------------------------------------------------------------------------
+  // UI
+  // ---------------------------------------------------------------------------
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -374,7 +386,7 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage> {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.only(right: 8.0),
+            padding: const EdgeInsets.only(right: 8),
             child: _ending
                 ? const Center(
               child: SizedBox(
@@ -384,19 +396,20 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage> {
               ),
             )
                 : IconButton(
-              icon: const Icon(
-                Icons.stop_circle_outlined,
-                color: Colors.redAccent,
-                size: 30,
-              ),
-              tooltip: 'End Live Session',
+              icon: const Icon(Icons.stop_circle_outlined, color: Colors.redAccent, size: 30),
+              tooltip: 'End Live',
               onPressed: _endLive,
             ),
           ),
         ],
       ),
+
+      // -----------------------------------------------------------------------
+      // BODY
+      // -----------------------------------------------------------------------
       body: Stack(
         children: [
+          // VIDEO VIEW
           Positioned.fill(
             child: _joined
                 ? AgoraVideoView(
@@ -408,14 +421,15 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage> {
                 : const Center(child: CircularProgressIndicator()),
           ),
 
-          // Comments overlay
+          // COMMENTS + INPUT
           Align(
             alignment: Alignment.bottomCenter,
             child: SafeArea(
-              minimum: const EdgeInsets.only(left: 8, right: 8, bottom: 8),
+              minimum: const EdgeInsets.all(8),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  // COMMENT LIST
                   Container(
                     height: 160,
                     padding: const EdgeInsets.all(8),
@@ -430,6 +444,8 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage> {
                     ),
                   ),
                   const SizedBox(height: 6),
+
+                  // INPUT FIELD
                   Row(
                     children: [
                       Expanded(
@@ -445,12 +461,9 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage> {
                               borderRadius: BorderRadius.circular(24),
                               borderSide: BorderSide.none,
                             ),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 12,
-                            ),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                           ),
-                          onSubmitted: _addCommentFromInput,
+                          onSubmitted: (_) => _onSendPressed(),
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -458,7 +471,7 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage> {
                         backgroundColor: Colors.purple,
                         child: IconButton(
                           icon: const Icon(Icons.send, color: Colors.white),
-                          onPressed: () => _addCommentFromInput(_commentCtrl.text),
+                          onPressed: _onSendPressed,
                         ),
                       ),
                     ],
@@ -473,16 +486,22 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage> {
   }
 }
 
+// -----------------------------------------------------------------------------
+// COMMENT OBJECT + TILE
+// -----------------------------------------------------------------------------
 class _Comment {
   final String user;
   final String text;
   final DateTime at;
+
   _Comment(this.user, this.text, this.at);
 }
 
 class _CommentTile extends StatelessWidget {
   final _Comment c;
+
   const _CommentTile({required this.c});
+
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -490,7 +509,10 @@ class _CommentTile extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const CircleAvatar(radius: 10, child: Icon(Icons.person, size: 12)),
+          const CircleAvatar(
+            radius: 10,
+            child: Icon(Icons.person, size: 12),
+          ),
           const SizedBox(width: 6),
           Expanded(
             child: RichText(
