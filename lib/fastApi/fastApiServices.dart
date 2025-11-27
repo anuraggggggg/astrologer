@@ -800,4 +800,67 @@ class FastApiServices {
       print(stack);
     }
   }
+
+
+  // ----------------------------------------------------------
+// 🚀 SEND NOTIFICATION TO CUSTOMER (Chat / Audio / Video Accepted)
+// ----------------------------------------------------------
+Future<bool> sendCustomerNotification({
+  required String userId,
+  required String title,
+  required String body,
+  required String type,   // e.g. "chat_accept", "audio_accept", "video_accept"
+  required String screen, // e.g. "ChatScreen", "AudioCallPage"
+  Map<String, dynamic>? data,
+}) async {
+  final prefs = await SharedPreferences.getInstance();
+  final token = prefs.getString("access_token");
+
+  if (token == null || token.isEmpty) {
+    throw Exception("Token missing. Please login again.");
+  }
+
+  final url = Uri.parse(
+      "https://fastapi.jyotishionline.com/Customer_notification/send-notification");
+
+  final payload = {
+    "user_id": userId,
+    "title": title,
+    "body": body,
+    "type": type,
+    "screen": screen,
+    "data": data ?? {}, // optional
+  };
+
+  print("📤 Sending Customer Notification...");
+  print("🔗 URL: $url");
+  print("🧾 Body: ${jsonEncode(payload)}");
+
+  try {
+    final res = await http.post(
+      url,
+      headers: {
+        "accept": "application/json",
+        "Content-Type": "application/json",
+        "Authorization": "Bearer $token",
+      },
+      body: jsonEncode(payload),
+    );
+
+    print("⬅️ Status: ${res.statusCode}");
+    print("⬅️ Body: ${res.body}");
+
+    if (res.statusCode == 200) {
+      print("✅ Customer Notification Sent Successfully!");
+      return true;
+    } else {
+      print("❌ Failed: ${res.body}");
+      return false;
+    }
+  } catch (e) {
+    print("🔥 Exception sendCustomerNotification: $e");
+    return false;
+  }
+}
+
 }

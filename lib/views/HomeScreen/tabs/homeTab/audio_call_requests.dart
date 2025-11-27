@@ -15,7 +15,6 @@ class AudioCallRequests extends StatefulWidget {
 class _AudioCallRequestsState extends State<AudioCallRequests> {
   Future<List<Map<String, dynamic>>>? _requestsFuture;
 
-
   /// Saved/self astrologer id from SharedPreferences (fallback when list items don’t include it)
   String _selfAstroId = '';
 
@@ -171,7 +170,6 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
           ? requestIdDynamic
           : int.tryParse(_pick(requestIdDynamic)) ?? 0;
 
-      // We still compute astroId for logging (not used for navigation here)
       final astroIdForLog = _extractAstroId(req);
 
       debugPrint(
@@ -185,13 +183,43 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
       if (!mounted) return;
 
       if (success) {
+        // ────────────────────────────────────────────────
+        // 🔥 SEND NOTIFICATION WHEN ACCEPTED
+        // ────────────────────────────────────────────────
         if (status.toLowerCase() == 'accepted') {
-          // ✅ Navigate to AudioCallPage on Accept
+          final userId = _pick(req['user_id']) // top-level
+                  .isNotEmpty
+              ? _pick(req['user_id'])
+              : (req['user'] is Map ? _pick(req['user']['user_id']) : '');
+
+          if (userId.isNotEmpty) {
+            debugPrint("📨 Sending notification to USER: $userId");
+
+            await FastApiServices().sendCustomerNotification(
+              userId: userId,
+              title: "Audio Call Accepted",
+              body: "Your audio call request has been accepted.",
+              type: "audio_accept",
+              screen: "AudioCallPage",
+              data: {
+                "request_id": requestId,
+                "session_type": "audio_call",
+              },
+            );
+          } else {
+            debugPrint(
+                "⚠️ No valid user_id found in request. Notification skipped.");
+          }
+
+          // ────────────────────────────────────────────────
+          // Navigate to Audio Call Page
+          // ────────────────────────────────────────────────
           setState(() => _actBusy = false);
           await _goToAudioCall();
           return;
         }
 
+        // If declined
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("Request $status successfully!")),
         );
