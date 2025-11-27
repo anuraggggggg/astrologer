@@ -8,6 +8,10 @@ import 'package:http_parser/http_parser.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 
+// NEW imports
+import 'package:file_picker/file_picker.dart';
+import 'package:mime/mime.dart';
+
 class AstrologerSignupPage extends StatefulWidget {
   const AstrologerSignupPage({Key? key}) : super(key: key);
 
@@ -20,11 +24,16 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
   final PageController _pageController = PageController();
   int _currentPage = 0;
   bool isLoading = false;
+  bool _obscureConfirmPassword = true;
 
   // ---------------------------
   // Controllers
   // ---------------------------
   final TextEditingController emailCtrl = TextEditingController();
+  // Confirm password controller + visibility flag (add near passwordCtrl)
+  final TextEditingController confirmPasswordCtrl = TextEditingController();
+
+
   final TextEditingController passwordCtrl = TextEditingController();
   final TextEditingController countryCodeCtrl =
   TextEditingController(text: "+91");
@@ -36,7 +45,6 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
   final TextEditingController expCtrl = TextEditingController();
   final TextEditingController bioCtrl = TextEditingController();
   final TextEditingController accountHolderCtrl = TextEditingController();
-
 
   // NEW: separate charges with minimums
   final TextEditingController chatChargeCtrl =
@@ -64,6 +72,9 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
   final TextEditingController ifscCtrl = TextEditingController();
   final TextEditingController upiCtrl = TextEditingController();
 
+  // NEW: Birthdate controller (UI shows dd-mm-yyyy)
+  final TextEditingController birthDateCtrl = TextEditingController();
+
   // Settings switches & selection
   bool isVerified = false;
   bool isActive = true;
@@ -88,6 +99,17 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
 
   final ImagePicker _picker = ImagePicker();
 
+  // Allowed extensions for KYC / bank docs (images + pdf). txt not allowed.
+  final List<String> _allowedDocExtensions = [
+    'jpg',
+    'jpeg',
+    'png',
+    'gif',
+    'webp',
+    'heic',
+    'pdf'
+  ];
+
   @override
   void initState() {
     super.initState();
@@ -104,9 +126,10 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     _pageController.dispose();
     accountHolderCtrl.dispose();
 
-
     // Required
     emailCtrl.dispose();
+    confirmPasswordCtrl.dispose();
+
     passwordCtrl.dispose();
     countryCodeCtrl.dispose();
     contactNoCtrl.dispose();
@@ -141,11 +164,14 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     ifscCtrl.dispose();
     upiCtrl.dispose();
 
+    // Birthdate
+    birthDateCtrl.dispose();
+
     super.dispose();
   }
 
   // ---------------------------
-  // Pick image helper (with 2 MB size limit for bank docs)
+  // Pick image helper (profile image uses image_picker)
   // ---------------------------
   Future<File?> _pickImage(
       {required String purpose, bool enforce2MB = false}) async {
@@ -176,52 +202,106 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     }
   }
 
+  // ---------------------------
+  // New: pick documents for KYC / bank using file_picker
+  // accepts images + pdf; blocks txt and other extensions
+  // ---------------------------
+  Future<File?> _pickDocument({
+    required String purpose,
+    bool enforce2MB = false,
+  }) async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: _allowedDocExtensions,
+        withData: false,
+      );
+
+      if (result == null || result.files.isEmpty) return null;
+
+      final picked = result.files.first;
+      final ext = (picked.extension ?? '').toLowerCase();
+
+      // Defensive check: ensure extension allowed
+      if (ext.isEmpty || !_allowedDocExtensions.contains(ext)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Unsupported file type. Please upload an image or PDF.'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return null;
+      }
+
+      final path = picked.path;
+      if (path == null) return null;
+      final file = File(path);
+
+      if (enforce2MB) {
+        final bytes = await file.length();
+        if (bytes > 2 * 1024 * 1024) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('File too large. Maximum allowed size is 2 MB.'),
+              backgroundColor: Colors.red,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+          return null;
+        }
+      }
+
+      return file;
+    } catch (e) {
+      print('File pick error: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Failed to pick file.'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return null;
+    }
+  }
+
   Future<void> _pickAadhaarFront() async {
-    final file = await _pickImage(purpose: 'aadhaar_front');
+    final file = await _pickDocument(purpose: 'aadhaar_front', enforce2MB: true);
     if (file != null) setState(() => aadhaarFrontFile = file);
   }
 
   Future<void> _pickAadhaarBack() async {
-    final file = await _pickImage(purpose: 'aadhaar_back');
+    final file = await _pickDocument(purpose: 'aadhaar_back', enforce2MB: true);
     if (file != null) setState(() => aadhaarBackFile = file);
   }
 
   Future<void> _pickPanCard() async {
-    final file = await _pickImage(purpose: 'pan_card');
+    final file = await _pickDocument(purpose: 'pan_card', enforce2MB: true);
     if (file != null) setState(() => panCardFile = file);
   }
 
-  // Bank-specific pickers enforce 2MB
-  Future<void> _pickBankPassbook() async {
-    final file = await _pickImage(purpose: 'bank_passbook', enforce2MB: true);
-    if (file != null) setState(() => bankPassbookFile = file);
-  }
-
-  Future<void> _pickCancelledCheque() async {
-    final file = await _pickImage(
-        purpose: 'cancelled_cheque', enforce2MB: true);
-    if (file != null) setState(() => cancelledChequeFile = file);
-  }
-
-  Future<void> _pickBankStatement() async {
-    final file = await _pickImage(purpose: 'bank_statement', enforce2MB: true);
-    if (file != null) setState(() => bankStatementFile = file);
+  Future<void> _pickAnyBankDocument() async {
+    final file = await _pickDocument(purpose: 'bank_document', enforce2MB: true);
+    if (file != null) {
+      setState(() {
+        bankPassbookFile = file;
+        cancelledChequeFile = null;
+        bankStatementFile = null;
+      });
+    }
   }
 
   // ---------------------------
   // Field validators
   // ---------------------------
   String? _validateRequired(String? v, String label) {
-    if (v == null || v
-        .trim()
-        .isEmpty) return "$label is required";
+    if (v == null || v.trim().isEmpty) return "$label is required";
     return null;
   }
 
   String? _validateEmail(String? v) {
-    if (v == null || v
-        .trim()
-        .isEmpty) return "Email is required";
+    if (v == null || v.trim().isEmpty) return "Email is required";
     final email = v.trim();
     final emailRegex = RegExp(r"^[\w\.\-]+@([\w\-]+\.)+[a-zA-Z]{2,}$");
     if (!emailRegex.hasMatch(email)) return "Enter a valid email";
@@ -235,9 +315,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
   }
 
   String? _validatePhone(String? v) {
-    if (v == null || v
-        .trim()
-        .isEmpty) {
+    if (v == null || v.trim().isEmpty) {
       return "Contact number is required";
     }
 
@@ -251,7 +329,6 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     return null;
   }
 
-
   String? _validateDigitsOnly(String text, String label) {
     if (text.isEmpty) return "$label is required";
     if (!RegExp(r'^[0-9]+$').hasMatch(text)) {
@@ -261,9 +338,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
   }
 
   String? _validateLettersOnly(String text, String label) {
-    if (text
-        .trim()
-        .isEmpty) return "$label is required";
+    if (text.trim().isEmpty) return "$label is required";
 
     final value = text.trim();
 
@@ -283,11 +358,8 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     return null;
   }
 
-
   String? _validateBio(String? v) {
-    if (v == null || v
-        .trim()
-        .isEmpty) {
+    if (v == null || v.trim().isEmpty) {
       return "Bio is required";
     }
 
@@ -299,7 +371,6 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     return null;
   }
 
-
   String? _validateMinInt(String? value, String label, int min) {
     if (value == null || value.isEmpty) return "$label is required";
     final intVal = int.tryParse(value);
@@ -308,20 +379,15 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     return null;
   }
 
-
   String? _validateAadhaar(String? v) {
-    if (v == null || v
-        .trim()
-        .isEmpty) return "Aadhaar number is required";
+    if (v == null || v.trim().isEmpty) return "Aadhaar number is required";
     final digits = v.replaceAll(RegExp(r'\D'), '');
     if (digits.length != 12) return "Aadhaar must be exactly 12 digits";
     return null;
   }
 
   String? _validatePAN(String? v) {
-    if (v == null || v
-        .trim()
-        .isEmpty) return "PAN is required";
+    if (v == null || v.trim().isEmpty) return "PAN is required";
     final pan = v.trim().toUpperCase();
     final panRegex = RegExp(r'^[A-Z]{5}[0-9]{4}[A-Z]$');
     if (!panRegex.hasMatch(pan)) return "Enter a valid PAN (e.g. AAAAA9999A)";
@@ -329,9 +395,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
   }
 
   String? _validateIFSC(String? v) {
-    if (v == null || v
-        .trim()
-        .isEmpty) return "IFSC is required";
+    if (v == null || v.trim().isEmpty) return "IFSC is required";
     final ifsc = v.trim().toUpperCase();
     final ifscRegex = RegExp(r'^[A-Z]{4}0[0-9A-Z]{6}$');
     if (ifsc.length != 11 || !ifscRegex.hasMatch(ifsc))
@@ -340,31 +404,87 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
   }
 
   String? _validateAccount(String? v) {
-    if (v == null || v
-        .trim()
-        .isEmpty) return "Account number is required";
+    if (v == null || v.trim().isEmpty) return "Account number is required";
     final digits = v.replaceAll(RegExp(r'\D'), '');
-    if (digits.length < 8) return "Account number must be at least 8 digits";
+    if (digits.length < 9) return "Account number must be at least 9 digits";
     return null;
   }
 
   String? _validateUPI(String? v) {
-    if (v == null || v
-        .trim()
-        .isEmpty) return "UPI ID is required";
+    if (v == null || v.trim().isEmpty) return "UPI ID is required";
     // basic pattern check (not exhaustive)
     if (!v.contains('@')) return "Enter a valid UPI ID (e.g. name@bank)";
     return null;
   }
 
   // ---------------------------
+  // Birthdate helpers
+  // UI shows dd-mm-yyyy but API wants yyyy-mm-dd
+  // Accepts dd-mm-yyyy or dd/mm/yyyy typed by user.
+  // ---------------------------
+
+  DateTime? _parseDisplayDate(String input) {
+    if (input.trim().isEmpty) return null;
+    final s = input.trim().replaceAll('/', '-');
+    // Accept dd-mm-yyyy
+    final parts = s.split('-');
+    if (parts.length != 3) return null;
+    final dd = int.tryParse(parts[0]);
+    final mm = int.tryParse(parts[1]);
+    final yyyy = int.tryParse(parts[2]);
+    if (dd == null || mm == null || yyyy == null) return null;
+    try {
+      return DateTime(yyyy, mm, dd);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String _formatDisplayDate(DateTime d) {
+    final dd = d.day.toString().padLeft(2, '0');
+    final mm = d.month.toString().padLeft(2, '0');
+    final yyyy = d.year.toString();
+    return "$dd-$mm-$yyyy";
+  }
+
+  // ensures 18+ (at least 18 years as of today)
+  String? _validateBirthDate(String? v) {
+    if (v == null || v.trim().isEmpty) return "Birthdate is required";
+    final dt = _parseDisplayDate(v);
+    if (dt == null) return "Enter DOB in dd-mm-yyyy format";
+    final today = DateTime.now();
+    final diffYears = today.year - dt.year - ((today.month < dt.month || (today.month == dt.month && today.day < dt.day)) ? 1 : 0);
+    if (diffYears < 18) return "You must be at least 18 years old to sign up";
+    if (dt.isAfter(today)) return "Birthdate cannot be in the future";
+    return null;
+  }
+
+  Future<void> _showDatePickerAndSet() async {
+    final today = DateTime.now();
+    final latestAllowed = DateTime(today.year - 18, today.month, today.day); // user must be born on or before this
+    final earliest = DateTime(today.year - 100); // reasonable earliest allowed
+    final initial = _parseDisplayDate(birthDateCtrl.text) ?? DateTime(today.year - 25);
+
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial.isAfter(latestAllowed) ? latestAllowed : initial,
+      firstDate: earliest,
+      lastDate: latestAllowed,
+    );
+
+    if (picked != null) {
+      setState(() {
+        birthDateCtrl.text = _formatDisplayDate(picked);
+      });
+    }
+  }
+
+  // ---------------------------
   // Submit form -> API
   // ---------------------------
   Future<void> submitForm() async {
-    if (!_formKey.currentState!.validate()) {
-      _pageController.jumpToPage(0);
-      return;
-    }
+    // Keep your original top-level behaviour but avoid using the obsolete single form check.
+    // If you later migrate to per-page Form keys, update this accordingly.
 
     // Ensure mandatory KYC images are provided (Aadhaar + PAN)
     if (aadhaarFrontFile == null ||
@@ -377,7 +497,8 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
           content: Text("❌ Please attach Aadhaar and PAN images."),
         ),
       );
-      _pageController.jumpToPage(3);
+      // KYC page index is 2 (0-based)
+      _pageController.jumpToPage(2);
       return;
     }
 
@@ -401,7 +522,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
             content: Text("Please fill all required bank details correctly."),
           ),
         );
-        _pageController.jumpToPage(3);
+        _pageController.jumpToPage(2);
         return;
       }
 
@@ -414,7 +535,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
             content: Text("Please upload at least ONE bank document."),
           ),
         );
-        _pageController.jumpToPage(3);
+        _pageController.jumpToPage(2);
         return;
       }
     }
@@ -430,9 +551,17 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
             content: Text("Please enter a valid UPI ID."),
           ),
         );
-        _pageController.jumpToPage(3);
+        _pageController.jumpToPage(2);
         return;
       }
+    }
+
+    // Validate birth date again before sending
+    final birthError = _validateBirthDate(birthDateCtrl.text);
+    if (birthError != null) {
+      _showError(birthError);
+      _pageController.jumpToPage(0);
+      return;
     }
 
     setState(() => isLoading = true);
@@ -446,8 +575,12 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     print("====================================");
 
     final request = http.MultipartRequest("POST", uri);
-
     // DEBUG: print all fields
+    // convert birthDate from dd-mm-yyyy (display) -> yyyy-mm-dd for API
+    final displayDob = birthDateCtrl.text.trim();
+    final parsedDob = _parseDisplayDate(displayDob);
+    final apiDob = parsedDob != null ? "${parsedDob.year.toString().padLeft(4,'0')}-${parsedDob.month.toString().padLeft(2,'0')}-${parsedDob.day.toString().padLeft(2,'0')}" : "";
+
     Map<String, dynamic> debugFields = {
       "email": emailCtrl.text.trim(),
       "password": passwordCtrl.text.trim(),
@@ -455,7 +588,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
       "countryCode": countryCodeCtrl.text.trim(),
       "name": nameCtrl.text.trim(),
       "gender": selectedGender,
-      "birthDate": DateTime.now().toIso8601String(),
+      "birthDate": apiDob, // API expects yyyy-mm-dd
       "primarySkill": skillCtrl.text.trim(),
       "languageKnown": languageCtrl.text.trim(),
       "chatCharge": chatChargeCtrl.text.trim(),
@@ -475,12 +608,10 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
       "upiId": paymentMethod == 'upi' ? upiCtrl.text.trim() : "",
     };
 
-
     print("🟡 DEBUG: Fields Being Sent:");
     debugFields.forEach((key, value) {
       print("$key => $value");
     });
-    //done
 
     // Add fields to request
     debugFields.forEach((key, value) {
@@ -497,21 +628,25 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
 
     print("🟡 DEBUG: Optional Fields Added");
 
-    // Add image files
+    // Add image/files with proper mime detection
     Future<void> addFile(String fieldName, File? file) async {
-      if (file != null) {
-        final bytes = await file.length();
-        print(
-            "📸 DEBUG: Adding File => $fieldName :: ${file
-                .path} :: $bytes bytes");
+      if (file == null) return;
+      final bytes = await file.length();
+      print("📸 DEBUG: Adding File => $fieldName :: ${file.path} :: $bytes bytes");
 
-        request.files.add(await http.MultipartFile.fromPath(
-          fieldName,
-          file.path,
-          contentType: MediaType('image', 'jpeg'),
-          filename: p.basename(file.path),
-        ));
-      }
+      // determine mime type from path; fallback to application/octet-stream
+      final mimeType = lookupMimeType(file.path) ?? 'application/octet-stream';
+      final parts = mimeType.split('/');
+      final mediaType = parts.length == 2
+          ? MediaType(parts[0], parts[1])
+          : MediaType('application', 'octet-stream');
+
+      request.files.add(await http.MultipartFile.fromPath(
+        fieldName,
+        file.path,
+        contentType: mediaType,
+        filename: p.basename(file.path),
+      ));
     }
 
     await addFile("profileImage", profileImageFile);
@@ -578,6 +713,9 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
 
   void _resetControllers() {
     emailCtrl.clear();
+    confirmPasswordCtrl.clear();
+    _obscureConfirmPassword = true;
+
     passwordCtrl.clear();
     countryCodeCtrl.text = "+91";
     contactNoCtrl.clear();
@@ -609,6 +747,8 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     ifscCtrl.clear();
     upiCtrl.clear();
 
+    birthDateCtrl.clear();
+
     selectedGender = "Male";
     isVerified = false;
     isActive = true;
@@ -620,6 +760,12 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     cancelledChequeFile = null;
     bankStatementFile = null;
     paymentMethod = 'none';
+  }
+
+  String? _validateConfirmPassword(String? v) {
+    if (v == null || v.isEmpty) return "Confirm Password is required";
+    if (v != passwordCtrl.text) return "Passwords do not match";
+    return null;
   }
 
   // ---------------------------
@@ -635,7 +781,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
         String? Function(String?)? validator,
         bool obscure = false,
         Widget? suffix,
-        List<TextInputFormatter>? inputFormatters,   // ⬅️ ADDED
+        List<TextInputFormatter>? inputFormatters, // ⬅️ ADDED
       }) {
     return TextFormField(
       controller: controller,
@@ -644,21 +790,22 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
       obscureText: obscure,
       validator:
       validator ?? (required ? (v) => _validateRequired(v, label) : null),
-      inputFormatters: inputFormatters,            // ⬅️ ADDED
+      inputFormatters: inputFormatters, // ⬅️ ADDED
       decoration: InputDecoration(
         labelText: label,
+        hintStyle: const TextStyle(color: Colors.black), // <--- ADD THIS
         prefixIcon: icon != null
-            ? Icon(icon, size: 20, color: const Color(0xFFFFC107))
+            ? Icon(icon, size: 20, color: Color(0xFFFFC107))
             : null,
         suffixIcon: suffix,
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
         filled: true,
         fillColor: Colors.yellow[50],
-        errorMaxLines: 2, // 👈 Important
+        errorMaxLines: 2,
       ),
+
     );
   }
-
 
   Widget _buildPageIndicator() {
     // now 3 pages
@@ -718,9 +865,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
   }
 
   String? _validateExperience(String? v) {
-    if (v == null || v
-        .trim()
-        .isEmpty) {
+    if (v == null || v.trim().isEmpty) {
       return "Experience is required";
     }
 
@@ -737,7 +882,6 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
 
     return null;
   }
-
 
   // ---------------------------
   // Sections (PageView children)
@@ -808,6 +952,25 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
                   setState(() => _obscurePassword = !_obscurePassword),
             ),
           ),
+
+          const SizedBox(height: 12),
+
+          _buildTextField(
+            confirmPasswordCtrl,
+            "Confirm Password",
+            required: true,
+            icon: Icons.lock,
+            obscure: _obscureConfirmPassword,
+            validator: _validateConfirmPassword,
+            suffix: IconButton(
+              icon: Icon(
+                  _obscureConfirmPassword ? Icons.visibility_off : Icons.visibility,
+                  color: Colors.grey[700]),
+              onPressed: () =>
+                  setState(() => _obscureConfirmPassword = !_obscureConfirmPassword),
+            ),
+          ),
+
           const SizedBox(height: 20),
           Row(
             children: [
@@ -846,7 +1009,42 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
 
           const SizedBox(height: 20),
           _buildGenderSelector(),
+          const SizedBox(height: 12),
+
+          // ---------- NEW: Birthdate (dd-mm-yyyy display, calendar + typed) ----------
+          Text("Date of Birth",
+              style: Theme
+                  .of(context)
+                  .textTheme
+                  .titleSmall
+                  ?.copyWith(fontWeight: FontWeight.w600)),
+          const SizedBox(height: 8),
+          TextFormField(
+            controller: birthDateCtrl,
+            keyboardType: TextInputType.datetime,
+            maxLines: 1,
+            validator: _validateBirthDate,
+            inputFormatters: [
+              FilteringTextInputFormatter.allow(RegExp(r'[0-9\-\/]')),
+              LengthLimitingTextInputFormatter(10), // dd-mm-yyyy = 10 chars
+            ],
+            decoration: InputDecoration(
+              hintText: "dd-mm-yyyy",
+              hintStyle: const TextStyle(color: Colors.black), // only color — no fontSize
+              prefixIcon: const Icon(Icons.cake_outlined, color: Color(0xFFFFC107)),
+              suffixIcon: IconButton(
+                icon: const Icon(Icons.calendar_today_outlined),
+                onPressed: _showDatePickerAndSet,
+              ),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+              filled: true,
+              fillColor: Colors.yellow[50],
+            )
+
+          ),
           const SizedBox(height: 20),
+          // ---------- END Birthdate ----------
+
           _buildTextField(
             skillCtrl,
             "Primary Skill",
@@ -873,12 +1071,12 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
             validator: (v) => _validateLettersOnly(v ?? '', "Current City"),
           ),
 
-
           // NEW: Three charge fields with min validation
           const SizedBox(height: 20),
           _buildTextField(
             chatChargeCtrl,
-            "Chat Charge (₹/10min) — min 50",
+            "Chat Charge ₹50 for 10 minutes",
+
             required: true,
             keyboardType: TextInputType.number,
             icon: Icons.chat_bubble_outline,
@@ -888,7 +1086,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
           const SizedBox(height: 20),
           _buildTextField(
             audioChargeCtrl,
-            "Audio Call Charge (₹/10min) — min 200",
+            "Audio Call ₹200 for 10 minutes",
             required: true,
             keyboardType: TextInputType.number,
             icon: Icons.call_outlined,
@@ -898,7 +1096,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
           const SizedBox(height: 20),
           _buildTextField(
             videoChargeCtrl,
-            "Video Call Charge (₹/10min) — min 250",
+            "Video Call ₹250 for 10 minutes",
             required: true,
             keyboardType: TextInputType.number,
             icon: Icons.videocam_outlined,
@@ -927,8 +1125,6 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
                 _validateBio(v), // <-- live validation while typing
           ),
 
-          // _buildTextField(nameCtrl, "Full Name",
-          //     required: true, icon: Icons.person_outline),
           const SizedBox(height: 24),
           _buildPageIndicator(),
         ],
@@ -979,7 +1175,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
             instaCtrl,
             "Instagram (URL or @handle)",
             icon: Icons.camera_alt_outlined,
-            validator: (v) => _validateSocialHandleOrUrl(v, "Instagram"),
+            validator: _validateInstagram,
           ),
           const SizedBox(height: 12),
 
@@ -987,33 +1183,26 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
             fbCtrl,
             "Facebook (URL or @handle)",
             icon: Icons.facebook,
-            validator: (v) => _validateSocialHandleOrUrl(v, "Facebook"),
+            validator: _validateFacebook,
           ),
           const SizedBox(height: 12),
 
           _buildTextField(
             linkedinCtrl,
-            "LinkedIn (URL or handle)",
+            "LinkedIn (profile / company URL)",
             icon: Icons.linked_camera,
-            validator: (v) => _validateSocialHandleOrUrl(v, "LinkedIn"),
+            validator: _validateLinkedIn,
           ),
           const SizedBox(height: 12),
 
           _buildTextField(
             youtubeCtrl,
-            "YouTube (URL or channel handle)",
+            "YouTube (URL or @handle)",
             icon: Icons.video_collection,
-            validator: (v) => _validateSocialHandleOrUrl(v, "YouTube"),
+            validator: _validateYouTube,
           ),
           const SizedBox(height: 12),
 
-          // _buildTextField(
-          //   websiteCtrl,
-          //   "Website (optional)",
-          //   icon: Icons.web_outlined,
-          //   validator: (v) => _validateWebsiteUrl(v, "Website"),
-          // ),
-          // const SizedBox(height: 24),
 
           _buildPageIndicator(),
         ],
@@ -1021,36 +1210,118 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     );
   }
 
+
   // Returns true for well-formed http/https URLs with a host (strict)
   bool _isValidUrl(String s) {
-    if (s
-        .trim()
-        .isEmpty) return false;
+    if (s.trim().isEmpty) return false;
     final uri = Uri.tryParse(s.trim());
     if (uri == null) return false;
     // require scheme and host
     if (!(uri.hasScheme && (uri.scheme == 'http' || uri.scheme == 'https'))) {
       return false;
     }
-    if (uri.host == null || uri.host
-        .trim()
-        .isEmpty) return false;
+    if (uri.host == null || uri.host.trim().isEmpty) return false;
     // basic host length check
     if (uri.host.length < 3) return false;
     return true;
   }
 
-// Social validator: allow handles (no spaces, allowed chars) OR a valid URL.
-// If the input looks like a domain (contains a dot) we require a valid URL.
+  // basic www. helper
+  bool _isValidUrlWithOptionalWww(String s) {
+    if (_isValidUrl(s)) return true;
+    if (s.startsWith('www.')) return _isValidUrl('http://$s');
+    return false;
+  }
+
+  // Platform-specific validators ------------------------------------------------
+
+  // Instagram: allow @handle OR URL with host instagram.com
+  String? _validateInstagram(String? v) {
+    if (v == null || v.trim().isEmpty) return null; // optional
+
+    final s = v.trim();
+
+    // handle style: @username or username (no spaces)
+    final handleRegex = RegExp(r'^@?[A-Za-z0-9._]+$');
+    if (!s.contains('.') && handleRegex.hasMatch(s)) {
+      return null; // OK handle
+    }
+
+    // treat as URL and require instagram domain
+    final uri = Uri.tryParse(s.startsWith('http') ? s : 'https://$s');
+    if (uri == null) return "Enter a valid Instagram URL or handle";
+    final host = uri.host.toLowerCase();
+    if (host == 'instagram.com' || host.endsWith('.instagram.com') || host == 'www.instagram.com') {
+      // allow path presence (e.g. /username)
+      return null;
+    }
+    return "Enter an Instagram link (instagram.com/username) or @handle";
+  }
+
+  // LinkedIn: require a LinkedIn URL (no plain handles)
+  String? _validateLinkedIn(String? v) {
+    if (v == null || v.trim().isEmpty) return null; // optional
+    final s = v.trim();
+
+    // force URL for LinkedIn
+    final uri = Uri.tryParse(s.startsWith('http') ? s : 'https://$s');
+    if (uri == null) return "Enter a valid LinkedIn URL (e.g. linkedin.com/in/username)";
+    final host = uri.host.toLowerCase();
+    if (host == 'linkedin.com' || host.endsWith('.linkedin.com') || host == 'www.linkedin.com') {
+      return null;
+    }
+    return "Enter a LinkedIn URL (linkedin.com/...)";
+  }
+
+  // Facebook: allow @handle OR url with facebook.com / fb.com / m.facebook.com
+  String? _validateFacebook(String? v) {
+    if (v == null || v.trim().isEmpty) return null; // optional
+    final s = v.trim();
+
+    // handle style allowed
+    final handleRegex = RegExp(r'^@?[A-Za-z0-9.\-]+$');
+    if (!s.contains('.') && handleRegex.hasMatch(s)) return null;
+
+    final uri = Uri.tryParse(s.startsWith('http') ? s : 'https://$s');
+    if (uri == null) return "Enter a valid Facebook URL or handle";
+    final host = uri.host.toLowerCase();
+    if (host == 'facebook.com' || host == 'www.facebook.com' || host == 'm.facebook.com' || host == 'fb.com') {
+      return null;
+    }
+    return "Enter a Facebook link (facebook.com/...) or @handle";
+  }
+
+  // YouTube: allow channel URLs or youtu.be OR @handle
+  String? _validateYouTube(String? v) {
+    if (v == null || v.trim().isEmpty) return null; // optional
+    final s = v.trim();
+
+    // allow YouTube @handles
+    final handleRegex = RegExp(r'^@?[A-Za-z0-9._\-]+$');
+    if (!s.contains('.') && handleRegex.hasMatch(s)) return null;
+
+    final uri = Uri.tryParse(s.startsWith('http') ? s : 'https://$s');
+    if (uri == null) return "Enter a valid YouTube URL or @handle";
+    final host = uri.host.toLowerCase();
+    if (host.contains('youtube.com') || host == 'youtu.be' || host.endsWith('.youtube.com')) {
+      return null;
+    }
+    return "Enter a YouTube link (youtube.com/.. or youtu.be/..) or @handle";
+  }
+
+  // Website validator: optional, but if entered must be a valid http(s) URL.
+  // Accepts inputs starting with www. by prepending http:// for validation.
+
+  // Social validator: allow handles (no spaces, allowed chars) OR a valid URL.
+  // If the input looks like a domain (contains a dot) we require a valid URL.
   String? _validateSocialHandleOrUrl(String? v, String label) {
-    if (v == null || v
-        .trim()
-        .isEmpty) return null; // optional
+    if (v == null || v.trim().isEmpty) return null; // optional
 
     final s = v.trim();
 
     // No spaces allowed
     if (s.contains(' ')) return "$label cannot contain spaces";
+    //work
 
     // If it contains a dot, treat as URL and validate strictly
     if (s.contains('.')) {
@@ -1070,12 +1341,10 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     return null;
   }
 
-// Website validator: optional, but if entered must be a valid http(s) URL.
-// Accepts inputs starting with www. by prepending http:// for validation.
+
+
   String? _validateWebsiteUrl(String? v, String label) {
-    if (v == null || v
-        .trim()
-        .isEmpty) return null;
+    if (v == null || v.trim().isEmpty) return null;
     final s = v.trim();
 
     // If user typed without scheme but with www., try adding scheme for validation
@@ -1091,55 +1360,26 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     return null;
   }
 
-
   // Optional: validate letters-only fields when non-empty
   String? _validateOptionalLetters(String? v, String label) {
-    if (v == null || v
-        .trim()
-        .isEmpty) return null; // optional -> ok when empty
+    if (v == null || v.trim().isEmpty) return null; // optional -> ok when empty
     return _validateLettersOnly(v, label); // reuse existing strict validator
   }
 
-// Optional: validate free text with minimum length (e.g. "How did you learn Astrology?")
   String? _validateOptionalMinText(String? v, String label,
       {int min = 3, int max = 500}) {
-    if (v == null || v
-        .trim()
-        .isEmpty) return null;
+    if (v == null || v.trim().isEmpty) return null;
     final text = v.trim();
     if (text.length < min) return "$label must be at least $min characters";
     if (text.length > max) return "$label cannot exceed $max characters";
     return null;
   }
 
-// Optional: validate social link OR handle (e.g. instagram, facebook, linkedin, youtube)
-
-  // Widget _buildSettingsSection() {
-  //   return SingleChildScrollView(
-  //     padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 12.0),
-  //     child: Column(
-  //       children: [
-  //         _buildSectionHeader(
-  //             "Settings", "Toggle your visibility and verification"),
-  //         SwitchListTile(
-  //           value: isVerified,
-  //           onChanged: (v) => setState(() => isVerified = v),
-  //           title: const Text("Verified"),
-  //         ),
-  //         SwitchListTile(
-  //           value: isActive,
-  //           onChanged: (v) => setState(() => isActive = v),
-  //           title: const Text("Active"),
-  //         ),
-  //         const SizedBox(height: 24),
-  //         _buildPageIndicator(),
-  //       ],
-  //     ),
-  //   );
-  // }
-
   Widget _kycFileTile(String title, File? file, VoidCallback onTap,
       {String? subtitle}) {
+    final filename = file != null ? p.basename(file.path) : null;
+    final isPdf = filename != null && filename.toLowerCase().endsWith('.pdf');
+
     return ListTile(
       contentPadding: EdgeInsets.zero,
       leading: Container(
@@ -1148,15 +1388,16 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(8),
           color: Colors.grey[200],
-          image: file != null ? DecorationImage(
-              image: FileImage(file), fit: BoxFit.cover) : null,
+          image: (!isPdf && file != null) ? DecorationImage(image: FileImage(file), fit: BoxFit.cover) : null,
         ),
-        child:
-        file == null ? const Icon(Icons.insert_drive_file_outlined) : null,
+        child: file == null
+            ? const Icon(Icons.insert_drive_file_outlined)
+            : isPdf
+            ? const Center(child: Icon(Icons.picture_as_pdf, color: Colors.red))
+            : null,
       ),
       title: Text(title),
-      subtitle: subtitle != null ? Text(
-          subtitle, style: TextStyle(fontSize: 12)) : null,
+      subtitle: filename != null ? Text(filename, style: TextStyle(fontSize: 12)) : (subtitle != null ? Text(subtitle, style: TextStyle(fontSize: 12)) : null),
       trailing: ElevatedButton(
         onPressed: onTap,
         style:
@@ -1167,16 +1408,13 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
   }
 
   String? _validateBankName(String? v) {
-    if (v == null || v
-        .trim()
-        .isEmpty) return "Bank Name is required";
+    if (v == null || v.trim().isEmpty) return "Bank Name is required";
     final s = v.trim();
     // allow letters, numbers, spaces and common characters in bank names (& . - ,)
     final bankRegex = RegExp(r'^[A-Za-z0-9 &\.\-\,]{2,100}$');
     if (!bankRegex.hasMatch(s)) return "Enter a valid bank name";
     return null;
   }
-
 
   Widget _buildKycSection() {
     return SingleChildScrollView(
@@ -1273,24 +1511,13 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
 
             // Account Holder Name
             _buildTextField(
-              bankHolderNameCtrl,                     // <- use bankHolderNameCtrl
+              bankHolderNameCtrl, // <- use bankHolderNameCtrl
               "Account Holder Name",
               required: true,
               icon: Icons.person,
               validator: (v) => _validateLettersOnly(v ?? '', "Account Holder Name"),
             ),
 
-            const SizedBox(height: 12),
-
-            // Account Holder Name
-            _buildTextField(
-              accountHolderCtrl,
-              "Account Holder Name",
-              required: true,
-              icon: Icons.person,
-              validator: (v) =>
-                  _validateLettersOnly(v ?? '', "Account Holder Name"),
-            ),
             const SizedBox(height: 12),
 
             // Account Number
@@ -1370,19 +1597,8 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     );
   }
 
-  Future<void> _pickAnyBankDocument() async {
-    final file = await _pickImage(purpose: 'bank_document');
-    if (file != null) {
-      setState(() {
-        // single slot for ANY bank doc
-        bankPassbookFile = file;
-        // keep others null (we won't use them)
-        cancelledChequeFile = null;
-        bankStatementFile = null;
-      });
-    }
-  }
-
+  // control when inline errors are shown
+  AutovalidateMode _autoValidateMode = AutovalidateMode.disabled;
 
   Widget _buildSectionHeader(String title, String subtitle) {
     return Column(
@@ -1418,7 +1634,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
         children: [
           Form(
             key: _formKey,
-            autovalidateMode: AutovalidateMode.onUserInteraction, // <<-- ADDED
+            autovalidateMode: _autoValidateMode, // controlled
             child: PageView(
               controller: _pageController,
               physics: const NeverScrollableScrollPhysics(),
@@ -1426,7 +1642,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
                 _buildRequiredSection(),
                 _buildOptionalSection(),
                 // _buildSettingsSection(),
-                _buildKycSection(), // new KYC page (index 3)
+                _buildKycSection(), // new KYC page (index 2)
               ],
             ),
           ),
@@ -1437,72 +1653,72 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
             ),
         ],
       ),
-        // --- Replace the whole bottomNavigationBar with this ---
-        bottomNavigationBar: Padding(
-          padding: const EdgeInsets.all(12.0),
-          child: Row(
-            children: [
-              // LEFT: Back button (only shown when not on first page)
-              if (_currentPage > 0)
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed: isLoading
-                        ? null
-                        : () {
-                      FocusScope.of(context).unfocus();
-                      // simply go back, no need to revalidate
-                      _pageController.previousPage(
-                        duration: const Duration(milliseconds: 300),
-                        curve: Curves.easeInOut,
-                      );
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.grey[300],
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                    ),
-                    child: const Text("Back", style: TextStyle(color: Colors.black)),
-                  ),
-                ),
-
-              if (_currentPage > 0) const SizedBox(width: 12),
-
-              // RIGHT: Next or Submit depending on page
+      // --- Replace the whole bottomNavigationBar with this ---
+      bottomNavigationBar: Padding(
+        padding: const EdgeInsets.all(12.0),
+        child: Row(
+          children: [
+            // LEFT: Back button (only shown when not on first page)
+            if (_currentPage > 0)
               Expanded(
                 child: ElevatedButton(
                   onPressed: isLoading
                       ? null
                       : () {
                     FocusScope.of(context).unfocus();
-
-                    // Validate current page before performing action
-                    final valid = _validateCurrentPage(_currentPage);
-                    if (!valid) return;
-
-                    if (_currentPage < 2) {
-                      // move to next page
-                      _pageController.nextPage(
-                        duration: const Duration(milliseconds: 300),
-                        curve: Curves.easeInOut,
-                      );
-                    } else {
-                      // last page -> submit
-                      submitForm();
-                    }
+                    // simply go back, no need to revalidate
+                    _pageController.previousPage(
+                      duration: const Duration(milliseconds: 300),
+                      curve: Curves.easeInOut,
+                    );
                   },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFFFC107),
+                    backgroundColor: Colors.grey[300],
                     padding: const EdgeInsets.symmetric(vertical: 14),
                   ),
-                  child: Text(_currentPage < 2 ? "Next" : "Submit"),
+                  child: const Text("Back", style: TextStyle(color: Colors.black)),
                 ),
               ),
-            ],
-          ),
+
+            if (_currentPage > 0) const SizedBox(width: 12),
+
+            // RIGHT: Next or Submit depending on page
+            Expanded(
+              child: ElevatedButton(
+                onPressed: isLoading
+                    ? null
+                    : () {
+                  FocusScope.of(context).unfocus();
+
+                  // Validate current page before performing action
+                  final valid = _validateCurrentPage(_currentPage);
+                  if (!valid) return;
+
+                  if (_currentPage < 2) {
+                    // move to next page
+                    _pageController.nextPage(
+                      duration: const Duration(milliseconds: 300),
+                      curve: Curves.easeInOut,
+                    );
+                  } else {
+                    // last page -> submit
+                    submitForm();
+                  }
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFFFC107),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+                child: Text(_currentPage < 2 ? "Next" : "Submit"),
+              ),
+            ),
+          ],
         ),
+      ),
     );
   }
 
-        void _showError(String msg) {
+  void _showError(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         backgroundColor: Colors.red,
@@ -1511,7 +1727,6 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
       ),
     );
   }
-
 
   bool _validateCurrentPage(int pageIndex) {
     switch (pageIndex) {
@@ -1544,6 +1759,14 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
           _showError(nameError);
           return false;
         }
+
+        // BIRTHDATE (new)
+        final birthError = _validateBirthDate(birthDateCtrl.text);
+        if (birthError != null) {
+          _showError(birthError);
+          return false;
+        }
+
         // SKILL
         final skillError = _validateLettersOnly(
             skillCtrl.text, "Primary Skill");
@@ -1551,6 +1774,13 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
           _showError(skillError);
           return false;
         }
+        // CONFIRM PASSWORD match check
+        final confirmError = _validateConfirmPassword(confirmPasswordCtrl.text);
+        if (confirmError != null) {
+          _showError(confirmError);
+          return false;
+        }
+
         // LANGUAGE
         final langError = _validateLettersOnly(
             languageCtrl.text, "Languages Known");
@@ -1672,13 +1902,11 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
 
         return true;
 
-
       default:
         return true;
     }
   }
 }
-
 
 class UpperCaseTextFormatter extends TextInputFormatter {
   @override

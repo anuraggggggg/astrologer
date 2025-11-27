@@ -174,29 +174,22 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             ),
             actions: [
               if (!isLoading) ...[
-                // IconButton(
-                //   icon: const Icon(Icons.refresh),
-                //   onPressed: () {
-                //     // Navigator.push(
-                //     //   context,
-                //     //   MaterialPageRoute(
-                //     //     builder: (context) => AstrologerChatPage(
-                //     //       customerUid: 'user_779b09b9560f490e92889c35f5ff8de5',
-                //     //     ),
-                //     //   ),
-                //     // );
-                //   },
-                // ),
-
+                IconButton(
+                  icon: const Icon(Icons.refresh, size: 18),
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  constraints: const BoxConstraints(minWidth: 32),
+                  onPressed: () async {
+                    debugPrint("🔄 Refresh wallet");
+                    await _initializeWallet();
+                  },
+                ),
                 GestureDetector(
                   onTap: () {
                     debugPrint("Wallet tapped");
                   },
                   child: Container(
-                    margin:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(color: Colors.black.withOpacity(0.7)),
@@ -212,21 +205,21 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                         BoxShadow(
                           color: Colors.black.withOpacity(0.1),
                           blurRadius: 4,
-                          offset: const Offset(0, 2),
+                          offset: Offset(0, 2),
                         ),
                       ],
                     ),
                     child: Row(
                       children: [
-                        const Icon(
+                        Icon(
                           Icons.account_balance_wallet,
                           size: 18,
                           color: Colors.black87,
                         ),
-                        const SizedBox(width: 6),
+                        SizedBox(width: 6),
                         Text(
                           "₹${walletAmount.isNotEmpty ? walletAmount : "--"}",
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w600,
                             color: Colors.black87,
@@ -236,10 +229,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     ),
                   ),
                 ),
-                const SizedBox(width: 4),
+                SizedBox(width: 4),
               ],
             ],
           ),
+
+
           body: isLoading
               ? const Center(child: CircularProgressIndicator())
               : errorMessage != null
