@@ -126,6 +126,56 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
     return '';
   }
 
+  /// NEW: Robust extraction of the customer/user id from various payload shapes.
+  /// Tries: top-level user_id, user.id, user.user_id, customer_id, receiver.user_id, etc.
+  String _extractUserId(Map<String, dynamic> req) {
+    String clean(String v) => v.trim();
+    final candidates = <String>[
+      clean(_pick(req['user_id'])),
+      clean(_pick(req['customer_id'])),
+      clean(_pick(req['customerId'])),
+      clean(_pick(req['userid'])),
+      // nested 'user'
+      if (req['user'] is Map) clean(_pick((req['user'] as Map)['id'] ?? (req['user'] as Map)['user_id'] ?? (req['user'] as Map)['userId'])),
+      // nested receiver/sender shapes
+      if (req['receiver'] is Map) clean(_pick((req['receiver'] as Map)['user_id'] ?? (req['receiver'] as Map)['id'])),
+      if (req['sender'] is Map) clean(_pick((req['sender'] as Map)['user_id'] ?? (req['sender'] as Map)['id'])),
+      // Some backends put the user object directly under 'customer' or 'customer_info'
+      if (req['customer'] is Map) clean(_pick((req['customer'] as Map)['id'] ?? (req['customer'] as Map)['user_id'])),
+      // fallback: sometimes the request contains a nested 'user_id' under 'userId' camelCase
+      clean(_pick(req['userId'])),
+    ]..removeWhere((e) => e.isEmpty);
+
+    // Validate candidate looks like a user id (common pattern: startsWith user_)
+    bool looksLikeUserId(String s) {
+      if (s.isEmpty) return false;
+      final lower = s.toLowerCase();
+      if (lower.startsWith('user_')) return true;
+      // Or long-ish random id (>= 16) — accept as plausible fallback
+      return s.length >= 16;
+    }
+
+    for (final c in candidates) {
+      if (looksLikeUserId(c)) {
+        debugPrint("🧩 [AudioReq] Extracted userId='$c' (req id=${req['id']})");
+        return c;
+      }
+    }
+
+    // as a last resort: check top-level 'id' but avoid picking request id (numeric)
+    final topId = _pick(req['id']);
+    if (topId.isNotEmpty && !RegExp(r'^\d+$').hasMatch(topId)) {
+      // If top id looks like a user_ or long string, use it
+      if (looksLikeUserId(topId)) {
+        debugPrint("🧩 [AudioReq] Using top-level id as userId='$topId'");
+        return topId;
+      }
+    }
+
+    debugPrint("⚠️ [AudioReq] No user id found in request payload: $req");
+    return '';
+  }
+
   // ────────────────────────────────────────────────────────────────────────────
   // Navigation
   // ────────────────────────────────────────────────────────────────────────────
@@ -187,39 +237,76 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
         // 🔥 SEND NOTIFICATION WHEN ACCEPTED
         // ────────────────────────────────────────────────
         if (status.toLowerCase() == 'accepted') {
-          final userId = _pick(req['user_id']) // top-level
-                  .isNotEmpty
-              ? _pick(req['user_id'])
-              : (req['user'] is Map ? _pick(req['user']['user_id']) : '');
+          // robust extraction of user id
+          final userId = _extractUserId(req);
 
           if (userId.isNotEmpty) {
-            debugPrint("📨 Sending notification to USER: $userId");
+            debugPrint("📨 [AudioReq] Preparing to send notification to USER: $userId");
+            try {
+              final notifSuccess = await FastApiServices().sendCustomerNotification(
+                userId: userId,
+                title: "Audio Call Accepted",
+                body: "Your audio call request has been accepted.",
+                type: "audio_accept",
+                screen: "AudioCallPage",
+                data: {
+                  "request_id": requestId,
+                  "session_type": "audio_call",
+                },
+              );
 
-            await FastApiServices().sendCustomerNotification(
-              userId: userId,
-              title: "Audio Call Accepted",
-              body: "Your audio call request has been accepted.",
-              type: "audio_accept",
-              screen: "AudioCallPage",
-              data: {
-                "request_id": requestId,
-                "session_type": "audio_call",
-              },
-            );
+              // notifSuccess may be boolean/response depending on your implementation
+              debugPrint("📨 [AudioReq] Notification send result: $notifSuccess");
+
+              if (notifSuccess == true) {
+                // proceed to join call after successful notification
+                if (!mounted) return;
+                setState(() => _actBusy = false);
+                await _goToAudioCall();
+                return;
+              } else {
+                // Notification failed according to service — show a toast but still navigate
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text("Accepted but failed to notify customer.")),
+                  );
+                }
+                debugPrint("⚠️ [AudioReq] sendCustomerNotification returned falsy value.");
+                // still navigate — as acceptance succeeded
+                if (!mounted) return;
+                setState(() => _actBusy = false);
+                await _goToAudioCall();
+                return;
+              }
+            } catch (e, st) {
+              debugPrint("💥 [AudioReq] Exception while sending notification: $e\n$st");
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text("Accepted but notification failed: $e")),
+                );
+              }
+              // still navigate — acceptance already processed
+              if (!mounted) return;
+              setState(() => _actBusy = false);
+              await _goToAudioCall();
+              return;
+            }
           } else {
-            debugPrint(
-                "⚠️ No valid user_id found in request. Notification skipped.");
+            debugPrint("⚠️ [AudioReq] No valid user_id found in request. Notification skipped. Payload: $req");
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text("Accepted — customer id missing, notification skipped.")),
+              );
+            }
+            // proceed to join call even if notification skipped
+            if (!mounted) return;
+            setState(() => _actBusy = false);
+            await _goToAudioCall();
+            return;
           }
-
-          // ────────────────────────────────────────────────
-          // Navigate to Audio Call Page
-          // ────────────────────────────────────────────────
-          setState(() => _actBusy = false);
-          await _goToAudioCall();
-          return;
         }
 
-        // If declined
+        // If declined or other non-accepted statuses
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("Request $status successfully!")),
         );
@@ -300,7 +387,7 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
 
         final audioRequests = snapshot.data!
             .where((req) =>
-                _pick(req['session_type']).toLowerCase() == 'audio_call')
+        _pick(req['session_type']).toLowerCase() == 'audio_call')
             .toList();
 
         if (audioRequests.isEmpty) {
@@ -383,7 +470,7 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
                               onPressed: _actBusy
                                   ? null
                                   : () => _respondToRequest(
-                                      req: req, status: 'declined'),
+                                  req: req, status: 'declined'),
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: Colors.red,
                                 side: const BorderSide(color: Colors.red),
@@ -397,7 +484,7 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
                               onPressed: _actBusy
                                   ? null
                                   : () => _respondToRequest(
-                                      req: req, status: 'accepted'),
+                                  req: req, status: 'accepted'),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.green,
                                 foregroundColor: Colors.white,
@@ -408,20 +495,6 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
                         ],
                       ),
                     ] else if (status == 'accepted') ...[
-                      // ✅ After accepted, allow joining any time.
-                      // SizedBox(
-                      //   width: double.infinity,
-                      //   child: ElevatedButton.icon(
-                      //     onPressed: _actBusy ? null : _goToAudioCall,
-                      //     icon: const Icon(Icons.play_arrow),
-                      //     label: const Text('Join Call'),
-                      //     style: ElevatedButton.styleFrom(
-                      //       backgroundColor: Colors.indigo,
-                      //       foregroundColor: Colors.white,
-                      //     ),
-                      //   ),
-                      // ),
-
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton.icon(

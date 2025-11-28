@@ -19,6 +19,9 @@ class _ChatRequestsState extends State<ChatRequests> {
   /// Fallback for missing astrologer_id in API items
   String? _myAstroId;
 
+  /// Prevents double actions
+  bool _actBusy = false;
+
   @override
   void initState() {
     super.initState();
@@ -138,7 +141,9 @@ class _ChatRequestsState extends State<ChatRequests> {
         (req['user'] is Map
             ? (req['user']['id'] ?? req['user']['user_id'])
             : null) ??
-        (req['sender'] is Map ? req['sender']['id'] : null);
+        (req['sender'] is Map ? req['sender']['id'] : null) ??
+        req['customer_id'] ??
+        (req['customer'] is Map ? req['customer']['id'] : null);
     return (userId == null) ? null : userId.toString();
   }
 
@@ -156,9 +161,9 @@ class _ChatRequestsState extends State<ChatRequests> {
 
   String _extractSessionType(Map<String, dynamic> req) {
     final t = (req['session_type'] ??
-            req['type'] ??
-            req['mode'] ??
-            (req['session'] is Map ? req['session']['type'] : null))
+        req['type'] ??
+        req['mode'] ??
+        (req['session'] is Map ? req['session']['type'] : null))
         ?.toString()
         .toLowerCase();
     return t ?? 'chat';
@@ -183,6 +188,9 @@ class _ChatRequestsState extends State<ChatRequests> {
   // ---------- Actions ----------
 
   Future<void> _acceptAndStartChat(Map<String, dynamic> request) async {
+    if (_actBusy) return;
+    setState(() => _actBusy = true);
+
     _debugRequest(request, label: 'ACCEPT_BEFORE');
 
     final int? requestId = (request['id'] is int)
@@ -191,6 +199,7 @@ class _ChatRequestsState extends State<ChatRequests> {
 
     if (requestId == null) {
       if (!mounted) return;
+      setState(() => _actBusy = false);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Invalid request id')),
       );
@@ -202,7 +211,10 @@ class _ChatRequestsState extends State<ChatRequests> {
       status: 'accepted',
     );
 
-    if (!mounted) return;
+    if (!mounted) {
+      setState(() => _actBusy = false);
+      return;
+    }
 
     if (success) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -215,6 +227,7 @@ class _ChatRequestsState extends State<ChatRequests> {
       final userName = _extractUserName(request); // Extract user name
 
       if (roomId == null || userId == null || astrologerId == null) {
+        setState(() => _actBusy = false);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Missing required data. Please try again.'),
@@ -225,7 +238,45 @@ class _ChatRequestsState extends State<ChatRequests> {
         return;
       }
 
-      // Navigate immediately on acceptance (one-time entry)
+      // Try sending notification to the customer before navigating.
+      // This is non-blocking (errors will be shown but we still navigate).
+      try {
+        debugPrint(
+            '📨 [CHAT_REQ] Sending notification to userId=$userId for request=$requestId');
+        final notifResult = await FastApiServices().sendCustomerNotification(
+          userId: userId,
+          title: 'Chat Request Accepted',
+          body: 'Your chat request has been accepted by the astrologer.',
+          type: 'chat_accept',
+          screen: 'ChatScreen',
+          data: {
+            'request_id': requestId,
+            'session_type': 'chat',
+            'room_id': roomId,
+          },
+        );
+
+
+        debugPrint('📨 [CHAT_REQ] Notification send result: $notifResult');
+        if (notifResult != true) {
+          // Service returned falsy — show an info snack but don't block navigation
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                  content: Text('Accepted but failed to notify customer.')),
+            );
+          }
+        }
+      } catch (e, st) {
+        debugPrint('💥 [CHAT_REQ] Exception while sending notification: $e\n$st');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Accepted but notification failed: $e')),
+          );
+        }
+      }
+
+      // Navigate to chat as astrologer
       Navigator.push(
         context,
         MaterialPageRoute(
@@ -236,12 +287,18 @@ class _ChatRequestsState extends State<ChatRequests> {
             receiverName: userName, // Pass the user name here
           ),
         ),
-      ).then((_) => _refresh());
+      ).then((_) {
+        _refresh();
+      });
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to accept request.')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to accept request.')),
+        );
+      }
     }
+
+    if (mounted) setState(() => _actBusy = false);
   }
 
   void _openChat(Map<String, dynamic> request) {
@@ -415,13 +472,15 @@ class _ChatRequestsState extends State<ChatRequests> {
                           children: [
                             Expanded(
                               child: OutlinedButton(
-                                onPressed: () =>
+                                onPressed: _actBusy
+                                    ? null
+                                    : () =>
                                     _respondToRequest(req['id'], 'declined'),
                                 style: OutlinedButton.styleFrom(
                                   foregroundColor: Colors.red,
                                   side: const BorderSide(color: Colors.red),
                                   padding:
-                                      const EdgeInsets.symmetric(vertical: 12),
+                                  const EdgeInsets.symmetric(vertical: 12),
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(8),
                                   ),
@@ -439,12 +498,13 @@ class _ChatRequestsState extends State<ChatRequests> {
                             const SizedBox(width: 12),
                             Expanded(
                               child: ElevatedButton(
-                                onPressed: () => _acceptAndStartChat(req),
+                                onPressed:
+                                _actBusy ? null : () => _acceptAndStartChat(req),
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: Colors.green,
                                   foregroundColor: Colors.white,
                                   padding:
-                                      const EdgeInsets.symmetric(vertical: 12),
+                                  const EdgeInsets.symmetric(vertical: 12),
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(8),
                                   ),
@@ -462,7 +522,7 @@ class _ChatRequestsState extends State<ChatRequests> {
                           ],
                         )
                       else if (isAccepted)
-                        // 🔒 Accepted: no re-open allowed → show disabled "Session over"
+                      // 🔒 Accepted: no re-open allowed → show disabled "Session over"
                         SizedBox(
                           width: double.infinity,
                           child: ElevatedButton.icon(

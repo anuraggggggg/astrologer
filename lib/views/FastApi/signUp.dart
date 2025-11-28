@@ -36,7 +36,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
 
   final TextEditingController passwordCtrl = TextEditingController();
   final TextEditingController countryCodeCtrl =
-  TextEditingController(text: "+91");
+  TextEditingController(text: "91");
   final TextEditingController contactNoCtrl = TextEditingController();
   final TextEditingController nameCtrl = TextEditingController();
   final TextEditingController skillCtrl = TextEditingController();
