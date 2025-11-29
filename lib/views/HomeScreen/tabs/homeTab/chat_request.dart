@@ -243,6 +243,7 @@ class _ChatRequestsState extends State<ChatRequests> {
       try {
         debugPrint(
             '📨 [CHAT_REQ] Sending notification to userId=$userId for request=$requestId');
+
         final notifResult = await FastApiServices().sendCustomerNotification(
           userId: userId,
           title: 'Chat Request Accepted',
