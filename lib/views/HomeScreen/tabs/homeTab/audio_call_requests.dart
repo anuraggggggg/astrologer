@@ -252,6 +252,8 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
                 data: {
                   "request_id": requestId,
                   "session_type": "audio_call",
+                  // <-- ADDED: pass astrologer id in the data payload
+                  "astrologerUid": astroIdForLog,
                 },
               );
 

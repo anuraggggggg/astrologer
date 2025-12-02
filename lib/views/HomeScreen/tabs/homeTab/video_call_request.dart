@@ -95,6 +95,29 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
     return '';
   }
 
+  /// Try to extract an astrologer id from the payload.
+  /// Common keys checked: astro_id, astrologer_id, astroId, sender/receiver nested fields, createdBy/created_by.
+  String _extractAstroId(Map<String, dynamic> req) {
+    String pick(dynamic v) => (v ?? '').toString().trim();
+
+    final candidates = <String>[
+      pick(req['astro_id']),
+      pick(req['astrologer_id']),
+      pick(req['astroId']),
+      if (req['sender'] is Map) pick((req['sender'] as Map)['astro_id'] ?? (req['sender'] as Map)['astrologer_id'] ?? (req['sender'] as Map)['id']),
+      if (req['receiver'] is Map) pick((req['receiver'] as Map)['astro_id'] ?? (req['receiver'] as Map)['astrologer_id'] ?? (req['receiver'] as Map)['id']),
+      pick(req['created_by']),
+      pick(req['createdBy']),
+      pick(req['owner']),
+    ]..removeWhere((s) => s.isEmpty);
+
+    if (candidates.isNotEmpty) {
+      debugPrint("🧭 [VideoReq] Extracted astroId candidates: $candidates (req id=${req['id']})");
+      return candidates.first;
+    }
+    return '';
+  }
+
   Future<void> _goToCall() async {
     final astroId = _selfAstroId;
     if (astroId.isEmpty) {
@@ -143,7 +166,10 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
           final userId = _extractUserId(req);
 
           if (userId.isNotEmpty) {
-            debugPrint("📨 [VideoReq] Preparing to send notification to USER: $userId");
+            // determine which astro id to include in the notification payload
+            final astroIdToSend = (_selfAstroId.isNotEmpty) ? _selfAstroId : _extractAstroId(req);
+
+            debugPrint("📨 [VideoReq] Preparing to send notification to USER: $userId (astro_id=$astroIdToSend)");
             try {
               final notifSuccess = await FastApiServices().sendCustomerNotification(
                 userId: userId,
@@ -154,6 +180,8 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
                 data: {
                   "request_id": requestId,
                   "session_type": "video_call",
+                  // pass astro id here so the customer side knows which astrologer accepted
+                  "astro_id": astroIdToSend,
                 },
               );
 

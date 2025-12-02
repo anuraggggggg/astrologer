@@ -501,16 +501,16 @@ class FastApiServices {
   // inside FastApiServices class - replace your editProfile implementation with this
 
   // Import already present: dart:io, dart:convert, package:http/http.dart' as http, package:path/path.dart
+  // FastApiServices.dart — replace editProfile(...) with this
   Future<Map<String, dynamic>> editProfile({
     required Map<String, dynamic> formFields,
     File? profileImage,
+    Map<String, File?>? extraFiles, // NEW: map fieldName -> File
   }) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final astroId = prefs.getString("astro_id") ?? prefs.getString("user_id") ?? '';
       final token = prefs.getString("access_token") ?? '';
-
-      print("🔧 editProfile called. astroId='$astroId' tokenPresent=${token.isNotEmpty}");
 
       if (astroId.isEmpty || token.isEmpty) {
         return {'success': false, 'error': 'Astro ID or access token missing.'};
@@ -518,20 +518,19 @@ class FastApiServices {
 
       final String urlString = '$baseUrl/astro/astrologers/$astroId/update';
       final Uri uri = Uri.parse(urlString);
-      print("🌐 Target URL: $urlString");
 
       Future<Map<String, dynamic>> sendMultipart(String method) async {
         final request = http.MultipartRequest(method, uri);
         request.headers['Authorization'] = 'Bearer $token';
         request.headers['accept'] = 'application/json';
 
-        // Add fields (include keys with empty string if provided)
+        // Add fields
         formFields.forEach((key, value) {
           if (value == null) return;
           request.fields[key] = value.toString();
         });
 
-        // Attach file if exists
+        // Attach main profileImage (field name 'profileImage') if provided
         if (profileImage != null && profileImage.existsSync()) {
           final multipartFile = await http.MultipartFile.fromPath(
             'profileImage',
@@ -541,17 +540,26 @@ class FastApiServices {
           request.files.add(multipartFile);
         }
 
-        print('📤 [$method] Headers: ${request.headers}');
-        print('📤 [$method] Fields: ${request.fields.keys.toList()}');
-        if (request.files.isNotEmpty) print('📤 [$method] Files: ${request.files.map((f) => f.filename).toList()}');
+        // Attach any extra files (key is field name expected by API)
+        if (extraFiles != null && extraFiles.isNotEmpty) {
+          for (final entry in extraFiles.entries) {
+            final fieldName = entry.key;
+            final file = entry.value;
+            if (file != null && file.existsSync()) {
+              final mfile = await http.MultipartFile.fromPath(
+                fieldName,
+                file.path,
+                filename: basename(file.path),
+              );
+              request.files.add(mfile);
+            }
+          }
+        }
 
+        // send
         final streamed = await request.send();
         final resp = await http.Response.fromStream(streamed);
 
-        print('⬅️ [$method] status=${resp.statusCode}');
-        print('⬅️ [$method] body=${resp.body}');
-
-        // try decode
         dynamic decoded;
         try {
           decoded = jsonDecode(resp.body);
@@ -566,28 +574,23 @@ class FastApiServices {
         };
       }
 
-      // 1) Try PUT first (because your curl uses PUT)
+      // try PUT first (server uses PUT in your curl)
       final putRes = await sendMultipart('PUT');
       if (putRes['statusCode'] >= 200 && putRes['statusCode'] < 300) {
-        // return decoded body if possible (server returns JSON like {"success":true,...})
         final body = putRes['body'];
         if (body is Map<String, dynamic>) return body;
         return {'success': true, 'raw': putRes['raw']};
       }
 
-      // 2) Fallback to PATCH if PUT returned 405/404 or 405 Method Not Allowed
+      // fallback to PATCH then POST (same as before)
       if (putRes['statusCode'] == 405 || putRes['statusCode'] == 404) {
-        print("⚠️ PUT returned ${putRes['statusCode']}. Trying PATCH...");
         final patchRes = await sendMultipart('PATCH');
         if (patchRes['statusCode'] >= 200 && patchRes['statusCode'] < 300) {
           final body = patchRes['body'];
           if (body is Map<String, dynamic>) return body;
           return {'success': true, 'raw': patchRes['raw']};
         }
-
-        // 3) Last resort: try POST
         if (patchRes['statusCode'] == 405 || patchRes['statusCode'] == 404) {
-          print("⚠️ PATCH returned ${patchRes['statusCode']}. Trying POST...");
           final postRes = await sendMultipart('POST');
           if (postRes['statusCode'] >= 200 && postRes['statusCode'] < 300) {
             final body = postRes['body'];
@@ -598,7 +601,7 @@ class FastApiServices {
               'success': false,
               'statusCode': postRes['statusCode'],
               'error': postRes['body'] ?? postRes['raw'],
-              'raw': postRes['raw']
+              'raw': postRes['raw'],
             };
           }
         } else {
@@ -606,17 +609,16 @@ class FastApiServices {
             'success': false,
             'statusCode': patchRes['statusCode'],
             'error': patchRes['body'] ?? patchRes['raw'],
-            'raw': patchRes['raw']
+            'raw': patchRes['raw'],
           };
         }
       }
 
-      // If PUT failed with another status (401, 422, etc) return it
       return {
         'success': false,
         'statusCode': putRes['statusCode'],
         'error': putRes['body'] ?? putRes['raw'],
-        'raw': putRes['raw']
+        'raw': putRes['raw'],
       };
     } catch (e, st) {
       print('🚨 Exception in editProfile: $e\n$st');

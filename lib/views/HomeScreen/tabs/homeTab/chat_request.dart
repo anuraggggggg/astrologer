@@ -238,25 +238,67 @@ class _ChatRequestsState extends State<ChatRequests> {
         return;
       }
 
+      // prepare additional fields to send in notification data
+      String astroName = 'Astrologer';
+      String token = '';
+      String chatRate = '0';
+
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        astroName = prefs.getString('name') ??
+            prefs.getString('astro_name') ??
+            prefs.getString('full_name') ??
+            astroName;
+        token = prefs.getString('access_token') ?? prefs.getString('token') ?? '';
+      } catch (e) {
+        debugPrint('⚠️ Could not read astroName/token from prefs: $e');
+      }
+
+      // try various keys from the request payload for chat rate
+      try {
+        final dynamic rateCandidates = request['chatCharge'] ??
+            request['chat_charge'] ??
+            request['chat_rate'] ??
+            request['charge'] ??
+            request['rate'] ??
+            request['price'];
+        if (rateCandidates != null) {
+          chatRate = rateCandidates.toString();
+        } else {
+          // sometimes nested in session or astrologer objects
+          if (request['session'] is Map && request['session']['chatCharge'] != null) {
+            chatRate = request['session']['chatCharge'].toString();
+          } else if (request['astrologer'] is Map && request['astrologer']['chatCharge'] != null) {
+            chatRate = request['astrologer']['chatCharge'].toString();
+          }
+        }
+      } catch (_) {
+        chatRate = '0';
+      }
+
+      final customerId = userId; // customer's id used as "myUserId" in payload per your request
+
       // Try sending notification to the customer before navigating.
       // This is non-blocking (errors will be shown but we still navigate).
       try {
         debugPrint(
-            '📨 [CHAT_REQ] Sending notification to userId=$userId for request=$requestId');
+            '📨 [CHAT_REQ] Sending notification to userId=$userId for request=$requestId with astroId=$astrologerId');
 
         final notifResult = await FastApiServices().sendCustomerNotification(
           userId: userId,
-          title: 'Chat Request Accepted',
-          body: 'Your chat request has been accepted by the astrologer.',
+          title: 'Chat Accepted',
+          body: 'The astrologer accepted your chat request!',
           type: 'chat_accept',
-          screen: 'ChatScreen',
+          screen: 'chatPage',
           data: {
-            'request_id': requestId,
-            'session_type': 'chat',
-            'room_id': roomId,
+            'astrologerUid': astrologerId,
+            'roomId': roomId,
+            'myUserId': customerId,
+            'astrologerName': astroName,
+            'token': token,
+            'chatRate': chatRate.toString(),
           },
         );
-
 
         debugPrint('📨 [CHAT_REQ] Notification send result: $notifResult');
         if (notifResult != true) {
