@@ -71,7 +71,7 @@ class _PaymentHistoryTabState extends State<PaymentHistoryTab> {
     String? bank = (profile['bankName'] ?? profile['bank_name'] ?? profile['bank'] ?? profile['bankNameString'])?.toString();
     String? acct = (profile['accountNumber'] ?? profile['account_number'] ?? profile['accountNo'] ?? profile['account'])?.toString();
     String? ifsc = (profile['ifscCode'] ?? profile['ifsc_code'] ?? profile['ifsc'] ?? profile['ifscCodeString'])?.toString();
-    String? holder = (profile['accountHolderName'] ?? profile['account_holder_name'] ?? profile['accountName'] ?? profile['accountHolder'] ?? profile['nameOnAccount'])?.toString();
+    String? holder = (profile['account_holder_name'] ?? profile['account_holder_name'] ?? profile['account_holder_name'] ?? profile['accountHolder'] ?? profile['nameOnAccount'])?.toString();
 
     // Normalize empties
     upi = (upi == null || upi.trim().isEmpty) ? null : upi.trim();

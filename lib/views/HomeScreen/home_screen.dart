@@ -22,10 +22,11 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
+// Add WidgetsBindingObserver to observe lifecycle changes.
+class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, WidgetsBindingObserver {
   int _selectedItemPosition = 0;
   int previousposition = 0;
-  String walletAmount = ""; // ✅ Safe placeholder
+  String walletAmount = "";
   Map<String, dynamic>? profile;
 
   bool isLoading = true;
@@ -33,13 +34,48 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   int _retryCount = 0;
   final int _maxRetries = 2;
 
+  // store astroId for quick use
+  String? _astroId;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this); // register observer
     fetchProfile();
     _initializeWallet();
-    // Removed direct API calls
-    // You can trigger API calls later when needed
+
+    // set user online on init (best-effort)
+    _setOnline(true);
+  }
+
+  @override
+  void dispose() {
+    // best-effort set offline when widget disposed
+    _setOnline(false);
+    WidgetsBinding.instance.removeObserver(this); // remove observer
+    super.dispose();
+  }
+
+  // Listen to app lifecycle changes
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    debugPrint("AppLifecycleState changed: $state");
+
+    switch (state) {
+      case AppLifecycleState.resumed:
+      // app in foreground
+        _setOnline(true);
+        break;
+
+    // Grouping all states where we want to mark user offline (best-effort)
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.paused:
+      case AppLifecycleState.detached:
+      case AppLifecycleState.hidden: // <- Added to satisfy exhaustiveness (Flutter 3.22+)
+        _setOnline(false);
+        break;
+    }
   }
 
   Future<void> fetchProfile({bool isRetry = false}) async {
@@ -73,6 +109,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
       final fetchedProfile = await api.getAstrologerById();
 
+      // get astro id for later use and store locally
+      _astroId = prefs.getString("astro_id") ?? fetchedProfile?['astro_id'] ?? fetchedProfile?['id'];
+
       // Reset retry count on successful fetch
       _retryCount = 0;
 
@@ -98,10 +137,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   Future<void> _initializeWallet() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final astroId = prefs.getString("astro_id");
+      _astroId = prefs.getString("astro_id") ?? _astroId;
 
-      if (astroId != null) {
-        final response = await FastApiServices().balanceAmountAstro(astroId);
+      final astroIdLocal = _astroId;
+      if (astroIdLocal != null) {
+        final response = await FastApiServices().balanceAmountAstro(astroIdLocal);
 
         if (response != null) {
           final amount = double.tryParse(response['amount'].toString()) ?? 0.0;
@@ -132,11 +172,45 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     }
   }
 
+  // Single function to call API and set online/offline
+  Future<void> _setOnline(bool isOnline) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      String? astroId = prefs.getString("astro_id") ?? _astroId;
+
+      // If we still don't have astroId, try fetchProfile to get it (best-effort)
+      if (astroId == null) {
+        await fetchProfile();
+        astroId = prefs.getString("astro_id") ?? _astroId;
+      }
+
+      if (astroId == null) {
+        debugPrint("⚠️ astroId missing, cannot set online status.");
+        return;
+      }
+
+      debugPrint("➡️ Setting online status: $isOnline for astroId=$astroId");
+
+      final success = await FastApiServices().setOnlineStatus(astroId, isOnline);
+
+      if (success == true) {
+        debugPrint("✅ Online status updated: $isOnline");
+      } else {
+        debugPrint("❌ Failed to update online status (api returned false/null)");
+      }
+    } catch (e) {
+      debugPrint("🚨 Error setting online status: $e");
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     double height = MediaQuery.of(context).size.height;
     return WillPopScope(
       onWillPop: () async {
+        // set offline before exit (best-effort)
+        await _setOnline(false);
+
         if (Platform.isAndroid) {
           SystemNavigator.pop();
         } else if (Platform.isIOS) {
@@ -233,17 +307,15 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               ],
             ],
           ),
-
-
           body: isLoading
               ? const Center(child: CircularProgressIndicator())
               : errorMessage != null
-                  ? Center(child: Text("Error: $errorMessage"))
-                  : Container(
-                      height: height,
-                      color: Colors.grey.shade200,
-                      child: _buildSelectedTab(),
-                    ),
+              ? Center(child: Text("Error: $errorMessage"))
+              : Container(
+            height: height,
+            color: Colors.grey.shade200,
+            child: _buildSelectedTab(),
+          ),
           bottomNavigationBar: SizedBox(
             height: 7.7.h,
             child: SnakeNavigationBar.color(
@@ -258,16 +330,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   previousposition = _selectedItemPosition;
                   _selectedItemPosition = value;
                 });
+                // ensure online remains true while inside app
+                _setOnline(true);
               },
               items: [
-                BottomNavigationBarItem(
-                    icon: const Icon(Icons.home), label: "Home"),
-                BottomNavigationBarItem(
-                    icon: const Icon(Icons.videocam), label: "Live"),
-                BottomNavigationBarItem(
-                    icon: const Icon(Icons.history), label: "History"),
-                BottomNavigationBarItem(
-                    icon: const Icon(Icons.person), label: "Profile"),
+                BottomNavigationBarItem(icon: const Icon(Icons.home), label: "Home"),
+                BottomNavigationBarItem(icon: const Icon(Icons.videocam), label: "Live"),
+                BottomNavigationBarItem(icon: const Icon(Icons.history), label: "History"),
+                BottomNavigationBarItem(icon: const Icon(Icons.person), label: "Profile"),
               ],
             ),
           ),
@@ -282,7 +352,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         return const HomeTabScreen();
       case 1:
         return GoLivePage();
-        ;
       case 2:
         return const PaymentHistoryTab();
       case 3:
@@ -297,7 +366,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       // Simulate API call
       await Future.delayed(const Duration(seconds: 1));
       setState(() {
-        walletAmount = "500"; // ✅ Mock Data
+        walletAmount = "500"; // mock Data
       });
     } catch (e) {
       debugPrint("Error loading wallet: $e");

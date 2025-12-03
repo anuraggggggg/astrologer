@@ -48,6 +48,7 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
   final TextEditingController _aadhaarController = TextEditingController();
   final TextEditingController _youtubeController = TextEditingController();
   final TextEditingController _ifscController = TextEditingController();
+  final TextEditingController _accountholdername = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _facebookController = TextEditingController();
   final TextEditingController _loginBioController = TextEditingController();
@@ -126,6 +127,10 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
   }
 
   bool _isValidBankName(String s) {
+    return RegExp(r'^[A-Za-z\s\.\&\-]{2,80}$').hasMatch(s);
+  }
+
+  bool _isValidaccountholdername(String s) {
     return RegExp(r'^[A-Za-z\s\.\&\-]{2,80}$').hasMatch(s);
   }
 
@@ -294,6 +299,7 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
         _bankNameController.text = profile?['bankName'] ?? '';
         _accountNumberController.text = profile?['accountNumber'] ?? '';
         _ifscController.text = profile?['ifscCode'] ?? '';
+        _accountholdername.text = profile?['account_holder_name'] ?? '';
         _upiController.text = profile?['upiId'] ?? '';
         _categoryIdController.text = profile?['astrologerCategoryId'] ?? '';
 
@@ -704,6 +710,8 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
     put('aadhaarNumber', _aadhaarController.text);
     put('youtubeChannelLink', _youtubeController.text);
     put('ifscCode', _ifscController.text);
+    //_accountholdername
+    put('account_holder_name', _accountholdername.text);
     put('facebookProfileLink', _facebookController.text);
     put('loginBio', _loginBioController.text);
 
@@ -974,6 +982,8 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
 
                           _buildField('IFSC Code', _ifscController, 'ifscCode', validator: _validateIfsc),
                           const SizedBox(height: 12),
+                          _buildField('Account Holder Name', _accountholdername, 'account_holder_name', validator: _validateBankName),
+                          const SizedBox(height: 12),
 
                           _buildField('UPI ID', _upiController, 'upiId', validator: _validateUpi),
 
@@ -1074,6 +1084,7 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
     _aadhaarController.dispose();
     _youtubeController.dispose();
     _ifscController.dispose();
+    _accountholdername.dispose();
     _emailController.dispose();
     _facebookController.dispose();
     _loginBioController.dispose();

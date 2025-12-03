@@ -942,6 +942,50 @@ Future<bool> sendCustomerNotification({
 }
 
 
+  final String baseHost = "fastapi.jyotishionline.com"; // NOTE: host only, we use Uri.https below
+
+  /// Sets astrologer online/offline. Returns true on success.
+  /// Uses FastApiEndpoints.fastApiBaseUrl to ensure the same base URL is used everywhere.
+  Future<bool> setOnlineStatus(String astroId, bool isOnline) async {
+    try {
+      final base = FastApiEndpoints.fastApiBaseUrl; // "https://fastapi.jyotishionline.com"
+
+      // Build the full URL exactly like the curl you shared.
+      // Using Uri.parse is straightforward because base already contains scheme.
+      final uriString =
+          '$base/astro_online/astrologer/online-status?astro_id=${Uri.encodeComponent(astroId)}&isOnline=${Uri.encodeComponent(isOnline.toString())}';
+      final uri = Uri.parse(uriString);
+
+      // debug print the URI so you can copy/paste to curl and compare
+      debugPrint('>>> setOnlineStatus: uri=$uri');
+
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('access_token');
+
+      final headers = <String, String>{
+        'accept': 'application/json',
+        if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+      };
+
+      // Send POST with empty body to match your curl example
+      final response = await http.post(uri, headers: headers, body: '');
+
+      debugPrint('<<< setOnlineStatus: status=${response.statusCode} body=${response.body}');
+
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body);
+        return body['success'] == true;
+      } else {
+        // helpful debug information if non-200
+        debugPrint('setOnlineStatus failed. status=${response.statusCode}');
+        return false;
+      }
+    } catch (e, st) {
+      debugPrint('Exception in setOnlineStatus: $e\n$st');
+      return false;
+    }
+  }
+
 
 
 
