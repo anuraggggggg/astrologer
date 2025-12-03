@@ -987,6 +987,58 @@ Future<bool> sendCustomerNotification({
   }
 
 
+  /// Get withdraw history for logged-in astrologer
+  Future<List<Map<String, dynamic>>?> getWithdrawHistory() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('access_token');
+      final base = FastApiEndpoints.fastApiBaseUrl; // https://fastapi.jyotishionline.com
+
+      // Correct API path from your docs
+      final uri = Uri.parse('$base/api/v1/astro/withdrawals');
+
+      // debug print full URI for quick verification
+      debugPrint('getWithdrawHistory: uri=$uri');
+      if (token == null || token.isEmpty) {
+        debugPrint('getWithdrawHistory: access_token missing in SharedPreferences');
+        // return null or throw based on how you want to handle auth missing
+        return null;
+      }
+
+      final headers = <String, String>{
+        'accept': 'application/json',
+        'Authorization': 'Bearer $token',
+      };
+
+      final response = await http.get(uri, headers: headers);
+
+      debugPrint('getWithdrawHistory: status=${response.statusCode} body=${response.body}');
+
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body);
+        if (body is List) {
+          // return list of maps (each map is a withdraw object)
+          return List<Map<String, dynamic>>.from(body);
+        } else if (body is Map && body['data'] is List) {
+          return List<Map<String, dynamic>>.from(body['data']);
+        } else {
+          debugPrint('getWithdrawHistory: unexpected body format');
+          return null;
+        }
+      } else {
+        // helpful logging for 401/403/404 etc
+        debugPrint('getWithdrawHistory failed. status=${response.statusCode}');
+        return null;
+      }
+    } catch (e, st) {
+      debugPrint('Exception getWithdrawHistory: $e\n$st');
+      return null;
+    }
+  }
+
+
+
+
 
 
 

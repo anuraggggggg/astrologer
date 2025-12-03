@@ -3,11 +3,11 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:image_picker/image_picker.dart'; // still used optionally for quick image pick UI; can remove if using file_picker for everything
+import 'package:image_picker/image_picker.dart'; // optional
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' show basename;
-import 'package:url_launcher/url_launcher_string.dart'; // for opening remote PDF
+import 'package:url_launcher/url_launcher_string.dart';
 import '../../../../fastApi/fastApiServices.dart';
 import '../../../../fastApi/fastApiEndPoints.dart';
 import 'fullscreen.dart';
@@ -23,7 +23,7 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
   final _formKey = GlobalKey<FormState>();
   final FastApiServices _api = FastApiServices();
 
-  // Controllers (unchanged)
+  // Controllers
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _contactController = TextEditingController();
   final TextEditingController _countryCodeController = TextEditingController();
@@ -64,6 +64,7 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
     'panCardImage': null,
     'bankPassbookImage': null,
   };
+
   // KYC docs: urls fetched from server for preview
   final Map<String, String?> _docUrls = {
     'aadhaarFrontImage': null,
@@ -72,7 +73,6 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
     'bankPassbookImage': null,
   };
 
-  // File picker helper (we keep image_picker import if you want it; but file_picker is used)
   final ImagePicker _picker = ImagePicker();
 
   bool isLoading = true;
@@ -95,7 +95,7 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
     _loadProfileAndBlocked();
   }
 
-  // ----------------- Validation helpers (unchanged) -----------------
+  // ----------------- Validation helpers -----------------
   bool _isNumeric(String s) => RegExp(r'^[0-9]+$').hasMatch(s);
 
   bool _isValidEmail(String s) {
@@ -352,14 +352,13 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
     }
   }
 
-  // ---------------- pick & upload profile image (use file_picker to allow pdf/image) ----------------
+  // ---------------- pick & upload profile image ----------------
   Future<void> _pickProfileImage() async {
     if (_isBlocked('profileImage')) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('This field is blocked and requires admin approval.')));
       return;
     }
 
-    // Use file_picker to allow pdf/image selection
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowMultiple: false,
@@ -378,7 +377,6 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
 
     final file = File(picked.path!);
 
-    // Validate ext & size
     if (!_isExtAllowed(file.path)) {
       _showSimpleSnack('Allowed types: png, jpg, jpeg, webp, gif, pdf');
       return;
@@ -395,7 +393,6 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
     });
 
     try {
-      // call API; note: editProfile must accept profileImage as File
       final result = await _api.editProfile(formFields: {}, profileImage: file, extraFiles: null);
       setState(() => isLoading = false);
 
@@ -411,7 +408,7 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
     }
   }
 
-  // ---------------- pick & upload kyc doc (file_picker to accept pdf/image) ----------------
+  // ---------------- pick & upload kyc doc ----------------
   Future<void> _pickAndUploadDoc(String fieldName) async {
     if (_isBlocked(fieldName)) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('This field is blocked and requires admin approval.')));
@@ -433,7 +430,6 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
     }
     final file = File(picked.path!);
 
-    // validate extension & size
     if (!_isExtAllowed(file.path)) {
       _showSimpleSnack('Allowed types: png, jpg, jpeg, webp, gif, pdf');
       return;
@@ -496,14 +492,13 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
     );
   }
 
-  // Build doc tile: tap -> open viewer; edit icon -> pick/upload
+  // Build doc tile
   Widget _buildDocTile(String label, String fieldName) {
     final url = _docUrls[fieldName];
     final localFile = _docFiles[fieldName];
 
     Widget previewChild;
     if (localFile != null) {
-      // local selected file preview (image or pdf icon)
       final ext = localFile.path.split('.').last.toLowerCase();
       if (ext == 'pdf') {
         previewChild = Center(child: Column(mainAxisSize: MainAxisSize.min, children: const [
@@ -553,7 +548,6 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
           children: [
             GestureDetector(
               onTap: () {
-                // if there is something to view, open the full screen viewer
                 final has = (localFile != null) || (url != null && url.isNotEmpty);
                 if (!has) {
                   _showSimpleSnack('No document uploaded yet. Tap the edit icon to upload.');
@@ -575,7 +569,6 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
               ),
             ),
 
-            // edit button (top-right)
             Positioned(
               right: 8,
               top: 8,
@@ -616,72 +609,9 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
     );
   }
 
-  // ----- submit / other helpers remain same (unchanged) -----
-  Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
+  // ---------------- New submit logic: only changed fields & files ----------------
 
-    try {
-      setState(() => isLoading = true);
-
-      final Map<String, dynamic> formFields = _collectAllFields();
-      final File? profileImageFile = _profileImage;
-
-      final changed = _getChangedKeys(formFields);
-      final chargesSet = {'chatCharge', 'audioCallCharge', 'videoCallCharge'};
-
-      if (changed.isNotEmpty && changed.toSet().difference(chargesSet).isEmpty) {
-        final ok = await _patchChargesDirectly(formFields);
-        setState(() => isLoading = false);
-        if (ok) {
-          _showSimpleSnack('Charges updated successfully');
-          await _loadProfileAndBlocked();
-          return;
-        } else {
-          _showSimpleSnack('Failed to update charges.');
-          return;
-        }
-      }
-
-      final result = await _api.editProfile(formFields: formFields, profileImage: profileImageFile, extraFiles: null);
-
-      setState(() => isLoading = false);
-
-      if (result == null) {
-        _showSimpleSnack('No response from server');
-        return;
-      }
-
-      Map<String, dynamic>? decoded;
-      if (result is Map<String, dynamic>) {
-        decoded = result;
-      }
-
-      final updated = (decoded?['pending_fields'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? <String>[];
-      final message = decoded?['message']?.toString() ?? 'Changes submitted for admin approval';
-
-      _showSimpleSnack(message);
-      await showDialog(
-        context: context,
-        builder: (_) => AlertDialog(
-          title: Row(
-            children: [
-              Icon(updated.isEmpty ? Icons.hourglass_bottom : Icons.check_circle, color: updated.isEmpty ? Colors.orange : Colors.green),
-              const SizedBox(width: 8),
-              Text(updated.isEmpty ? 'Pending' : 'Updated'),
-            ],
-          ),
-          content: Text(message),
-          actions: [TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('OK'))],
-        ),
-      );
-
-      if (updated.isNotEmpty) await _loadProfileAndBlocked();
-    } catch (e) {
-      setState(() => isLoading = false);
-      _showSimpleSnack('Exception: $e');
-    }
-  }
-
+  /// Collect all fields (string values)
   Map<String, dynamic> _collectAllFields() {
     Map<String, dynamic> m = {};
     void put(String key, String? v) => m[key] = (v ?? '').trim();
@@ -710,7 +640,6 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
     put('aadhaarNumber', _aadhaarController.text);
     put('youtubeChannelLink', _youtubeController.text);
     put('ifscCode', _ifscController.text);
-    //_accountholdername
     put('account_holder_name', _accountholdername.text);
     put('facebookProfileLink', _facebookController.text);
     put('loginBio', _loginBioController.text);
@@ -718,6 +647,7 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
     return m;
   }
 
+  /// Return list of changed textual keys by comparing with loaded `profile`
   List<String> _getChangedKeys(Map<String, dynamic> newFields) {
     final List<String> changes = [];
     if (profile == null) return newFields.keys.toList();
@@ -727,6 +657,117 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
       if (newVal != oldVal) changes.add(k);
     }
     return changes;
+  }
+
+  /// Build a map containing only changed key/value pairs (text fields)
+  Map<String, dynamic> _buildChangedFields(Map<String, dynamic> allFields, Iterable<String> changedKeys) {
+    final Map<String, dynamic> m = {};
+    for (final k in changedKeys) {
+      if (allFields.containsKey(k)) {
+        m[k] = allFields[k];
+      }
+    }
+    return m;
+  }
+
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() => isLoading = true);
+
+    try {
+      final Map<String, dynamic> allFields = _collectAllFields();
+
+      // textual changes
+      final List<String> changedKeys = _getChangedKeys(allFields);
+
+      // file changes
+      final List<String> fileChangedKeys = [];
+      if (_profileImage != null) fileChangedKeys.add('profileImage');
+
+      _docFiles.forEach((k, file) {
+        if (file != null) fileChangedKeys.add(k);
+      });
+
+      final changedSet = <String>{...changedKeys, ...fileChangedKeys};
+
+      if (changedSet.isEmpty) {
+        setState(() => isLoading = false);
+        _showSimpleSnack('No changes detected');
+        return;
+      }
+
+      // fast-path: only charges changed -> patch endpoint
+      final chargesSet = {'chatCharge', 'audioCallCharge', 'videoCallCharge'};
+      final onlyCharges = changedSet.difference(chargesSet).isEmpty && changedSet.isNotEmpty;
+
+      if (onlyCharges) {
+        final ok = await _patchChargesDirectly(allFields);
+        setState(() => isLoading = false);
+        if (ok) {
+          _showSimpleSnack('Charges updated successfully');
+          await _loadProfileAndBlocked();
+          return;
+        } else {
+          _showSimpleSnack('Failed to update charges.');
+          return;
+        }
+      }
+
+      // build formFields & extraFiles
+      final changedTextKeys = changedSet.where((k) => k != 'profileImage' && !_docFiles.keys.contains(k));
+      final formFieldsToSend = _buildChangedFields(allFields, changedTextKeys);
+
+      final Map<String, File?> extraFilesToSend = {};
+      _docFiles.forEach((fieldName, file) {
+        if (file != null) extraFilesToSend[fieldName] = file;
+      });
+
+      final File? profileImageFile = _profileImage;
+
+      debugPrint('Submitting changed fields: ${formFieldsToSend.keys.toList()} files: ${[if (profileImageFile != null) 'profileImage', ...extraFilesToSend.keys]}');
+
+      final result = await _api.editProfile(
+        formFields: formFieldsToSend,
+        profileImage: profileImageFile,
+        extraFiles: extraFilesToSend.isEmpty ? null : extraFilesToSend,
+      );
+
+      setState(() => isLoading = false);
+
+      if (result == null) {
+        _showSimpleSnack('No response from server');
+        return;
+      }
+
+      Map<String, dynamic>? decoded;
+      if (result is Map<String, dynamic>) decoded = result;
+
+      final updated = (decoded?['pending_fields'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? <String>[];
+      final message = decoded?['message']?.toString() ?? 'Changes submitted for admin approval';
+
+      _showSimpleSnack(message);
+      await showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: Row(
+            children: [
+              Icon(updated.isEmpty ? Icons.hourglass_bottom : Icons.check_circle, color: updated.isEmpty ? Colors.orange : Colors.green),
+              const SizedBox(width: 8),
+              Text(updated.isEmpty ? 'Pending' : 'Updated'),
+            ],
+          ),
+          content: Text(message),
+          actions: [TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('OK'))],
+        ),
+      );
+
+      if (updated.isNotEmpty) await _loadProfileAndBlocked();
+    } catch (e, st) {
+      debugPrint('Exception in _submit: $e\n$st');
+      _showSimpleSnack('Exception: $e');
+      setState(() => isLoading = false);
+    }
   }
 
   Future<bool> _patchChargesDirectly(Map<String, dynamic> fields) async {
@@ -762,11 +803,12 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
 
       return resp.statusCode == 200 || resp.statusCode == 201;
     } catch (e) {
+      debugPrint('Exception in _patchChargesDirectly: $e');
       return false;
     }
   }
 
-  // ---------------- UI build (mostly same as before) ----------------
+  // ---------------- UI build ----------------
   @override
   Widget build(BuildContext context) {
     final mq = MediaQuery.of(context);
@@ -793,7 +835,6 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // header card with avatar and quick actions
                   Card(
                     color: Colors.white,
                     elevation: 6,
@@ -801,7 +842,6 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
                     child: Padding(
                       padding: const EdgeInsets.all(16),
                       child: Row(children: [
-                        // Make profile image tappable to view (and edit icon for upload)
                         Stack(
                           alignment: Alignment.center,
                           children: [
@@ -877,7 +917,6 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
 
                   const SizedBox(height: 18),
 
-                  // main form card (kept mostly identical to prior)
                   Card(
                     elevation: 8,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -989,7 +1028,7 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
 
                           const SizedBox(height: 16),
 
-                          // KYC document images (one below the other)
+                          // KYC document images
                           _buildDocTile('Aadhaar Front', 'aadhaarFrontImage'),
                           _buildDocTile('Aadhaar Back', 'aadhaarBackImage'),
                           _buildDocTile('PAN Card', 'panCardImage'),
@@ -1092,9 +1131,3 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
     super.dispose();
   }
 }
-
-/// Full screen viewer page for images and pdfs.
-/// - For images: uses InteractiveViewer for pinch-zoom & pan.
-/// - For PDFs: shows a preview card and a button to open externally.
-/// NOTE:
-/// - remote PDFs open using url_launcher.

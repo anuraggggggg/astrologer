@@ -1,6 +1,7 @@
 import 'package:astrowaypartner/fastApi/fastApiServices.dart';
 import 'package:astrowaypartner/fastApi/sessionController.dart';
 import 'package:astrowaypartner/views/HomeScreen/Profile/edit_profile_screen.dart';
+import 'package:astrowaypartner/views/HomeScreen/tabs/withdraw_history.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:get/get_core/src/get_main.dart';
@@ -410,7 +411,12 @@ class _ProfileTabScreenState extends State<ProfileTabScreen> {
               const SizedBox(width: 16),
               Expanded(
                 child: ElevatedButton(
-                  onPressed: fetchProfile,
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const WithdrawHistoryPage()),
+                    );
+                  },
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(
@@ -423,10 +429,10 @@ class _ProfileTabScreenState extends State<ProfileTabScreen> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.refresh, size: 20, color: Colors.white),
+                      Icon(Icons.history, size: 20, color: Colors.white),
                       const SizedBox(width: 8),
                       const Text(
-                        "Refresh",
+                        "Withdraw History",
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
@@ -437,6 +443,7 @@ class _ProfileTabScreenState extends State<ProfileTabScreen> {
                   ),
                 ),
               ),
+
             ],
           ),
 
