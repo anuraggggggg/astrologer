@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>Agora 1:1 Video Test</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <style>
+        body { font-family: Arial, sans-serif; margin: 16px; background:#f7f7f7; }
+        .container { display:flex; gap:16px; align-items:flex-start; }
+        .panel { background:white; padding:12px; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.08); width:380px; }
+        video { width:100%; height:220px; background:#000; border-radius:6px; object-fit:cover; }
+        label { font-weight:600; display:block; margin-top:8px; }
+        input[type=text], input[type=number] { width:100%; padding:8px; margin-top:6px; box-sizing:border-box; }
+        button { margin-top:10px; padding:10px 14px; border:none; border-radius:6px; cursor:pointer; }
+        #joinBtn { background:#0b84ff; color:white; }
+        #leaveBtn { background:#ef4444; color:white; margin-left:8px; }
+        #log { height:120px; overflow:auto; background:#111; color:#cfcfcf; padding:8px; margin-top:10px; border-radius:6px; font-family:monospace; font-size:13px; }
+        .video-wrap { display:flex; flex-direction:column; gap:10px; width:520px; }
+        .small { font-size:13px; color:#666; margin-top:6px; }
+    </style>
+    <!-- Agora Web SDK (4.x) - CDN -->
+    <script src="https://download.agora.io/sdk/release/AgoraRTC_N-4.22.2.js"></script>
+</head>
+<body>
+<h2>Agora 1:1 Video Call Tester</h2>
+<div class="container">
+    <div class="panel">
+        <div><strong>Pre-filled credentials (from you)</strong></div>
+
+        <label>App ID</label>
+        <input id="appId" type="text" value="fc22b1634fcf4b5eacef4b96cc41cc17" />
+
+        <label>Channel Name</label>
+        <input id="channelName" type="text" value="723d87661ec0" />
+
+        <label>Token</label>
+        <input id="token" type="text" value="0063a39af44074a40bebc2fff2cba7437e5IADsOnATpMzZKAsTUgz7J8zTn5wa4V3adVNqkXAYVQ+HmO/mBUC388CqIgB+6VQE7oMEaQQAAQDyNQNpAgDyNQNpAwDyNQNpBADyNQNp" />
+
+        <label>Your user id (any unique number or string)</label>
+        <input id="uid" type="text" value="" placeholder="leave blank to auto-generate" />
+
+        <div style="margin-top:12px;">
+            <button id="joinBtn">Join (Publish)</button>
+            <button id="leaveBtn" disabled>Leave</button>
+        </div>
+
+        <div class="small">Tip: open this file in 2 browsers or 2 tabs (or 2 devices) and click Join in each to test 1:1 call.</div>
+
+        <div id="log"></div>
+    </div>
+
+    <div class="video-wrap">
+        <div class="panel">
+            <div><strong>Local (your camera)</strong></div>
+            <video id="localVideo" autoplay muted playsinline></video>
+        </div>
+
+        <div class="panel">
+            <div><strong>Remote (peer)</strong></div>
+            <video id="remoteVideo" autoplay playsinline></video>
+        </div>
+    </div>
+</div>
+
+<script>
+    // --- Basic UI helpers ---
+    const logEl = document.getElementById('log');
+    function log(...args) {
+      const t = new Date().toLocaleTimeString();
+      logEl.innerText = [t, ...args].join(' ') + '\n' + logEl.innerText;
+    }
+
+    // --- elements ---
+    const joinBtn = document.getElementById('joinBtn');
+    const leaveBtn = document.getElementById('leaveBtn');
+    const localVideo = document.getElementById('localVideo');
+    const remoteVideo = document.getElementById('remoteVideo');
+
+    // --- default creds from page inputs ---
+    const appInput = document.getElementById('appId');
+    const channelInput = document.getElementById('channelName');
+    const tokenInput = document.getElementById('token');
+    const uidInput = document.getElementById('uid');
+
+    // Agora objects
+    let client = null;
+    let localTracks = { videoTrack: null, audioTrack: null };
+    let localUid = null;
+
+    // Join + publish
+    joinBtn.onclick = async () => {
+      const appId = appInput.value.trim();
+let channel = channelInput.value.trim();
+const token = tokenInput.value.trim() || null; // null means join as tokenless (if allowed)
+let uid = uidInput.value.replace(/[^\x20-\x7E]/g, '').trim();
+
+// Agora allows max 64 bytes for channel name — slice if needed
+if (channel.length > 64) {
+  const oldChannel = channel;
+  channel = channel.slice(0, 64);
+  log(`⚠️ Channel name too long (${oldChannel.length} chars). Auto-truncated to 64 chars: ${channel}`);
+}
+
+      if (!appId || !channel) {
+        alert('App ID and Channel are required.');
+        return;
+      }
+
+      // generate uid if empty
+      if (!uid) uid = String(Date.now() % 1000000);
+      uidInput.value = uid;
+      localUid = uid;
+
+      try {
+        log('Creating Agora client...');
+        client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
+
+        // subscribe event when remote user publishes
+        client.on('user-published', async (user, mediaType) => {
+          log('user-published', user.uid, mediaType);
+          await client.subscribe(user, mediaType);
+          log('Subscribed to', user.uid, mediaType);
+          if (mediaType === 'video') {
+            const remoteVideoTrack = user.videoTrack;
+            // play remote video into remoteVideo element
+            remoteVideoTrack.play(remoteVideo);
+          }
+          if (mediaType === 'audio') {
+            const remoteAudioTrack = user.audioTrack;
+            remoteAudioTrack.play(); // plays audio
+          }
+        });
+
+        client.on('user-unpublished', user => {
+          log('user-unpublished', user.uid);
+          if (remoteVideo) {
+            // stop showing remote video
+            remoteVideo.srcObject = null;
+            remoteVideo.pause();
+          }
+        });
+
+        // join
+        log('Joining channel', channel, 'as', uid);
+        await client.join(appId, channel, token, uid);
+
+        // create local tracks (camera + mic) - this triggers permission prompts
+        log('Creating local microphone and camera tracks (will ask for permission)...');
+        const [microphoneTrack, cameraTrack] = await AgoraRTC.createMicrophoneAndCameraTracks();
+        localTracks.audioTrack = microphoneTrack;
+        localTracks.videoTrack = cameraTrack;
+
+        // play local preview
+        cameraTrack.play(localVideo);
+
+        // publish local tracks
+        await client.publish(Object.values(localTracks));
+        log('Published local tracks. You are live!');
+        joinBtn.disabled = true;
+        leaveBtn.disabled = false;
+      } catch (err) {
+        console.error(err);
+        log('ERROR:', err.message || err);
+        alert('Error: ' + (err.message || err));
+      }
+    };
+
+    // Leave + cleanup
+    leaveBtn.onclick = async () => {
+      try {
+        // unpublish & close local tracks
+        if (client) {
+          try { await client.unpublish(Object.values(localTracks)); } catch(e){}
+        }
+        if (localTracks.videoTrack) { localTracks.videoTrack.stop(); localTracks.videoTrack.close(); }
+        if (localTracks.audioTrack) { localTracks.audioTrack.stop(); localTracks.audioTrack.close(); }
+        // leave channel
+        if (client) { await client.leave(); log('Left channel'); }
+      } catch (err) {
+        console.error(err);
+        log('Leave error: ' + (err.message || err));
+      } finally {
+        joinBtn.disabled = false;
+        leaveBtn.disabled = true;
+        localTracks = { videoTrack: null, audioTrack: null };
+        if (localVideo) { localVideo.srcObject = null; localVideo.pause(); }
+        if (remoteVideo) { remoteVideo.srcObject = null; remoteVideo.pause(); }
+        client = null;
+      }
+    };
+
+    // Autoplay workaround: If browser blocks autoplay of remote, show console/log for user to interact
+    AgoraRTC.onAutoplayFailed = () => {
+      log('Autoplay failed — user interaction required for playing audio/video. Click the page to allow playback.');
+      document.addEventListener('click', () => {
+        const vids = document.querySelectorAll('video');
+        vids.forEach(v => v.muted = false);
+      }, { once: true });
+    };
+
+    // Clean unload
+    window.addEventListener('beforeunload', async () => {
+      if (client) {
+        try { await client.leave(); } catch(e){}
+      }
+    });
+</script>
+</body>
+</html>

@@ -1,13 +1,13 @@
 {
   "project_info": {
-    "project_number": "946296603847",
-    "project_id": "jyotishi-ef7e6",
-    "storage_bucket": "jyotishi-ef7e6.firebasestorage.app"
+    "project_number": "208204300155",
+    "project_id": "astrologer-pandit",
+    "storage_bucket": "astrologer-pandit.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:946296603847:android:a428a78352a74a99b06ae2",
+        "mobilesdk_app_id": "1:208204300155:android:2c820f147fc75e20f907de",
         "android_client_info": {
           "package_name": "com.jyotishi.astro"
         }
@@ -15,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyCXbdAXDCEn1GdDkWHfO6FInEbwv29zZVE"
+          "current_key": "AIzaSyBdnYCKxGm1y_iHpTSdhgnY_fk7nh9kbPc"
         }
       ],
       "services": {

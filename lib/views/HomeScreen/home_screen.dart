@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:astrowaypartner/views/HomeScreen/Profile/profile_screen.dart';
 import 'package:astrowaypartner/views/HomeScreen/tabs/homeTab/home_tab.dart';
+import 'package:astrowaypartner/views/HomeScreen/tabs/homeTab/livePage.dart';
 import 'package:astrowaypartner/views/HomeScreen/tabs/payment_tab.dart';
 import 'package:astrowaypartner/views/HomeScreen/tabs/profileTab.dart';
 import 'package:flutter/cupertino.dart';
@@ -12,6 +13,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sizer/sizer.dart';
 
 import '../../fastApi/fastApiServices.dart';
+import '../chat/chat_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -20,33 +22,133 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
+// Add WidgetsBindingObserver to observe lifecycle changes.
+class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, WidgetsBindingObserver {
   int _selectedItemPosition = 0;
   int previousposition = 0;
-  String walletAmount = ""; // ✅ Safe placeholder
+  String walletAmount = "";
+  Map<String, dynamic>? profile;
+
+  bool isLoading = true;
+  String? errorMessage;
+  int _retryCount = 0;
+  final int _maxRetries = 2;
+
+  // store astroId for quick use
+  String? _astroId;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this); // register observer
+    fetchProfile();
     _initializeWallet();
-    // Removed direct API calls
-    // You can trigger API calls later when needed
+
+    // set user online on init (best-effort)
+    _setOnline(true);
+  }
+
+  @override
+  void dispose() {
+    // best-effort set offline when widget disposed
+    _setOnline(false);
+    WidgetsBinding.instance.removeObserver(this); // remove observer
+    super.dispose();
+  }
+
+  // Listen to app lifecycle changes
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    debugPrint("AppLifecycleState changed: $state");
+
+    switch (state) {
+      case AppLifecycleState.resumed:
+      // app in foreground
+        _setOnline(true);
+        break;
+
+    // Grouping all states where we want to mark user offline (best-effort)
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.paused:
+      case AppLifecycleState.detached:
+      case AppLifecycleState.hidden: // <- Added to satisfy exhaustiveness (Flutter 3.22+)
+        _setOnline(false);
+        break;
+    }
+  }
+
+  Future<void> fetchProfile({bool isRetry = false}) async {
+    if (!isRetry) {
+      setState(() {
+        isLoading = true;
+        errorMessage = null;
+      });
+    }
+
+    try {
+      final api = FastApiServices();
+      final prefs = await SharedPreferences.getInstance();
+      String? token = prefs.getString("access_token");
+
+      // If token is null or we're retrying due to auth error, get new token
+      if (token == null || isRetry) {
+        await api.loginAndGetToken();
+        token = prefs.getString("access_token");
+        _retryCount++;
+      }
+
+      if (token == null) {
+        throw Exception("Token missing even after login!");
+      }
+
+      final userId = prefs.getString("user_id");
+      if (userId == null) {
+        throw Exception("User ID missing. Cannot fetch profile.");
+      }
+
+      final fetchedProfile = await api.getAstrologerById();
+
+      // get astro id for later use and store locally
+      _astroId = prefs.getString("astro_id") ?? fetchedProfile?['astro_id'] ?? fetchedProfile?['id'];
+
+      // Reset retry count on successful fetch
+      _retryCount = 0;
+
+      setState(() {
+        profile = fetchedProfile;
+        isLoading = false;
+      });
+    } catch (e) {
+      // Handle unauthorized error specifically
+      if (e.toString().contains('Unauthorized') && _retryCount < _maxRetries) {
+        // Retry with new token
+        await fetchProfile(isRetry: true);
+        return;
+      }
+
+      setState(() {
+        errorMessage = e.toString();
+        isLoading = false;
+      });
+    }
   }
 
   Future<void> _initializeWallet() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final astroId = prefs.getString("astro_id");
+      _astroId = prefs.getString("astro_id") ?? _astroId;
 
-      if (astroId != null) {
-        final response = await FastApiServices().balanceAmountAstro(astroId);
+      final astroIdLocal = _astroId;
+      if (astroIdLocal != null) {
+        final response = await FastApiServices().balanceAmountAstro(astroIdLocal);
 
         if (response != null) {
-          final amount = (response['amount'] as num).toDouble(); // ensures it's a double
-          final formattedAmount = amount.toStringAsFixed(2); // 2 decimal places
+          final amount = double.tryParse(response['amount'].toString()) ?? 0.0;
+          final formattedAmount = amount.toStringAsFixed(2);
+
           print("💰 Wallet Amount (API): $formattedAmount");
 
-          // ✅ Update UI safely
           setState(() {
             walletAmount = formattedAmount;
           });
@@ -70,12 +172,45 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     }
   }
 
+  // Single function to call API and set online/offline
+  Future<void> _setOnline(bool isOnline) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      String? astroId = prefs.getString("astro_id") ?? _astroId;
+
+      // If we still don't have astroId, try fetchProfile to get it (best-effort)
+      if (astroId == null) {
+        await fetchProfile();
+        astroId = prefs.getString("astro_id") ?? _astroId;
+      }
+
+      if (astroId == null) {
+        debugPrint("⚠️ astroId missing, cannot set online status.");
+        return;
+      }
+
+      debugPrint("➡️ Setting online status: $isOnline for astroId=$astroId");
+
+      final success = await FastApiServices().setOnlineStatus(astroId, isOnline);
+
+      if (success == true) {
+        debugPrint("✅ Online status updated: $isOnline");
+      } else {
+        debugPrint("❌ Failed to update online status (api returned false/null)");
+      }
+    } catch (e) {
+      debugPrint("🚨 Error setting online status: $e");
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     double height = MediaQuery.of(context).size.height;
     return WillPopScope(
       onWillPop: () async {
+        // set offline before exit (best-effort)
+        await _setOnline(false);
+
         if (Platform.isAndroid) {
           SystemNavigator.pop();
         } else if (Platform.isIOS) {
@@ -88,38 +223,98 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           appBar: AppBar(
             automaticallyImplyLeading: false,
             centerTitle: true,
-            title: const Text("Jyotishi Pandit"), // ✅ Static Title
-            actions: [
-              IconButton(
-                icon: const Icon(Icons.refresh),
-                onPressed: _initializeWallet, // ✅ Safe call
-              ),
-              GestureDetector(
-                onTap: () {
-                  // Navigate to wallet screen (dummy for now)
-                  debugPrint("Wallet tapped");
-                },
-                child: Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 8),
-                  padding: const EdgeInsets.all(5),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: Colors.black),
-                  ),
-                  child: Row(
-                    children: [
-                      const Text("₹"),
-                      Text(walletAmount), // ✅ Will not break if null
-                    ],
+            title: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  "Welcome",
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey.shade600,
+                    fontWeight: FontWeight.w400,
                   ),
                 ),
-              ),
+                const SizedBox(height: 2),
+                Text(
+                  profile != null
+                      ? (profile!['name'] ?? 'No Name')
+                      : 'Loading...',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              if (!isLoading) ...[
+                IconButton(
+                  icon: const Icon(Icons.refresh, size: 18),
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  constraints: const BoxConstraints(minWidth: 32),
+                  onPressed: () async {
+                    debugPrint("🔄 Refresh wallet");
+                    await _initializeWallet();
+                  },
+                ),
+                GestureDetector(
+                  onTap: () {
+                    debugPrint("Wallet tapped");
+                  },
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.black.withOpacity(0.7)),
+                      gradient: LinearGradient(
+                        colors: [
+                          Colors.amber.shade100,
+                          Colors.orange.shade100,
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.1),
+                          blurRadius: 4,
+                          offset: Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.account_balance_wallet,
+                          size: 18,
+                          color: Colors.black87,
+                        ),
+                        SizedBox(width: 6),
+                        Text(
+                          "₹${walletAmount.isNotEmpty ? walletAmount : "--"}",
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.black87,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                SizedBox(width: 4),
+              ],
             ],
           ),
-          body: Container(
+          body: isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : errorMessage != null
+              ? Center(child: Text("Error: $errorMessage"))
+              : Container(
             height: height,
             color: Colors.grey.shade200,
-            child: _buildSelectedTab(), // ✅ Safe rendering
+            child: _buildSelectedTab(),
           ),
           bottomNavigationBar: SizedBox(
             height: 7.7.h,
@@ -135,16 +330,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   previousposition = _selectedItemPosition;
                   _selectedItemPosition = value;
                 });
+                // ensure online remains true while inside app
+                _setOnline(true);
               },
               items: [
-                BottomNavigationBarItem(
-                    icon: const Icon(Icons.home), label: "Home"),
-                BottomNavigationBarItem(
-                    icon: const Icon(Icons.videocam), label: "Live"),
-                BottomNavigationBarItem(
-                    icon: const Icon(Icons.history), label: "History"),
-                BottomNavigationBarItem(
-                    icon: const Icon(Icons.person), label: "Profile"),
+                BottomNavigationBarItem(icon: const Icon(Icons.home), label: "Home"),
+                BottomNavigationBarItem(icon: const Icon(Icons.videocam), label: "Live"),
+                BottomNavigationBarItem(icon: const Icon(Icons.history), label: "History"),
+                BottomNavigationBarItem(icon: const Icon(Icons.person), label: "Profile"),
               ],
             ),
           ),
@@ -158,7 +351,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       case 0:
         return const HomeTabScreen();
       case 1:
-        return const Center(child: Text("Live Tab"));
+        return GoLivePage();
       case 2:
         return const PaymentHistoryTab();
       case 3:
@@ -173,7 +366,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       // Simulate API call
       await Future.delayed(const Duration(seconds: 1));
       setState(() {
-        walletAmount = "500"; // ✅ Mock Data
+        walletAmount = "500"; // mock Data
       });
     } catch (e) {
       debugPrint("Error loading wallet: $e");

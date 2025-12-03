@@ -213,7 +213,7 @@ class FastApiServices {
 
     // ✅ Remove '+' sign if present
     final formattedCountryCode =
-    countryCode.startsWith('+') ? countryCode.substring(1) : countryCode;
+        countryCode.startsWith('+') ? countryCode.substring(1) : countryCode;
 
     final sendWhatsapp = true;
     final sendSms = true;
@@ -253,37 +253,133 @@ class FastApiServices {
 
   Future<bool> respondToRequest({
     required int requestId,
-    required String status, // "accepted" or "declined"
+    required String status, // "accepted" | "declined" | "pending"
   }) async {
-    if (status != "accepted" && status != "declined") {
-      throw Exception("Status must be either 'accepted' or 'declined'");
+    // API allows "pending" too per docs; keep a guard to avoid typos
+    const allowed = {'accepted', 'declined', 'pending'};
+    if (!allowed.contains(status)) {
+      throw Exception("Status must be one of: ${allowed.join(', ')}");
     }
 
+    // Load token (your API likely requires it for astrologer routes)
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString("access_token");
 
-    if (token == null) {
-      throw Exception("No access token found. Please login again.");
-    }
-
+    // Build URL exactly like the docs: https://fastapi.jyotishionline.com/api/v1/{id}
+    final String baseUrl = "https://fastapi.jyotishionline.com/api/v1";
     final url = Uri.parse("$baseUrl/$requestId");
 
-    final response = await http.patch(
-      url,
-      headers: {
-        "Content-Type": "application/json",
-        "accept": "application/json",
-        "Authorization": "Bearer $token",
-      },
-      body: jsonEncode({"status": status}),
+    final headers = <String, String>{
+      "accept": "application/json",
+      "Content-Type": "application/json",
+      if (token != null && token.isNotEmpty) "Authorization": "Bearer $token",
+    };
+    final body = jsonEncode({"status": status});
+
+    debugPrint("📤 [PATCH] $url");
+    debugPrint("🧾 Headers: $headers");
+    debugPrint("📦 Body: $body");
+
+    try {
+      final res = await http.patch(url, headers: headers, body: body);
+      debugPrint("⬅️ Status: ${res.statusCode}");
+      debugPrint("⬅️ Body: ${res.body}");
+
+      if (res.statusCode == 200) {
+        debugPrint("✅ Request $requestId updated to '$status'");
+        return true;
+      }
+
+      // Helpful diagnostics for 404s/401s
+      if (res.statusCode == 404) {
+        debugPrint(
+            "❌ 404 Not Found — check requestId ($requestId) exists, and URL is exactly /api/v1/{id}");
+      } else if (res.statusCode == 401) {
+        debugPrint("❌ 401 Unauthorized — missing/invalid token?");
+      }
+      return false;
+    } catch (e) {
+      debugPrint("🔥 respondToRequest exception: $e");
+      return false;
+    }
+  }
+
+  // FastApiServices.dart
+
+  static Future<String?> getAstroId() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString("astro_id");
+  }
+
+  static Future<(String astroId, String token)> requireAstroIdAndToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    final astroId = prefs.getString("astro_id");
+    final token = prefs.getString("access_token");
+    if (astroId == null || astroId.isEmpty) {
+      throw Exception("Astrologer ID not found. Please login again.");
+    }
+    if (token == null || token.isEmpty) {
+      throw Exception("Access token missing. Please login again.");
+    }
+    return (astroId, token);
+  }
+
+// In FastApiServices
+
+  Future<Map<String, dynamic>> getChatHistoryForAstrologerSelf({
+    required String
+        otherUserId, // currently you pass astrologer id (self) due to backend quirk
+    int page = 1,
+    int size = 20,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString("access_token");
+
+    // Build URL using your Endpoints util or inline:
+    final Uri url = Uri.parse(
+      FastApiEndpoints.chatHistoryOther(otherUserId, page: page, size: size),
+      // If you don't have FastApiEndpoints.chatHistoryOther:
+      // Uri.parse("https://fastapi.jyotishionline.com/chat/history/$otherUserId?page=$page&size=$size"),
     );
 
-    if (response.statusCode == 200) {
-      print("✅ Request $requestId $status successfully.");
-      return true;
-    } else {
-      print("❌ Failed to respond: ${response.body}");
-      return false;
+    // DEBUG: Log everything we’re about to send
+    debugPrint("🛰️ [CHAT_HISTORY_REQ]");
+    debugPrint(
+        "   • otherUserId: $otherUserId  (NOTE: passing astrologer/self id due to backend quirk)");
+    debugPrint("   • page: $page, size: $size");
+    debugPrint("   • URL: $url");
+    debugPrint("   • Token present: ${token != null && token.isNotEmpty}");
+    if (token != null && token.isNotEmpty) {
+      final tail =
+          token.length > 12 ? token.substring(token.length - 12) : token;
+      debugPrint("   • Token tail: ...$tail");
+    }
+
+    final headers = <String, String>{
+      "accept": "application/json",
+      if (token != null && token.isNotEmpty) "Authorization": "Bearer $token",
+    };
+    debugPrint("   • Headers: $headers");
+
+    try {
+      final resp = await http.get(url, headers: headers);
+      debugPrint("⬅️ [CHAT_HISTORY_RES] status=${resp.statusCode}");
+      debugPrint("⬅️ Body: ${resp.body}");
+
+      if (resp.statusCode == 200) {
+        final decoded = jsonDecode(resp.body) as Map<String, dynamic>;
+        // quick sanity counters
+        final msgs = (decoded['messages'] as List?)?.length ?? 0;
+        debugPrint(
+            "✅ Parsed OK. messages=$msgs page=${decoded['page']} size=${decoded['size']} total=${decoded['total']}");
+        return decoded;
+      } else {
+        throw Exception("History failed ${resp.statusCode}: ${resp.body}");
+      }
+    } catch (e, st) {
+      debugPrint("🔥 [CHAT_HISTORY_ERR] $e");
+      debugPrint("$st");
+      rethrow;
     }
   }
 
@@ -402,74 +498,152 @@ class FastApiServices {
   }
 
 //Edit Profile
+  // inside FastApiServices class - replace your editProfile implementation with this
+
+  // Import already present: dart:io, dart:convert, package:http/http.dart' as http, package:path/path.dart
   Future<Map<String, dynamic>> editProfile({
-    required String contactNo,
-    required String currentCity,
-    required int experienceInYears,
-    required int audioCallCharge,
-    required String name,
-    required String languageKnown,
-    required int chatCharge,
-    required int videoCallCharge,
-    required String primarySkill,
-    File? profileImage, // optional image
+    required Map<String, dynamic> formFields,
+    File? profileImage,
+    Map<String, File?>? extraFiles, // <-- added parameter
   }) async {
-    final prefs = await SharedPreferences.getInstance();
-    final astroId = prefs.getString("astro_id");
-    final token = prefs.getString("access_token");
-
-    if (astroId == null || token == null) {
-      throw Exception("Astro ID or token not found. Please login first.");
-    }
-
-    final url = Uri.parse(FastApiEndpoints.editAstrolgerProfile + astroId);
-    print("🌐 EditProfile URL: $url");
-
-// Multipart request
-    var request = http.MultipartRequest('PUT', url);
-    request.headers['Authorization'] = 'Bearer $token';
-    request.headers['accept'] = 'application/json';
-
-// Add text fields
-    request.fields['contactNo'] = contactNo;
-    request.fields['currentCity'] = currentCity;
-    request.fields['experienceInYears'] = experienceInYears.toString();
-    request.fields['audioCallCharge'] = audioCallCharge.toString();
-    request.fields['name'] = name;
-    request.fields['languageKnown'] = languageKnown;
-    request.fields['chatCharge'] = chatCharge.toString();
-    request.fields['videoCallCharge'] = videoCallCharge.toString();
-    request.fields['primarySkill'] = primarySkill;
-
-// Add profile image if provided
-    if (profileImage != null && profileImage.existsSync()) {
-      var stream = http.ByteStream(profileImage.openRead());
-      var length = await profileImage.length();
-      request.files.add(
-        http.MultipartFile(
-          'profileImage',
-          stream,
-          length,
-          filename: basename(profileImage.path),
-        ),
-      );
-    }
-
     try {
-      final streamedResponse = await request.send();
-      final response = await http.Response.fromStream(streamedResponse);
+      final prefs = await SharedPreferences.getInstance();
+      final astroId = prefs.getString("astro_id") ?? prefs.getString("user_id") ?? '';
+      final token = prefs.getString("access_token") ?? '';
 
-      print("⬅️ Status Code: ${response.statusCode}");
-      print("⬅️ Response Body: ${response.body}");
+      print("🔧 editProfile called. astroId='$astroId' tokenPresent=${token.isNotEmpty}");
 
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        return {"success": true, "data": jsonDecode(response.body)};
-      } else {
-        return {"success": false, "error": response.body};
+      if (astroId.isEmpty || token.isEmpty) {
+        return {'success': false, 'error': 'Astro ID or access token missing.'};
       }
-    } catch (e) {
-      print("🚨 Exception in editProfile: $e");
-      return {"success": false, "error": e.toString()};
+
+      final String urlString = '$baseUrl/astro/astrologers/$astroId/update';
+      final Uri uri = Uri.parse(urlString);
+      print("🌐 Target URL: $urlString");
+
+      Future<Map<String, dynamic>> sendMultipart(String method) async {
+        final request = http.MultipartRequest(method, uri);
+        request.headers['Authorization'] = 'Bearer $token';
+        request.headers['accept'] = 'application/json';
+
+        // Add fields (include keys with empty string if provided)
+        formFields.forEach((key, value) {
+          if (value == null) return;
+          request.fields[key] = value.toString();
+        });
+
+        // Attach profileImage if exists
+        if (profileImage != null && profileImage.existsSync()) {
+          final multipartFile = await http.MultipartFile.fromPath(
+            'profileImage',
+            profileImage.path,
+            filename: basename(profileImage.path),
+          );
+          request.files.add(multipartFile);
+        }
+
+        // Attach extraFiles map entries (use map key as field name)
+        if (extraFiles != null && extraFiles.isNotEmpty) {
+          for (final entry in extraFiles.entries) {
+            final fieldName = entry.key;
+            final file = entry.value;
+            if (file == null) continue;
+            if (!file.existsSync()) {
+              print("⚠️ extraFiles: file for '$fieldName' does not exist: ${file.path}");
+              continue;
+            }
+            try {
+              final f = await http.MultipartFile.fromPath(
+                fieldName,
+                file.path,
+                filename: basename(file.path),
+              );
+              request.files.add(f);
+            } catch (e) {
+              print("❌ Failed to attach file for '$fieldName': $e");
+            }
+          }
+        }
+
+        print('📤 [$method] Headers: ${request.headers}');
+        print('📤 [$method] Fields: ${request.fields.keys.toList()}');
+        if (request.files.isNotEmpty) print('📤 [$method] Files: ${request.files.map((f) => f.filename).toList()}');
+
+        final streamed = await request.send();
+        final resp = await http.Response.fromStream(streamed);
+
+        print('⬅️ [$method] status=${resp.statusCode}');
+        print('⬅️ [$method] body=${resp.body}');
+
+        // try decode
+        dynamic decoded;
+        try {
+          decoded = jsonDecode(resp.body);
+        } catch (_) {
+          decoded = resp.body;
+        }
+
+        return {
+          'statusCode': resp.statusCode,
+          'body': decoded,
+          'raw': resp.body,
+        };
+      }
+
+      // 1) Try PUT first
+      final putRes = await sendMultipart('PUT');
+      if (putRes['statusCode'] >= 200 && putRes['statusCode'] < 300) {
+        final body = putRes['body'];
+        if (body is Map<String, dynamic>) return body;
+        return {'success': true, 'raw': putRes['raw']};
+      }
+
+      // 2) If PUT returned 405/404 try PATCH
+      if (putRes['statusCode'] == 405 || putRes['statusCode'] == 404) {
+        print("⚠️ PUT returned ${putRes['statusCode']}. Trying PATCH...");
+        final patchRes = await sendMultipart('PATCH');
+        if (patchRes['statusCode'] >= 200 && patchRes['statusCode'] < 300) {
+          final body = patchRes['body'];
+          if (body is Map<String, dynamic>) return body;
+          return {'success': true, 'raw': patchRes['raw']};
+        }
+
+        // 3) Last resort: try POST
+        if (patchRes['statusCode'] == 405 || patchRes['statusCode'] == 404) {
+          print("⚠️ PATCH returned ${patchRes['statusCode']}. Trying POST...");
+          final postRes = await sendMultipart('POST');
+          if (postRes['statusCode'] >= 200 && postRes['statusCode'] < 300) {
+            final body = postRes['body'];
+            if (body is Map<String, dynamic>) return body;
+            return {'success': true, 'raw': postRes['raw']};
+          } else {
+            return {
+              'success': false,
+              'statusCode': postRes['statusCode'],
+              'error': postRes['body'] ?? postRes['raw'],
+              'raw': postRes['raw']
+            };
+          }
+        } else {
+          return {
+            'success': false,
+            'statusCode': patchRes['statusCode'],
+            'error': patchRes['body'] ?? patchRes['raw'],
+            'raw': patchRes['raw']
+          };
+        }
+      }
+
+      // If PUT failed with another status (401, 422, etc) return it
+      return {
+        'success': false,
+        'statusCode': putRes['statusCode'],
+        'error': putRes['body'] ?? putRes['raw'],
+        'raw': putRes['raw']
+      };
+    } catch (e, st) {
+      print('🚨 Exception in editProfile: $e\n$st');
+      return {'success': false, 'error': e.toString()};
     }
   }
 
@@ -494,8 +668,7 @@ class FastApiServices {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         print(
-            'Full Response:\n${const JsonEncoder.withIndent('  ').convert(
-                data)}');
+            'Full Response:\n${const JsonEncoder.withIndent('  ').convert(data)}');
         return data; // ✅ Return full JSON
       } else {
         print('Failed to load data. Status code: ${response.statusCode}');
@@ -508,7 +681,6 @@ class FastApiServices {
     }
   }
 
-
   static Future<List<TransactionModel>> transactionHistory() async {
     final prefs = await SharedPreferences.getInstance();
     final astrologerId = prefs.getString('astro_id');
@@ -517,11 +689,11 @@ class FastApiServices {
       throw Exception('Astrologer ID not found in SharedPreferences');
     }
 
-    final url = Uri.parse(
-        '${FastApiEndpoints.transactionHistory}$astrologerId');
+    final url =
+        Uri.parse('${FastApiEndpoints.transactionHistory}$astrologerId');
 
-    final response = await http.get(
-        url, headers: {'accept': 'application/json'});
+    final response =
+        await http.get(url, headers: {'accept': 'application/json'});
 
     if (response.statusCode == 200) {
       final List<dynamic> jsonList = jsonDecode(response.body);
@@ -571,6 +743,302 @@ class FastApiServices {
       throw Exception("Failed to register FCM token: ${response.body}");
     }
   }
+
+  Future<Map<String, dynamic>> startAgoraLive({
+    required String astrologerId,
+    int ttlSeconds = 7200,
+    String? overrideToken,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = overrideToken ??
+        prefs.getString('access_token') ??
+        prefs.getString('accessToken');
+
+    if (token == null || token.isEmpty) {
+      throw Exception('Missing access token. Please log in again.');
+    }
+
+    // 👇 Query params in URL
+    final url = Uri.parse(
+      "${FastApiEndpoints.startAgoraLive}?astrologer_id=$astrologerId&ttlSeconds=$ttlSeconds",
+    );
+
+    final res = await http.post(
+      url,
+      headers: {
+        'accept': 'application/json',
+        'authorization': 'Bearer $token',
+      },
+    );
+
+    print('🔹 Response Code: ${res.statusCode}');
+    print('🔹 Response Body: ${res.body}');
+
+    if (res.statusCode == 200) {
+      return jsonDecode(res.body) as Map<String, dynamic>;
+    }
+
+    try {
+      final err = jsonDecode(res.body);
+      throw Exception('Live start failed (${res.statusCode}): $err');
+    } catch (_) {
+      throw Exception('Live start failed (${res.statusCode}): ${res.body}');
+    }
+  }
+
+  Future<Map<String, dynamic>> endAgoraLive({String? overrideToken}) async {
+    final prefs = await SharedPreferences.getInstance();
+
+    // token from shared preferences
+    final token = overrideToken ??
+        prefs.getString('access_token') ??
+        prefs.getString('accessToken');
+
+    if (token == null || token.isEmpty) {
+      throw Exception('Missing access token. Please log in again.');
+    }
+
+    // astrologer_id from shared preferences
+    final astrologerId = prefs.getString('astro_id');
+    if (astrologerId == null || astrologerId.isEmpty) {
+      throw Exception('Missing astrologer_id in SharedPreferences.');
+    }
+
+    // full URL with query param
+    final url = '${FastApiEndpoints.endAgoraLive}?astrologer_id=$astrologerId';
+
+    final res = await http.post(
+      Uri.parse(url),
+      headers: {
+        'accept': 'application/json',
+        'authorization': 'Bearer $token',
+      },
+    );
+
+    if (res.statusCode == 200) {
+      return jsonDecode(res.body) as Map<String, dynamic>;
+    }
+
+    try {
+      final err = jsonDecode(res.body);
+      throw Exception('Live end failed (${res.statusCode}): $err');
+    } catch (_) {
+      throw Exception('Live end failed (${res.statusCode}): ${res.body}');
+    }
+  }
+
+  // ----------------------------------------------------------
+  // 🚀 Auto Register FCM Token on App Start
+  // ----------------------------------------------------------
+  Future<void> autoRegisterAstrologerFcmToken(String fcmToken) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString("fcm_token", fcmToken);
+      print("💾 Saved FCM token locally: $fcmToken");
+
+      final astroId = prefs.getString("astro_id");
+      if (astroId == null || astroId.isEmpty) {
+        print("🚨 Cannot register FCM token — Astrologer ID missing.");
+        return;
+      }
+
+      final url = Uri.parse(
+          "https://fastapi.jyotishionline.com/Astrologer_notification/register-token");
+
+      final body = jsonEncode({
+        "astrologer_id": astroId,
+        "fcm_token": fcmToken,
+      });
+
+      print("📡 Registering FCM Token to FastAPI...");
+      print("🔗 URL: $url");
+      print("🧾 Body: $body");
+
+      final response = await http.post(
+        url,
+        headers: {
+          "accept": "application/json",
+          "Content-Type": "application/json",
+        },
+        body: body,
+      );
+
+      print("⬅️ Response Status: ${response.statusCode}");
+      print("⬅️ Response Body: ${response.body}");
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final data = jsonDecode(response.body);
+        print("✅ FCM Token Registered Successfully!");
+        print("   🔹 Message: ${data["message"] ?? "Success"}");
+      } else {
+        print("❌ Failed to register FCM token: ${response.body}");
+      }
+    } catch (e, stack) {
+      print("🔥 Exception while registering FCM token: $e");
+      print(stack);
+    }
+  }
+
+
+  // ----------------------------------------------------------
+// 🚀 SEND NOTIFICATION TO CUSTOMER (Chat / Audio / Video Accepted)
+// ----------------------------------------------------------
+Future<bool> sendCustomerNotification({
+  required String userId,
+  required String title,
+  required String body,
+  required String type,   // e.g. "chat_accept", "audio_accept", "video_accept"
+  required String screen, // e.g. "ChatScreen", "AudioCallPage"
+  Map<String, dynamic>? data,
+}) async {
+  final prefs = await SharedPreferences.getInstance();
+  final token = prefs.getString("access_token");
+
+  if (token == null || token.isEmpty) {
+    throw Exception("Token missing. Please login again.");
+  }
+
+  final url = Uri.parse(
+      "https://fastapi.jyotishionline.com/Customer_notification/send-notification");
+
+  final payload = {
+    "user_id": userId,
+    "title": title,
+    "body": body,
+    "type": type,
+    "screen": screen,
+    "data": data ?? {}, // optional
+  };
+
+  print("📤 Sending Customer Notification...");
+  print("🔗 URL: $url");
+  print("🧾 Body: ${jsonEncode(payload)}");
+
+  try {
+    final res = await http.post(
+      url,
+      headers: {
+        "accept": "application/json",
+        "Content-Type": "application/json",
+        "Authorization": "Bearer $token",
+      },
+      body: jsonEncode(payload),
+    );
+
+    print("⬅️ Status: ${res.statusCode}");
+    print("⬅️ Body: ${res.body}");
+
+    if (res.statusCode == 200) {
+      print("✅ Customer Notification Sent Successfully!");
+      return true;
+    } else {
+      print("❌ Failed: ${res.body}");
+      return false;
+    }
+  } catch (e) {
+    print("🔥 Exception sendCustomerNotification: $e");
+    return false;
+  }
+}
+
+
+  final String baseHost = "fastapi.jyotishionline.com"; // NOTE: host only, we use Uri.https below
+
+  /// Sets astrologer online/offline. Returns true on success.
+  /// Uses FastApiEndpoints.fastApiBaseUrl to ensure the same base URL is used everywhere.
+  Future<bool> setOnlineStatus(String astroId, bool isOnline) async {
+    try {
+      final base = FastApiEndpoints.fastApiBaseUrl; // "https://fastapi.jyotishionline.com"
+
+      // Build the full URL exactly like the curl you shared.
+      // Using Uri.parse is straightforward because base already contains scheme.
+      final uriString =
+          '$base/astro_online/astrologer/online-status?astro_id=${Uri.encodeComponent(astroId)}&isOnline=${Uri.encodeComponent(isOnline.toString())}';
+      final uri = Uri.parse(uriString);
+
+      // debug print the URI so you can copy/paste to curl and compare
+      debugPrint('>>> setOnlineStatus: uri=$uri');
+
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('access_token');
+
+      final headers = <String, String>{
+        'accept': 'application/json',
+        if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+      };
+
+      // Send POST with empty body to match your curl example
+      final response = await http.post(uri, headers: headers, body: '');
+
+      debugPrint('<<< setOnlineStatus: status=${response.statusCode} body=${response.body}');
+
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body);
+        return body['success'] == true;
+      } else {
+        // helpful debug information if non-200
+        debugPrint('setOnlineStatus failed. status=${response.statusCode}');
+        return false;
+      }
+    } catch (e, st) {
+      debugPrint('Exception in setOnlineStatus: $e\n$st');
+      return false;
+    }
+  }
+
+
+  /// Get withdraw history for logged-in astrologer
+  Future<List<Map<String, dynamic>>?> getWithdrawHistory() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('access_token');
+      final base = FastApiEndpoints.fastApiBaseUrl; // https://fastapi.jyotishionline.com
+
+      // Correct API path from your docs
+      final uri = Uri.parse('$base/api/v1/astro/withdrawals');
+
+      // debug print full URI for quick verification
+      debugPrint('getWithdrawHistory: uri=$uri');
+      if (token == null || token.isEmpty) {
+        debugPrint('getWithdrawHistory: access_token missing in SharedPreferences');
+        // return null or throw based on how you want to handle auth missing
+        return null;
+      }
+
+      final headers = <String, String>{
+        'accept': 'application/json',
+        'Authorization': 'Bearer $token',
+      };
+
+      final response = await http.get(uri, headers: headers);
+
+      debugPrint('getWithdrawHistory: status=${response.statusCode} body=${response.body}');
+
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body);
+        if (body is List) {
+          // return list of maps (each map is a withdraw object)
+          return List<Map<String, dynamic>>.from(body);
+        } else if (body is Map && body['data'] is List) {
+          return List<Map<String, dynamic>>.from(body['data']);
+        } else {
+          debugPrint('getWithdrawHistory: unexpected body format');
+          return null;
+        }
+      } else {
+        // helpful logging for 401/403/404 etc
+        debugPrint('getWithdrawHistory failed. status=${response.statusCode}');
+        return null;
+      }
+    } catch (e, st) {
+      debugPrint('Exception getWithdrawHistory: $e\n$st');
+      return null;
+    }
+  }
+
+
+
+
 
 
 

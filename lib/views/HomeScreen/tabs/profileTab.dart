@@ -1,6 +1,7 @@
 import 'package:astrowaypartner/fastApi/fastApiServices.dart';
 import 'package:astrowaypartner/fastApi/sessionController.dart';
 import 'package:astrowaypartner/views/HomeScreen/Profile/edit_profile_screen.dart';
+import 'package:astrowaypartner/views/HomeScreen/tabs/withdraw_history.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:get/get_core/src/get_main.dart';
@@ -194,67 +195,52 @@ class _ProfileTabScreenState extends State<ProfileTabScreen> {
   }
 
   Widget _buildProfileImage() {
-    return Stack(
-      children: [
-        Container(
-          width: 120,
-          height: 120,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.white, width: 4),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.1),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
-              ),
-            ],
+    final raw = (profile == null) ? null : (profile!['profileImage'] as String?);
+    final trimmed = (raw ?? '').trim();
+
+    // Build correct URL
+    String? imageUrl;
+    if (trimmed.isNotEmpty) {
+      if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+        imageUrl = trimmed;
+      } else {
+        final path = trimmed.startsWith('/') ? trimmed.substring(1) : trimmed;
+        imageUrl = 'https://fastapi.jyotishionline.com/$path';
+      }
+    }
+
+    return Container(
+      width: 120,
+      height: 120,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.white, width: 4),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
           ),
-          child: CircleAvatar(
-            radius: 56,
-            backgroundColor: Colors.yellow.shade100,
-            backgroundImage: profile!['profileImage'] != null
-                ? NetworkImage(
-                    "https://fastapi.jyotishionline.com${profile!['profileImage']}")
-                : null,
-            child: profile!['profileImage'] == null
-                ? Icon(Icons.person, size: 50, color: Colors.yellow.shade800)
-                : null,
+        ],
+      ),
+      child: ClipOval(
+        child: imageUrl != null
+            ? Image.network(
+          imageUrl,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => Container(
+            color: Colors.yellow.shade100,
+            child: Icon(Icons.person, size: 50, color: Colors.yellow.shade800),
           ),
+        )
+            : Container(
+          color: Colors.yellow.shade100,
+          child: Icon(Icons.person, size: 50, color: Colors.yellow.shade800),
         ),
-        Positioned(
-          bottom: 8,
-          right: 8,
-          child: Container(
-            width: 32,
-            height: 32,
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black12,
-                  blurRadius: 6,
-                  offset: Offset(0, 2),
-                ),
-              ],
-            ),
-            child: Container(
-              width: 28,
-              height: 28,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Colors.yellow.shade600, Colors.orange.shade600],
-                ),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.edit, size: 14, color: Colors.white),
-            ),
-          ),
-        ),
-      ],
+      ),
     );
   }
+
 
   Widget buildProfileView() {
     if (profile == null) {
@@ -342,12 +328,12 @@ class _ProfileTabScreenState extends State<ProfileTabScreen> {
             Icons.work_history_rounded,
             Colors.orange.shade700,
           ),
-          _buildInfoCard(
-            "Consultation Charge",
-            "₹${profile!['charge'] ?? 0} per session",
-            Icons.attach_money_rounded,
-            Colors.yellow.shade700,
-          ),
+          // _buildInfoCard(
+          //   "Consultation Charge",
+          //   "₹${profile!['charge'] ?? 0} per session",
+          //   Icons.attach_money_rounded,
+          //   Colors.yellow.shade700,
+          // ),
           if (profile!['primarySkill'] != null)
             _buildInfoCard(
               "Primary Skill",
@@ -425,7 +411,12 @@ class _ProfileTabScreenState extends State<ProfileTabScreen> {
               const SizedBox(width: 16),
               Expanded(
                 child: ElevatedButton(
-                  onPressed: fetchProfile,
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const WithdrawHistoryPage()),
+                    );
+                  },
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(
@@ -438,10 +429,10 @@ class _ProfileTabScreenState extends State<ProfileTabScreen> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.refresh, size: 20, color: Colors.white),
+                      Icon(Icons.history, size: 20, color: Colors.white),
                       const SizedBox(width: 8),
                       const Text(
-                        "Refresh",
+                        "Withdraw History",
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
@@ -452,6 +443,7 @@ class _ProfileTabScreenState extends State<ProfileTabScreen> {
                   ),
                 ),
               ),
+
             ],
           ),
 

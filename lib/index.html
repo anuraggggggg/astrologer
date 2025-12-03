@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WebSocket Chat Tester</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; }
+        input, textarea, button { margin: 5px; padding: 6px; }
+        #log { border: 1px solid #ccc; height: 300px; overflow-y: auto; padding: 8px; }
+    </style>
+</head>
+<body>
+<h2>WebSocket Chat Tester</h2>
+
+<label>Server URL:</label><br>
+<input id="serverUrl" size="50" value="wss://fastapi.jyotishionline.com/ws/room_7cbc2ffb81574c528e9d4fafd095cd2a"><br>
+
+<label>Sender ID:</label><br>
+<input id="senderId" size="40" value="fea423d4-3f23-43a9-9ecb-a5cd4d0d5247"><br>
+
+<label>Receiver ID:</label><br>
+<input id="receiverId" size="40" value="user_779b09b9560f490e92889c35f5ff8de5"><br>
+
+<button onclick="connect()">Connect</button>
+<button onclick="disconnect()">Disconnect</button>
+
+<hr>
+<textarea id="messageBox" rows="3" cols="50" placeholder="Type message..."></textarea><br>
+<button onclick="sendMessage()">Send Message</button>
+
+<h3>Logs</h3>
+<div id="log"></div>
+
+<script>
+    let socket = null;
+
+    function log(msg) {
+      const logDiv = document.getElementById('log');
+      logDiv.innerHTML += `<div>${msg}</div>`;
+      logDiv.scrollTop = logDiv.scrollHeight;
+    }
+
+    function connect() {
+      const url = document.getElementById('serverUrl').value;
+      socket = new WebSocket(url);
+
+      socket.onopen = () => {
+        log('✅ Connected to ' + url);
+
+        const joinPayload = {
+          action: "join",
+          room_id: url.split("/").pop(),
+          sender_id: document.getElementById('senderId').value,
+          receiver_id: document.getElementById('receiverId').value
+        };
+        socket.send(JSON.stringify(joinPayload));
+        log('📡 Sent JOIN: ' + JSON.stringify(joinPayload));
+      };
+
+      socket.onmessage = (event) => {
+        log('📩 Received: ' + event.data);
+      };
+
+      socket.onclose = () => {
+        log('🔴 Disconnected');
+      };
+
+      socket.onerror = (error) => {
+        log('⚠️ Error: ' + error);
+      };
+    }
+
+    function sendMessage() {
+      const msg = document.getElementById('messageBox').value;
+      const sender = document.getElementById('senderId').value;
+      const receiver = document.getElementById('receiverId').value;
+
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        log('⚠️ Socket not connected');
+        return;
+      }
+
+      const payload = {
+        action: "send",
+        sender_id: sender,
+        receiver_id: receiver,
+        content: msg
+      };
+
+      socket.send(JSON.stringify(payload));
+      log('🟢 Sent: ' + JSON.stringify(payload));
+    }
+
+    function disconnect() {
+      if (socket) socket.close();
+      log('🔴 Manual disconnect');
+    }
+</script>
+</body>
+</html>

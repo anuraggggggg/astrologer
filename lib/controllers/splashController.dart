@@ -10,7 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:astrowaypartner/utils/global.dart' as global;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:developer' as dev;
+import 'package:astrowaypartner/fastApi/fastApiServices.dart'; // ✅ Added import
 
 import '../models/systemFlagModel.dart';
 import '../models/user_model.dart';
@@ -26,7 +26,6 @@ import 'networkController.dart';
 
 class SplashController extends GetxController {
   /// ✅ Set this to TRUE during testing to skip API calls
-  /// But it will still check if user is logged in before redirecting.
   final bool skipApiCalls = true;
 
   final networkController = Get.put(NetworkController());
@@ -94,17 +93,16 @@ class SplashController extends GetxController {
     });
   }
 
+  // 🚀 Initialization function called when the app starts
   Future<void> _init() async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString("access_token");
     final astroId = prefs.getString("astro_id");
 
-    /// ✅ If skipApiCalls is true, just check if the user is saved
+    /// ✅ Check if user already logged in
     if (token != null && astroId != null) {
-      // ✅ User is logged in → go to HomeScreen
       Get.off(() => const HomeScreen(), routeName: "HomeScreen");
     } else {
-      // ❌ User not logged in → go to LoginScreen
       Get.off(() => const LoginScreen(), routeName: "LoginScreen");
     }
 
@@ -125,8 +123,30 @@ class SplashController extends GetxController {
       global.printException("SplashController", "_init", err);
     }
 
-    String? fcmToken = await FirebaseMessaging.instance.getToken();
-    print('FCM TOKEN $fcmToken');
+    // 🔥 Auto-register FCM token
+    await _registerFcmToken();
+  }
+
+  /// ✅ Auto-register FCM token and save locally
+  Future<void> _registerFcmToken() async {
+    try {
+      final String? fcmToken = await FirebaseMessaging.instance.getToken();
+      if (fcmToken != null) {
+        print("📲 Current FCM Token: $fcmToken");
+        await FastApiServices().autoRegisterAstrologerFcmToken(fcmToken);
+
+        // 🔁 Also listen for future token refresh events (reinstall, update, etc.)
+        FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
+          print("🔁 Firebase token refreshed: $newToken");
+          await FastApiServices().autoRegisterAstrologerFcmToken(newToken);
+        });
+      } else {
+        print("⚠️ No FCM token received from Firebase.");
+      }
+    } catch (e, st) {
+      print("🔥 Error while registering FCM token: $e");
+      print(st);
+    }
   }
 
   Future<void> getSystemList() async {
@@ -192,7 +212,7 @@ class SplashController extends GetxController {
     );
 
     global.sp = await SharedPreferences.getInstance();
-    dev.log('SharedPrefs currentUser: ${global.sp!.getString("currentUser")}');
+    log('SharedPrefs currentUser: ${global.sp!.getString("currentUser")}');
 
     if (global.sp!.getString("currentUser") != null) {
       await apiHelper.validateSession().then((result) async {
@@ -209,13 +229,6 @@ class SplashController extends GetxController {
             callController.callList.clear();
             reportController.reportList.clear();
             followingController.followerList.clear();
-
-            // await Future.wait([
-            //   chatController.getChatList(false),
-            //   callController.getCallList(false),
-            //   reportController.getReportList(false),
-            //   followingController.followingList(false)
-            // ]);
 
             global.hideLoader();
             getInitialMsg();

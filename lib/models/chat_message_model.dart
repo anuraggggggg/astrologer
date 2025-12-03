@@ -51,22 +51,22 @@ class ChatMessageModel {
           replymsg: json['replymsg'] ?? "",
           attachementPath: json['attachementPath'] ?? '');
   Map<String, dynamic> toJson() => {
-    'id': id,
-    'userId1': userId1,
-    'userId2': userId2,
-    'message': message,
-    'isDelete': isDelete,
-    'url': url,
-    'isRead': isRead,
-    'createdAt': createdAt!,
-    'updatedAt': updatedAt,
-    "reqAcceptDecline": reqAcceptDecline,
-    "messageId": messageId,
-    "invitationAcceptDecline": invitationAcceptDecline,
-    'isEndMessage': isEndMessage,
-    "replymsg": replymsg,
-    "attachementPath": attachementPath,
-  };
+        'id': id,
+        'userId1': userId1,
+        'userId2': userId2,
+        'message': message,
+        'isDelete': isDelete,
+        'url': url,
+        'isRead': isRead,
+        'createdAt': createdAt!,
+        'updatedAt': updatedAt,
+        "reqAcceptDecline": reqAcceptDecline,
+        "messageId": messageId,
+        "invitationAcceptDecline": invitationAcceptDecline,
+        'isEndMessage': isEndMessage,
+        "replymsg": replymsg,
+        "attachementPath": attachementPath,
+      };
   void reset() {
     id = null;
     userId1 = null;
