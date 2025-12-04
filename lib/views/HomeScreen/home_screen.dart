@@ -98,6 +98,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
         _retryCount++;
       }
 
+
       if (token == null) {
         throw Exception("Token missing even after login!");
       }
@@ -248,6 +249,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
             ),
             actions: [
               if (!isLoading) ...[
+                // Refresh Wallet Button
                 IconButton(
                   icon: const Icon(Icons.refresh, size: 18),
                   padding: const EdgeInsets.symmetric(horizontal: 6),
@@ -257,9 +259,18 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
                     await _initializeWallet();
                   },
                 ),
+
+                // WALLET BOX (Tap → Navigate to History Tab)
                 GestureDetector(
-                  onTap: () {
-                    debugPrint("Wallet tapped");
+                  onTap: () async {
+                    // 🔥 Switch to HISTORY tab (index 2)
+                    setState(() {
+                      previousposition = _selectedItemPosition;
+                      _selectedItemPosition = 2;
+                    });
+
+                    // keep user online
+                    await _setOnline(true);
                   },
                   child: Container(
                     margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
@@ -290,10 +301,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
                           size: 18,
                           color: Colors.black87,
                         ),
-                        SizedBox(width: 6),
+                        const SizedBox(width: 6),
                         Text(
                           "₹${walletAmount.isNotEmpty ? walletAmount : "--"}",
-                          style: TextStyle(
+                          style: const TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w600,
                             color: Colors.black87,
@@ -303,10 +314,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
                     ),
                   ),
                 ),
-                SizedBox(width: 4),
+
+                const SizedBox(width: 4),
               ],
             ],
           ),
+
           body: isLoading
               ? const Center(child: CircularProgressIndicator())
               : errorMessage != null
