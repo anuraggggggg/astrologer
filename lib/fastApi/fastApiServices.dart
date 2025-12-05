@@ -37,12 +37,10 @@ class FastApiServices {
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
       print("✅ Login JSON Parsed: $data");
-
       _accessToken = data["access_token"];
       if (_accessToken == null) {
         throw Exception("❌ access_token not found in API response!");
       }
-
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString("access_token", _accessToken!);
       print("✅ Token Saved Successfully: $_accessToken");
