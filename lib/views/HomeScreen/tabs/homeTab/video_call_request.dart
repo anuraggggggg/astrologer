@@ -1,4 +1,5 @@
 // lib/views/HomeScreen/tabs/homeTab/VideoCallRequests.dart
+import 'package:astrowaypartner/fastApi/agora_service.dart';
 import 'package:astrowaypartner/fastApi/fastApiServices.dart';
 import 'package:astrowaypartner/views/HomeScreen/tabs/homeTab/videoCallPage.dart';
 import 'package:flutter/material.dart';
@@ -118,136 +119,196 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
     return '';
   }
 
-  Future<void> _goToCall() async {
-    final astroId = _selfAstroId;
-    if (astroId.isEmpty) {
-      if (!mounted) return;
+ Future<void> _goToCall({
+  String? overrideRoomId,
+  String? overrideToken,
+  String? overrideAccount,
+  String? overrideAppId,
+}) async {
+  final astroId = _selfAstroId;
+  if (astroId.isEmpty) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Astrologer ID missing — please login again.')),
+    );
+    return;
+  }
+
+  if (!mounted) return;
+  await Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => VideoCallPage(
+        astroId: astroId,
+        isAstrologer: true,
+        overrideRoomId: overrideRoomId,
+        overrideToken: overrideToken,
+        overrideAccount: overrideAccount,
+        overrideAppId: overrideAppId,
+      ),
+    ),
+  );
+
+  if (mounted) setState(_loadRequests);
+}
+
+Future<void> _respondToRequest(
+  int requestId,
+  String status,
+  Map<String, dynamic> req,
+) async {
+  if (_actBusy) return;
+  setState(() => _actBusy = true);
+
+  try {
+    debugPrint("📨 [VideoReq] respondToRequest(id=$requestId, status=$status)");
+
+    // Call the service. It might return bool (old) or Map<String,dynamic> (new).
+    final dynamic svcResp = await FastApiServices().respondToRequest(
+      requestId: requestId,
+      status: status,
+    );
+
+    if (!mounted) return;
+
+    // Normalize to session map if possible
+    Map<String, dynamic>? session;
+    if (svcResp == null) {
+      // failure
+      debugPrint("💥 [VideoReq] respondToRequest returned null/failed for id=$requestId");
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Astrologer ID missing — please login again.')),
+        const SnackBar(content: Text('Failed to update request.')),
+      );
+      return;
+    } else if (svcResp is bool) {
+      if (svcResp == false) {
+        debugPrint("💥 [VideoReq] respondToRequest returned false for id=$requestId");
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to update request.')),
+        );
+        return;
+      }
+      // svcResp == true -> we don't have server session object, but proceed with what we know.
+      session = {
+        'id': requestId,
+        'room_id': null,
+        'session_type': 'video_call',
+        'status': status,
+      };
+      debugPrint("ℹ️ [VideoReq] respondToRequest returned true (no session body). Using fallback session={id:$requestId}");
+    } else if (svcResp is Map<String, dynamic>) {
+      session = svcResp;
+      debugPrint("✅ [VideoReq] respondToRequest returned session: $session");
+    } else {
+      // unexpected type
+      debugPrint("⚠️ [VideoReq] respondToRequest returned unexpected type: ${svcResp.runtimeType}");
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to update request (unexpected response).')),
       );
       return;
     }
 
-    if (!mounted) return;
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => VideoCallPage(
-          astroId: astroId,
-          isAstrologer: true,
-        ),
-      ),
-    );
+    // At this point we have a session Map (maybe partial)
+    if (status.toLowerCase() == 'accepted') {
+      final userId = _extractUserId(req);
 
-    if (mounted) setState(_loadRequests);
-  }
+      if (userId.isNotEmpty) {
+        final astroIdToSend = (_selfAstroId.isNotEmpty) ? _selfAstroId : _extractAstroId(req);
+        debugPrint("📨 [VideoReq] Preparing to send notification to USER: $userId (astro_id=$astroIdToSend)");
 
-  Future<void> _respondToRequest(
-      int requestId,
-      String status,
-      Map<String, dynamic> req,
-      ) async {
-    if (_actBusy) return;
-    setState(() => _actBusy = true);
+        try {
+          // Get Agora tokens/channel from server (authoritative)
+          final auth = await AgoraService.getVideoTokens(astroIdToSend);
 
-    try {
-      debugPrint("📨 [VideoReq] respondToRequest(id=$requestId, status=$status)");
+          // Build join params for astro and customer
+          final astroJoin = AgoraService.buildJoinParams(auth: auth, isAstrologer: true);
+          final custJoin = AgoraService.buildJoinParams(auth: auth, isAstrologer: false);
 
-      final success = await FastApiServices().respondToRequest(
-        requestId: requestId,
-        status: status,
-      );
+          final String channel = custJoin.channel;
+          final String custToken = custJoin.token;
+          final String custAccount = custJoin.account;
+          final String astroToken = astroJoin.token;
+          final String astroAccount = astroJoin.account;
+          final String appId = auth.appId;
+          final int? expireIn = auth.expireIn;
 
-      if (!mounted) return;
+          // Prepare data payload to send in FCM — include agora details so the customer can join directly
+          final dataPayload = <String, dynamic>{
+            "request_id": session['id']?.toString() ?? requestId.toString(),
+            "session_type": session['session_type'] ?? 'video_call',
+            "astro_id": astroIdToSend,
+            if (session['room_id'] != null) "room_id": session['room_id'].toString(),
+            "agora_channel": channel,
+            "agora_token": custToken,
+            "agora_account": custAccount,
+            "app_id": appId,
+            if (expireIn != null) "expireIn": expireIn,
+          };
 
-      if (success) {
-        if (status.toLowerCase() == 'accepted') {
-          // send notification to customer similarly to audio flow
-          final userId = _extractUserId(req);
+          debugPrint("📨 [VideoReq] Sending notification to USER: $userId with data: $dataPayload");
 
-          if (userId.isNotEmpty) {
-            // determine which astro id to include in the notification payload
-            final astroIdToSend = (_selfAstroId.isNotEmpty) ? _selfAstroId : _extractAstroId(req);
+          final notifSuccess = await FastApiServices().sendCustomerNotification(
+            userId: userId,
+            title: "Video Call Accepted",
+            body: "Your video call request has been accepted.",
+            type: "video_accept",
+            screen: "VideoCallPage",
+            data: dataPayload,
+          );
 
-            debugPrint("📨 [VideoReq] Preparing to send notification to USER: $userId (astro_id=$astroIdToSend)");
-            try {
-              final notifSuccess = await FastApiServices().sendCustomerNotification(
-                userId: userId,
-                title: "Video Call Accepted",
-                body: "Your video call request has been accepted.",
-                type: "video_accept",
-                screen: "VideoCallPage",
-                data: {
-                  "request_id": requestId,
-                  "session_type": "video_call",
-                  // pass astro id here so the customer side knows which astrologer accepted
-                  "astro_id": astroIdToSend,
-                },
-              );
+          debugPrint("📨 [VideoReq] Notification send result: $notifSuccess");
 
-              debugPrint("📨 [VideoReq] Notification send result: $notifSuccess");
-
-              if (notifSuccess == true) {
-                // proceed to call
-                if (!mounted) return;
-                setState(() => _actBusy = false);
-                await _goToCall();
-                return;
-              } else {
-                // notification failed but acceptance succeeded — inform user and still navigate
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("Accepted but failed to notify customer.")),
-                  );
-                }
-                debugPrint("⚠️ [VideoReq] sendCustomerNotification returned falsy value.");
-                if (!mounted) return;
-                setState(() => _actBusy = false);
-                await _goToCall();
-                return;
-              }
-            } catch (e, st) {
-              debugPrint("💥 [VideoReq] Exception while sending notification: $e\n$st");
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text("Accepted but notification failed: $e")),
-                );
-              }
-              // still navigate
-              if (!mounted) return;
-              setState(() => _actBusy = false);
-              await _goToCall();
-              return;
-            }
-          } else {
-            debugPrint("⚠️ [VideoReq] No valid user_id found in request. Notification skipped. Payload: $req");
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text("Accepted — customer id missing, notification skipped.")),
-              );
-            }
-            if (!mounted) return;
-            setState(() => _actBusy = false);
-            await _goToCall();
-            return;
+          // Navigate the astrologer into the call and pass astro's join params as overrides
+          setState(() => _actBusy = false);
+          await _goToCall(
+            overrideRoomId: astroJoin.channel,
+            overrideToken: astroToken,
+            overrideAccount: astroAccount,
+          );
+          return;
+        } catch (e, st) {
+          debugPrint("💥 [VideoReq] Failed to fetch Agora tokens or send notification: $e\n$st");
+          // fallback: still navigate astrologer; customer may not get channel info
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text("Accepted but failed to notify customer / fetch Agora info: $e")),
+            );
           }
+          setState(() => _actBusy = false);
+          await _goToCall();
+          return;
         }
-
-        // non-accepted statuses (declined etc.)
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Request $status successfully.")),
-        );
-        setState(_loadRequests);
       } else {
-        debugPrint("💥 [VideoReq] respondToRequest failed for id=$requestId, status=$status");
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to update request.')),
-        );
+        debugPrint("⚠️ [VideoReq] No valid user_id found in request. Notification skipped. Payload: $req");
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Accepted — customer id missing, notification skipped.")),
+          );
+        }
+        setState(() => _actBusy = false);
+        await _goToCall();
+        return;
       }
-    } finally {
-      if (mounted) setState(() => _actBusy = false);
     }
+
+    // Handle non-accepted statuses (declined, etc.)
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Request $status successfully.")),
+      );
+    }
+    setState(_loadRequests);
+  } catch (e, st) {
+    debugPrint("🔥 [VideoReq] Unexpected error: $e\n$st");
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Error: $e")),
+      );
+    }
+  } finally {
+    if (mounted) setState(() => _actBusy = false);
   }
+}
 
   Widget _buildStatusChip(String status) {
     Color backgroundColor;

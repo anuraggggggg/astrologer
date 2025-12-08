@@ -1,20 +1,32 @@
 // lib/call/video_call_page.dart
 import 'dart:async';
+import 'dart:ui';
 import 'package:astrowaypartner/fastApi/agora_service.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 
-/// Use `isAstrologer=true` in the astrologer app; false in the customer app.
+/// Astrologer usage: VideoCallPage(astroId: astroId, isAstrologer: true)
+/// Customer usage from FCM: VideoCallPage(astroId: astroId, isAstrologer: false,
+///   overrideRoomId: channel, overrideToken: token, overrideAccount: account, overrideAppId: appId)
 class VideoCallPage extends StatefulWidget {
-  final String astroId; // the astrologer id
-  final bool
-      isAstrologer; // true => astro_token & astro_id; false => current_user_token & current_user_id
+  final String astroId;
+  final bool isAstrologer;
+
+  // Optional overrides (when notification supplies Agora join info)
+  final String? overrideRoomId;   // aka agora_channel
+  final String? overrideToken;    // token for this role
+  final String? overrideAccount;  // userAccount to join as
+  final String? overrideAppId;    // optional appID from server
 
   const VideoCallPage({
     super.key,
     required this.astroId,
     required this.isAstrologer,
+    this.overrideRoomId,
+    this.overrideToken,
+    this.overrideAccount,
+    this.overrideAppId,
   });
 
   @override
@@ -22,13 +34,13 @@ class VideoCallPage extends StatefulWidget {
 }
 
 class _VideoCallPageState extends State<VideoCallPage> {
-  RtcEngine? _engine; // nullable
+  RtcEngine? _engine;
   bool _engineReady = false;
 
   String _appId = '';
   String _channel = '';
   String _token = '';
-  String _account = ''; // userAccount for joinChannelWithUserAccount
+  String _account = '';
 
   int? _remoteUid;
   bool _joined = false;
@@ -38,19 +50,15 @@ class _VideoCallPageState extends State<VideoCallPage> {
   bool _camOn = true;
 
   Timer? _pulse;
-
-  // === 10-minute call timer ===
-  static const Duration _maxCallDuration = Duration(minutes: 10);
+  Timer? _callTimer;
   DateTime? _callDeadline;
   Duration _remaining = Duration.zero;
-  Timer? _callTimer;
 
-  // Safe getter after init
+  static const Duration _maxCallDuration = Duration(minutes: 10);
+
   RtcEngine get _eng {
     final e = _engine;
-    if (e == null) {
-      throw StateError('Agora engine not initialized');
-    }
+    if (e == null) throw StateError('Agora engine not initialized');
     return e;
   }
 
@@ -89,18 +97,42 @@ class _VideoCallPageState extends State<VideoCallPage> {
         throw 'Camera/Microphone permission denied';
       }
 
-      // 2) Fetch tokens + ids from your API
-      final authResp = await AgoraService.getVideoTokens(widget.astroId);
-      final join = AgoraService.buildJoinParams(
-        auth: authResp,
-        isAstrologer: widget.isAstrologer,
-      );
+      // 2) Decide join params: prefer overrides from notification/push if present
+      if ((widget.overrideRoomId ?? '').isNotEmpty) {
+        debugPrint(
+            '🔑 [VC] Using overrides from notification: room=${widget.overrideRoomId}, tokenPresent=${(widget.overrideToken ?? '').isNotEmpty}, account=${widget.overrideAccount}');
+        _channel = widget.overrideRoomId!.trim();
+        _token = widget.overrideToken?.trim() ?? '';
+        _account = widget.overrideAccount?.trim() ?? '';
+        _appId = widget.overrideAppId?.trim() ?? '';
 
-      _appId = join.appId;
-      _channel = join.channel;
-      _token = join.token;
-      _account = join.account;
+        // If appId or account or token missing, fetch minimal auth to fill gaps
+        if (_appId.isEmpty || _account.isEmpty || _token.isEmpty) {
+          debugPrint('🔎 [VC] Overrides incomplete — fetching auth to fill missing fields.');
+          final authResp = await AgoraService.getVideoTokens(widget.astroId);
+          final joinFromAuth = AgoraService.buildJoinParams(
+            auth: authResp,
+            isAstrologer: widget.isAstrologer,
+          );
 
+          _appId = _appId.isNotEmpty ? _appId : authResp.appId;
+          _channel = _channel.isNotEmpty ? _channel : joinFromAuth.channel;
+          _token = _token.isNotEmpty ? _token : joinFromAuth.token;
+          _account = _account.isNotEmpty ? _account : joinFromAuth.account;
+        }
+      } else {
+        // No overrides: fetch auth & build join params normally
+        final authResp = await AgoraService.getVideoTokens(widget.astroId);
+        final join = AgoraService.buildJoinParams(
+            auth: authResp, isAstrologer: widget.isAstrologer);
+
+        _appId = join.appId;
+        _token = join.token;
+        _account = join.account;
+        _channel = join.channel;
+      }
+
+      // helpful preview of token for logs
       final tokPreview = _token.length > 12
           ? '${_token.substring(0, 6)}…${_token.substring(_token.length - 6)}'
           : _token;
@@ -111,15 +143,22 @@ class _VideoCallPageState extends State<VideoCallPage> {
       debugPrint('🔑 [VC] account=$_account');
       debugPrint('🔑 [VC] token=$tokPreview');
 
-      // Validate BEFORE touching engine
-      if (_appId.isEmpty ||
-          _channel.isEmpty ||
-          _token.isEmpty ||
-          _account.isEmpty) {
-        throw 'Missing required join fields (appId/channel/token/account).';
+      // validate minimally
+      if (_appId.isEmpty || _channel.isEmpty || _account.isEmpty) {
+        throw 'Missing required join fields (appId/channel/account).';
+      }
+      if (_token.isEmpty) {
+        debugPrint(
+            '⚠️ [VC] Warning: token is empty — joining without token (ensure this is intended).');
       }
 
-      // 3) Init engine
+      // trim
+      _appId = _appId.trim();
+      _channel = _channel.trim();
+      _account = _account.trim();
+      _token = _token.trim();
+
+      // init engine
       final engine = createAgoraRtcEngine();
       await engine.initialize(RtcEngineContext(appId: _appId));
       _engine = engine;
@@ -129,7 +168,7 @@ class _VideoCallPageState extends State<VideoCallPage> {
           .setChannelProfile(ChannelProfileType.channelProfileCommunication);
       await _eng.enableVideo();
 
-      // 4) Events
+      // event handlers
       _eng.registerEventHandler(RtcEngineEventHandler(
         onConnectionStateChanged: (RtcConnection conn,
             ConnectionStateType state, ConnectionChangedReasonType reason) {
@@ -139,17 +178,12 @@ class _VideoCallPageState extends State<VideoCallPage> {
         onJoinChannelSuccess: (RtcConnection conn, int elapsed) {
           debugPrint(
               '🎉 [VC] onJoinChannelSuccess ch=${conn.channelId} elapsed=${elapsed}ms');
-          if (mounted) {
-            setState(() => _joined = true);
-           // _startCallTimer(); // ⬅️ start 10-minute timer on successful join
-          }
+          if (mounted) setState(() => _joined = true);
         },
         onUserJoined: (RtcConnection conn, int remoteUid, int elapsed) {
-          debugPrint(
-              '👋 [VC] onUserJoined uid=$remoteUid elapsed=${elapsed}ms');
+          debugPrint('👋 [VC] onUserJoined uid=$remoteUid elapsed=${elapsed}ms');
           if (mounted) setState(() => _remoteUid = remoteUid);
           _startCallTimer();
-
         },
         onUserOffline:
             (RtcConnection conn, int remoteUid, UserOfflineReasonType reason) {
@@ -165,19 +199,15 @@ class _VideoCallPageState extends State<VideoCallPage> {
             });
           }
         },
-        onTokenPrivilegeWillExpire: (RtcConnection conn, String token) async {
+        onTokenPrivilegeWillExpire: (RtcConnection conn, String token) {
           debugPrint(
               '⏰ [VC] Token expiring; refresh from server and call renewToken().');
-          // NOTE: We intentionally keep the hard 10-min cutoff regardless of renewal.
         },
         onError: (ErrorCodeType code, String msg) {
           debugPrint('❗ [VC] Agora error: $code $msg');
           if (code == ErrorCodeType.errInvalidToken) {
-            debugPrint('🚨 [VC] INVALID TOKEN. Ensure:');
-            debugPrint('   • Using joinChannelWithUserAccount');
-            debugPrint('   • userAccount="$_account" matches token subject');
-            debugPrint('   • channelName="$_channel" matches token channel');
-            debugPrint('   • Device time is correct');
+            debugPrint(
+                '🚨 [VC] INVALID TOKEN. Ensure userAccount matches token subject and channel matches token.');
           }
         },
       ));
@@ -185,11 +215,12 @@ class _VideoCallPageState extends State<VideoCallPage> {
       await _eng.startPreview();
       debugPrint('🎥 [VC] Local preview started');
 
-      // 5) JOIN BY ACCOUNT
-      debugPrint(
-          '➡️ [VC] joinChannelWithUserAccount(channel=$_channel, account=$_account, token=$tokPreview)');
+      // join (debug print included)
+      debugPrint("ABOUT_TO_JOIN → channel='$_channel' tokenPresent=${_token.isNotEmpty} account=$_account");
+      debugPrint('➡️ [VC] joinChannelWithUserAccount(channel=$_channel, account=$_account, token=$tokPreview)');
+
       await _eng.joinChannelWithUserAccount(
-        token: _token,
+        token: _token.isNotEmpty ? _token : '',
         channelId: _channel,
         userAccount: _account,
         options: const ChannelMediaOptions(
@@ -200,30 +231,27 @@ class _VideoCallPageState extends State<VideoCallPage> {
           autoSubscribeVideo: true,
         ),
       );
-      // _startCallTimer();
 
-      _pulse = Timer.periodic(const Duration(seconds: 10), (_) {
+      _pulse = Timer.periodic(const Duration(seconds: 10), (Timer t) {
         debugPrint('💓 [VC] pulse joined=$_joined remoteUid=$_remoteUid');
       });
-    } catch (e) {
-      debugPrint('💥 [VC] init failed: $e');
+    } catch (e, st) {
+      debugPrint('💥 [VC] init failed: $e\n$st');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Video init failed: $e')),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Video init failed: $e')));
       }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
-  // === 10-minute countdown logic ===
   void _startCallTimer() {
     _callTimer?.cancel();
     _callDeadline = DateTime.now().add(_maxCallDuration);
     _remaining = _maxCallDuration;
 
-    _callTimer = Timer.periodic(const Duration(seconds: 1), (t) async {
+    _callTimer = Timer.periodic(const Duration(seconds: 1), (Timer t) async {
       final deadline = _callDeadline;
       if (deadline == null) return;
 
@@ -232,20 +260,16 @@ class _VideoCallPageState extends State<VideoCallPage> {
       if (rem <= Duration.zero) {
         t.cancel();
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content: Text('Call ended: 10 minutes limit reached')),
-          );
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('Call ended: 10 minutes limit reached')));
         }
-        await _leave(); // auto-leave
+        await _leave();
         return;
       }
-      if (mounted) {
-        setState(() => _remaining = rem);
-      }
+      if (mounted) setState(() => _remaining = rem);
     });
   }
-//
+
   String _formatRemaining(Duration d) {
     final total = d.inSeconds;
     final m = (total ~/ 60).toString().padLeft(2, '0');
@@ -256,7 +280,7 @@ class _VideoCallPageState extends State<VideoCallPage> {
   Future<void> _leave() async {
     debugPrint('↩️ [VC] Leaving channel…');
     try {
-      _callTimer?.cancel(); // stop countdown when leaving
+      _callTimer?.cancel();
       if (_engineReady && _engine != null) {
         await _eng.leaveChannel();
         await _eng.stopPreview();
@@ -298,10 +322,8 @@ class _VideoCallPageState extends State<VideoCallPage> {
       backgroundColor: Colors.black,
       appBar: AppBar(
         backgroundColor: Colors.black,
-        title: Text(
-          'Video Call (${widget.isAstrologer ? 'Astrologer' : 'Customer'})',
-          style: const TextStyle(fontWeight: FontWeight.w600),
-        ),
+        title: Text('Video Call (Astrologer)',
+            style: const TextStyle(fontWeight: FontWeight.w600)),
         actions: [
           if (showCountdown)
             Padding(
@@ -314,13 +336,10 @@ class _VideoCallPageState extends State<VideoCallPage> {
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: Colors.white24),
                 ),
-                child: Text(
-                  _formatRemaining(_remaining),
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontFeatures: [FontFeature.tabularFigures()],
-                  ),
-                ),
+                child: Text(_formatRemaining(_remaining),
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontFeatures: [FontFeature.tabularFigures()])),
               ),
             ),
         ],
@@ -329,29 +348,21 @@ class _VideoCallPageState extends State<VideoCallPage> {
           ? const Center(child: CircularProgressIndicator())
           : Stack(
               children: [
-                // Remote (full screen)
                 Positioned.fill(
                   child: _remoteUid == null || !engineReadyLocal
                       ? Center(
                           child: Text(
-                            _joined
-                                ? (widget.isAstrologer
-                                    ? 'Waiting for customer…'
-                                    : 'Waiting for astrologer…')
-                                : 'Joining…',
+                            _joined ? 'Waiting for customer…' : 'Joining…',
                             style: const TextStyle(color: Colors.white70),
                           ),
                         )
                       : AgoraVideoView(
                           controller: VideoViewController.remote(
-                            rtcEngine: _eng,
-                            canvas: VideoCanvas(uid: _remoteUid),
-                            connection: RtcConnection(channelId: _channel),
-                          ),
+                              rtcEngine: _eng,
+                              canvas: VideoCanvas(uid: _remoteUid),
+                              connection: RtcConnection(channelId: _channel)),
                         ),
                 ),
-
-                // Local PiP
                 if (engineReadyLocal)
                   Positioned(
                     right: 12,
@@ -363,16 +374,12 @@ class _VideoCallPageState extends State<VideoCallPage> {
                       child: Container(
                         color: Colors.black54,
                         child: AgoraVideoView(
-                          controller: VideoViewController(
-                            rtcEngine: _eng,
-                            canvas: const VideoCanvas(uid: 0),
-                          ),
-                        ),
+                            controller: VideoViewController(
+                                rtcEngine: _eng,
+                                canvas: const VideoCanvas(uid: 0))),
                       ),
                     ),
                   ),
-
-                // Controls
                 Positioned(
                   left: 0,
                   right: 0,
@@ -381,28 +388,22 @@ class _VideoCallPageState extends State<VideoCallPage> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       _roundBtn(
-                        icon: _micOn ? Icons.mic : Icons.mic_off,
-                        color: _micOn ? Colors.white : Colors.redAccent,
-                        onTap: _toggleMic,
-                      ),
+                          icon: _micOn ? Icons.mic : Icons.mic_off,
+                          color: _micOn ? Colors.white : Colors.redAccent,
+                          onTap: _toggleMic),
                       const SizedBox(width: 16),
                       _roundBtn(
-                        icon: _camOn ? Icons.videocam : Icons.videocam_off,
-                        color: _camOn ? Colors.white : Colors.redAccent,
-                        onTap: _toggleCam,
-                      ),
+                          icon: _camOn ? Icons.videocam : Icons.videocam_off,
+                          color: _camOn ? Colors.white : Colors.redAccent,
+                          onTap: _toggleCam),
+                      const SizedBox(width: 16),
+                      _roundBtn(icon: Icons.cameraswitch, onTap: _switchCam),
                       const SizedBox(width: 16),
                       _roundBtn(
-                        icon: Icons.cameraswitch,
-                        onTap: _switchCam,
-                      ),
-                      const SizedBox(width: 16),
-                      _roundBtn(
-                        icon: Icons.call_end,
-                        color: Colors.white,
-                        bg: Colors.redAccent,
-                        onTap: _leave,
-                      ),
+                          icon: Icons.call_end,
+                          color: Colors.white,
+                          bg: Colors.redAccent,
+                          onTap: _leave),
                     ],
                   ),
                 ),
@@ -411,20 +412,18 @@ class _VideoCallPageState extends State<VideoCallPage> {
     );
   }
 
-  Widget _roundBtn({
-    required IconData icon,
-    Color color = Colors.white,
-    Color bg = const Color(0x44000000),
-    required VoidCallback onTap,
-  }) {
+  Widget _roundBtn(
+      {required IconData icon,
+      Color color = Colors.white,
+      Color bg = const Color(0x44000000),
+      required VoidCallback onTap}) {
     return InkWell(
       onTap: onTap,
       child: Container(
-        width: 56,
-        height: 56,
-        decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
-        child: Icon(icon, color: color),
-      ),
+          width: 56,
+          height: 56,
+          decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
+          child: Icon(icon, color: color)),
     );
   }
 }
