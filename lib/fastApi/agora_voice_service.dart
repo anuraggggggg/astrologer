@@ -120,31 +120,39 @@ class AgoraService {
   /// Returns an AgoraVoiceAuth model that contains channelName, voice_token, user and appID.
   /// This method is helpful when backend exposes a separate voice endpoint and you want to use it.
   static Future<AgoraVoiceAuth> getVoiceToken(String otherUserId) async {
-    final prefs = await SharedPreferences.getInstance();
-    final bearer = prefs.getString('access_token') ?? '';
+  final prefs = await SharedPreferences.getInstance();
+  final bearer = prefs.getString('access_token') ?? '';
 
-    final uri = Uri.parse('$_base/agora/token/voice')
-        .replace(queryParameters: {'other_user_id': otherUserId});
+  final uri = Uri.parse('$_base/agora/token/voice')
+      .replace(queryParameters: {'other_user_id': otherUserId});
 
-    final res = await http.get(
-      uri,
-      headers: {
-        'accept': 'application/json',
-        if (bearer.isNotEmpty) 'Authorization': 'Bearer $bearer',
-      },
-    );
+  final res = await http.get(
+    uri,
+    headers: {
+      'accept': 'application/json',
+      if (bearer.isNotEmpty) 'Authorization': 'Bearer $bearer',
+    },
+  );
 
-    if (res.statusCode != 200) {
-      throw Exception('Agora voice token fetch failed: ${res.statusCode} ${res.body}');
-    }
-
-    final json = jsonDecode(res.body);
-    if (json is! Map<String, dynamic>) {
-      throw Exception('Unexpected voice token payload (not a JSON object): $json');
-    }
-
-    return AgoraVoiceAuth.fromJson(json);
+  if (res.statusCode != 200) {
+    throw Exception('Agora voice token fetch failed: ${res.statusCode} ${res.body}');
   }
+
+  final json = jsonDecode(res.body);
+  if (json is! Map<String, dynamic>) {
+    throw Exception('Unexpected voice token payload (not a JSON object): $json');
+  }
+
+  // ✅ Fix timer – ensure it's an int
+  if (json['timer'] != null) {
+    json['timer'] = int.tryParse(json['timer'].toString()) ?? 0;
+  } else {
+    json['timer'] = 0; // fallback
+  }
+
+  return AgoraVoiceAuth.fromJson(json);
+}
+
 
   /// Convenience: pick the right token/account based on the role for video tokens.
   /// isAstrologer == true  → account=astro_id,     token=astro_token

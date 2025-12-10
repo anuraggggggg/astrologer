@@ -58,7 +58,6 @@ class _AudioCallPageState extends State<AudioCallPage> {
     super.dispose();
   }
 
-  // === Start/format timer (like video) ===
   void _startCallTimer() {
     _callTimer?.cancel();
     _callDeadline = DateTime.now().add(_maxCallDuration);
@@ -79,6 +78,7 @@ class _AudioCallPageState extends State<AudioCallPage> {
         await _leave();
         return;
       }
+
       if (mounted) setState(() => _remaining = rem);
     });
   }
@@ -91,28 +91,26 @@ class _AudioCallPageState extends State<AudioCallPage> {
 
   Future<void> _bootstrap() async {
     try {
-      _d("Initializing audio call for astroId=${widget.astroId}");
+      _d("🎧 Initializing audio call for astroId=${widget.astroId}");
 
-      // Mic permission
+      // Step 1 → Mic permission
       final statuses = await [Permission.microphone].request();
       if (statuses[Permission.microphone] != PermissionStatus.granted) {
         throw 'Microphone permission denied';
       }
 
-      // Fetch voice token from server (voice API)
-      _d("Requesting voice token from server...");
-      final voice = await AgoraService.getVoiceToken(widget.astroId);
-      _appId = voice.appId;
-      _channel = voice.channelName;
-      _token = voice.voiceToken;
-      _account = voice.userAccount;
+      // Step 2 → Fetch Agora token using VIDEO API (Unified)
+      _d("⚡ Requesting UNIFIED token from server...");
+      final auth = await AgoraService.getTokens(widget.astroId);
 
-      _d("Voice token received → appId=$_appId channel=$_channel account=$_account tokenPresent=${_token.isNotEmpty}");
+      _appId = auth.appId;
+      _channel = auth.channelName;
+      _token = auth.astroToken;
+      _account = auth.astroId;
 
-      if (_appId.isEmpty || _channel.isEmpty || _account.isEmpty) {
-        throw 'Missing join fields from voice token';
-      }
+      _d("✓ Got Agora fields → channel=$_channel account=$_account token=${_token.isNotEmpty}");
 
+      // Step 3 → Setup Agora Engine
       final engine = createAgoraRtcEngine();
       await engine.initialize(RtcEngineContext(appId: _appId));
       _engine = engine;
@@ -123,16 +121,17 @@ class _AudioCallPageState extends State<AudioCallPage> {
 
       engine.registerEventHandler(RtcEngineEventHandler(
         onJoinChannelSuccess: (RtcConnection conn, int elapsed) async {
-          _d("Joined channel ${conn.channelId} (elapsed=${elapsed}ms)");
+          _d("Joined channel ${conn.channelId}");
           if (!mounted) return;
           setState(() => _joined = true);
+
           await Future.delayed(const Duration(milliseconds: 200));
           await engine.setEnableSpeakerphone(true);
         },
         onUserJoined: (RtcConnection c, int uid, int elapsed) {
-          _d("Remote joined uid=$uid");
+          _d("Remote joined → uid=$uid");
           _remoteUid = uid;
-          _startCallTimer(); // start timer when other party joins
+          _startCallTimer();
           if (mounted) setState(() {});
         },
         onUserOffline: (RtcConnection c, int uid, UserOfflineReasonType r) {
@@ -141,14 +140,14 @@ class _AudioCallPageState extends State<AudioCallPage> {
           if (mounted) setState(() {});
         },
         onError: (ErrorCodeType code, String msg) {
-          _d("Agora error: $code $msg");
+          _d("Agora Error: $code -> $msg");
         },
       ));
 
-      // register local user account then join
-      await engine.registerLocalUserAccount(appId: _appId, userAccount: _account);
+      await engine.registerLocalUserAccount(
+          appId: _appId, userAccount: _account);
 
-      _d("Joining channel $_channel with account=$_account tokenPresent=${_token.isNotEmpty}");
+      _d("Joining $widget.astroId → channel=$_channel user=$_account");
       await engine.joinChannelWithUserAccount(
         token: _token,
         channelId: _channel,
@@ -160,11 +159,10 @@ class _AudioCallPageState extends State<AudioCallPage> {
         ),
       );
     } catch (e, st) {
-      _d("INIT FAILED: $e\n$st");
+      _d("❌ INIT FAILED: $e\n$st");
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Audio call failed: $e")),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text("Audio call failed: $e")));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -204,7 +202,8 @@ class _AudioCallPageState extends State<AudioCallPage> {
             Padding(
               padding: const EdgeInsets.all(10),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
                   color: Colors.white10,
                   borderRadius: BorderRadius.circular(12),
@@ -230,7 +229,6 @@ class _AudioCallPageState extends State<AudioCallPage> {
                   style: const TextStyle(color: Colors.white70, fontSize: 18),
                 ),
                 const SizedBox(height: 40),
-                // Controls
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -268,10 +266,7 @@ class _AudioCallPageState extends State<AudioCallPage> {
       child: Container(
         width: 60,
         height: 60,
-        decoration: BoxDecoration(
-          color: bg,
-          shape: BoxShape.circle,
-        ),
+        decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
         child: Icon(icon, color: color, size: 30),
       ),
     );

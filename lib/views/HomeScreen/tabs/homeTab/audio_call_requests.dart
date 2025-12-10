@@ -334,8 +334,7 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
           SnackBar(content: Text("Request $status successfully!")),
         );
         setState(_loadRequests);
-      } else {   
-        
+      } else {
         debugPrint(
             "💥 [AudioReq] respondToRequest failed for id=$requestId, status=$status");
         ScaffoldMessenger.of(context).showSnackBar(

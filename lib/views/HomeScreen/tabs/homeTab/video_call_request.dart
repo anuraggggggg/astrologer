@@ -218,7 +218,7 @@ Future<void> _respondToRequest(
 
         try {
           // Get Agora tokens/channel from server (authoritative)
-          final auth = await AgoraService.getVideoTokens(astroIdToSend);
+          final auth = await AgoraService.getTokens(astroIdToSend);
 
           // Build join params for astro and customer
           final astroJoin = AgoraService.buildJoinParams(auth: auth, isAstrologer: true);

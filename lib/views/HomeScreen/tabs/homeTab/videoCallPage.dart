@@ -109,7 +109,7 @@ class _VideoCallPageState extends State<VideoCallPage> {
         // If appId or account or token missing, fetch minimal auth to fill gaps
         if (_appId.isEmpty || _account.isEmpty || _token.isEmpty) {
           debugPrint('🔎 [VC] Overrides incomplete — fetching auth to fill missing fields.');
-          final authResp = await AgoraService.getVideoTokens(widget.astroId);
+          final authResp = await AgoraService.getTokens(widget.astroId);
           final joinFromAuth = AgoraService.buildJoinParams(
             auth: authResp,
             isAstrologer: widget.isAstrologer,
@@ -122,7 +122,7 @@ class _VideoCallPageState extends State<VideoCallPage> {
         }
       } else {
         // No overrides: fetch auth & build join params normally
-        final authResp = await AgoraService.getVideoTokens(widget.astroId);
+        final authResp = await AgoraService.getTokens(widget.astroId);
         final join = AgoraService.buildJoinParams(
             auth: authResp, isAstrologer: widget.isAstrologer);
 
