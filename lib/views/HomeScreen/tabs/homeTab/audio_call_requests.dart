@@ -1,9 +1,10 @@
 // lib/views/HomeScreen/tabs/homeTab/AudioCallRequests.dart
+import 'package:astrowaypartner/fastApi/agora_voice_service.dart';
 import 'package:astrowaypartner/views/HomeScreen/tabs/homeTab/newAudioPage.dart';
 import 'package:flutter/material.dart';
 import 'package:astrowaypartner/fastApi/fastApiServices.dart';
 
-// ✅ Import your audio call page (astrologer side)
+// ✅ Import your audio call page (this is where the navigation goes)
 
 class AudioCallRequests extends StatefulWidget {
   const AudioCallRequests({super.key});
@@ -45,12 +46,11 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
   }
 
   // ────────────────────────────────────────────────────────────────────────────
-  // Helpers
+  // Helpers (unchanged)
   // ────────────────────────────────────────────────────────────────────────────
 
   String _pick(dynamic v) => (v ?? '').toString().trim();
 
-  /// Extract a friendly display name. Avoids 'string'/'null'.
   String _displayName(Map<String, dynamic> req) {
     final candidates = <String>[
       _pick(req['user_name']),
@@ -68,44 +68,33 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
     return 'User';
   }
 
-  /// Extract strictly an ASTROLOGER ID (UUID-like). Never returns room_id or user_*
   String _extractAstroId(Map<String, dynamic> req) {
     bool looksLikeAstroId(String s) {
       if (s.isEmpty) return false;
       final lower = s.toLowerCase();
-      if (lower.startsWith('room_')) return false; // reject room ids
-      if (lower.startsWith('user_')) return false; // reject customer ids
-      // UUID-ish: dashes OR long enough random-ish id (>= 24)
+      if (lower.startsWith('room_')) return false;
+      if (lower.startsWith('user_')) return false;
       return s.contains('-') || s.length >= 24;
     }
 
     String clean(String v) => v.trim();
 
-    // Preferred top-level keys
     final candidates = <String>[
       clean(_pick(req['astrologer_id'])),
       clean(_pick(req['astro_id'])),
       clean(_pick(req['astrologerId'])),
-      clean(_pick(req['other_user_id'])), // backend might put astro id here
+      clean(_pick(req['other_user_id'])),
     ]..removeWhere((e) => e.isEmpty);
 
-    // Nested possibilities
     if (req['astrologer'] is Map) {
       final m = (req['astrologer'] as Map);
-      candidates.addAll([
-        clean(_pick(m['astro_id'])),
-        clean(_pick(m['id'])),
-      ]);
+      candidates.addAll([clean(_pick(m['astro_id'])), clean(_pick(m['id']))]);
     }
     if (req['receiver'] is Map) {
       final m = (req['receiver'] as Map);
-      candidates.addAll([
-        clean(_pick(m['astro_id'])),
-        clean(_pick(m['id'])),
-      ]);
+      candidates.addAll([clean(_pick(m['astro_id'])), clean(_pick(m['id']))]);
     }
 
-    // Validate
     for (final v in candidates) {
       if (looksLikeAstroId(v)) {
         debugPrint(
@@ -114,7 +103,6 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
       }
     }
 
-    // Fallback to our own saved astro id (reliable)
     if (_selfAstroId.isNotEmpty) {
       debugPrint(
           "🧷 [AudioReq] Falling back to self astro_id='$_selfAstroId' (req id=${req['id']})");
@@ -126,8 +114,6 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
     return '';
   }
 
-  /// NEW: Robust extraction of the customer/user id from various payload shapes.
-  /// Tries: top-level user_id, user.id, user.user_id, customer_id, receiver.user_id, etc.
   String _extractUserId(Map<String, dynamic> req) {
     String clean(String v) => v.trim();
     final candidates = <String>[
@@ -135,23 +121,26 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
       clean(_pick(req['customer_id'])),
       clean(_pick(req['customerId'])),
       clean(_pick(req['userid'])),
-      // nested 'user'
-      if (req['user'] is Map) clean(_pick((req['user'] as Map)['id'] ?? (req['user'] as Map)['user_id'] ?? (req['user'] as Map)['userId'])),
-      // nested receiver/sender shapes
-      if (req['receiver'] is Map) clean(_pick((req['receiver'] as Map)['user_id'] ?? (req['receiver'] as Map)['id'])),
-      if (req['sender'] is Map) clean(_pick((req['sender'] as Map)['user_id'] ?? (req['sender'] as Map)['id'])),
-      // Some backends put the user object directly under 'customer' or 'customer_info'
-      if (req['customer'] is Map) clean(_pick((req['customer'] as Map)['id'] ?? (req['customer'] as Map)['user_id'])),
-      // fallback: sometimes the request contains a nested 'user_id' under 'userId' camelCase
+      if (req['user'] is Map)
+        clean(_pick((req['user'] as Map)['id'] ??
+            (req['user'] as Map)['user_id'] ??
+            (req['user'] as Map)['userId'])),
+      if (req['receiver'] is Map)
+        clean(_pick((req['receiver'] as Map)['user_id'] ??
+            (req['receiver'] as Map)['id'])),
+      if (req['sender'] is Map)
+        clean(_pick(
+            (req['sender'] as Map)['user_id'] ?? (req['sender'] as Map)['id'])),
+      if (req['customer'] is Map)
+        clean(_pick((req['customer'] as Map)['id'] ??
+            (req['customer'] as Map)['user_id'])),
       clean(_pick(req['userId'])),
     ]..removeWhere((e) => e.isEmpty);
 
-    // Validate candidate looks like a user id (common pattern: startsWith user_)
     bool looksLikeUserId(String s) {
       if (s.isEmpty) return false;
       final lower = s.toLowerCase();
       if (lower.startsWith('user_')) return true;
-      // Or long-ish random id (>= 16) — accept as plausible fallback
       return s.length >= 16;
     }
 
@@ -162,10 +151,8 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
       }
     }
 
-    // as a last resort: check top-level 'id' but avoid picking request id (numeric)
     final topId = _pick(req['id']);
     if (topId.isNotEmpty && !RegExp(r'^\d+$').hasMatch(topId)) {
-      // If top id looks like a user_ or long string, use it
       if (looksLikeUserId(topId)) {
         debugPrint("🧩 [AudioReq] Using top-level id as userId='$topId'");
         return topId;
@@ -177,11 +164,14 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
   }
 
   // ────────────────────────────────────────────────────────────────────────────
-  // Navigation
+  // Navigation (unchanged)
   // ────────────────────────────────────────────────────────────────────────────
 
-  Future<void> _goToAudioCall() async {
-    // We join as the astrologer, so use self astro id
+  Future<void> _goToAudioCall(
+      {String? overrideChannel,
+      String? overrideToken,
+      String? overrideAccount,
+      String? overrideAppId}) async {
     final astroId = _selfAstroId;
     if (astroId.isEmpty) {
       if (!mounted) return;
@@ -204,7 +194,7 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
   }
 
   // ────────────────────────────────────────────────────────────────────────────
-  // Actions
+  // Actions - ACCEPT handling updated to include Agora voice fields
   // ────────────────────────────────────────────────────────────────────────────
 
   Future<void> _respondToRequest({
@@ -233,73 +223,105 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
       if (!mounted) return;
 
       if (success) {
-        // ────────────────────────────────────────────────
-        // 🔥 SEND NOTIFICATION WHEN ACCEPTED
-        // ────────────────────────────────────────────────
         if (status.toLowerCase() == 'accepted') {
           // robust extraction of user id
           final userId = _extractUserId(req);
 
           if (userId.isNotEmpty) {
-            debugPrint("📨 [AudioReq] Preparing to send notification to USER: $userId");
+            debugPrint(
+                "📨 [AudioReq] Preparing to send notification to USER: $userId");
+
+            // fetch voice token payload (so we can include channel / token / account in notification)
+            AgoraVoiceAuth? voiceResp;
             try {
-              final notifSuccess = await FastApiServices().sendCustomerNotification(
+              voiceResp = await AgoraService.getVoiceToken(
+                astroIdForLog.isNotEmpty ? astroIdForLog : _selfAstroId,
+              );
+              debugPrint(
+                "🎧 [AudioReq] Voice token fetched: "
+                "channel=${voiceResp.channelName} "
+                "user=${voiceResp.userAccount} "
+                "timer=${voiceResp.timer}",
+              );
+            } catch (e) {
+              debugPrint(
+                  "⚠️ [AudioReq] Failed to fetch voice token: $e — proceeding without overrides");
+            }
+
+            final dataPayload = <String, dynamic>{
+              "request_id": requestId,
+              "session_type": "audio_call",
+              "astro_id": astroIdForLog,
+            };
+
+            if (voiceResp != null) {
+              dataPayload.addAll({
+                "agora_channel": voiceResp.channelName,
+                "agora_token": voiceResp.voiceToken,
+                "agora_account": voiceResp.userAccount,
+                "appID": voiceResp.appId,
+                "timer": voiceResp.timer,
+              });
+            }
+
+            try {
+              final notifSuccess =
+                  await FastApiServices().sendCustomerNotification(
                 userId: userId,
                 title: "Audio Call Accepted",
                 body: "Your audio call request has been accepted.",
                 type: "audio_accept",
                 screen: "AudioCallPage",
-                data: {
-                  "request_id": requestId,
-                  "session_type": "audio_call",
-                  "astro_id": astroIdForLog,
-                },
+                data: dataPayload,
               );
 
-              // notifSuccess may be boolean/response depending on your implementation
-              debugPrint("📨 [AudioReq] Notification send result: $notifSuccess");
+              debugPrint(
+                  "📨 [AudioReq] Notification send result: $notifSuccess");
 
               if (notifSuccess == true) {
-                // proceed to join call after successful notification
                 if (!mounted) return;
                 setState(() => _actBusy = false);
                 await _goToAudioCall();
                 return;
               } else {
-                // Notification failed according to service — show a toast but still navigate
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("Accepted but failed to notify customer.")),
+                    const SnackBar(
+                        content:
+                            Text("Accepted but failed to notify customer.")),
                   );
                 }
-                debugPrint("⚠️ [AudioReq] sendCustomerNotification returned falsy value.");
-                // still navigate — as acceptance succeeded
+                debugPrint(
+                    "⚠️ [AudioReq] sendCustomerNotification returned falsy value.");
                 if (!mounted) return;
                 setState(() => _actBusy = false);
                 await _goToAudioCall();
                 return;
               }
             } catch (e, st) {
-              debugPrint("💥 [AudioReq] Exception while sending notification: $e\n$st");
+              debugPrint(
+                  "💥 [AudioReq] Exception while sending notification: $e\n$st");
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text("Accepted but notification failed: $e")),
+                  SnackBar(
+                      content: Text("Accepted but notification failed: $e")),
                 );
               }
-              // still navigate — acceptance already processed
               if (!mounted) return;
               setState(() => _actBusy = false);
               await _goToAudioCall();
               return;
             }
           } else {
-            debugPrint("⚠️ [AudioReq] No valid user_id found in request. Notification skipped. Payload: $req");
+            debugPrint(
+                "⚠️ [AudioReq] No valid user_id found in request. Notification skipped. Payload: $req");
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text("Accepted — customer id missing, notification skipped.")),
+                const SnackBar(
+                    content: Text(
+                        "Accepted — customer id missing, notification skipped.")),
               );
             }
-            // proceed to join call even if notification skipped
             if (!mounted) return;
             setState(() => _actBusy = false);
             await _goToAudioCall();
@@ -312,7 +334,8 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
           SnackBar(content: Text("Request $status successfully!")),
         );
         setState(_loadRequests);
-      } else {
+      } else {   
+        
         debugPrint(
             "💥 [AudioReq] respondToRequest failed for id=$requestId, status=$status");
         ScaffoldMessenger.of(context).showSnackBar(
@@ -325,7 +348,7 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
   }
 
   // ────────────────────────────────────────────────────────────────────────────
-  // UI
+  // UI (unchanged)
   // ────────────────────────────────────────────────────────────────────────────
 
   Widget _buildStatusChip(String status) {
@@ -388,7 +411,7 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
 
         final audioRequests = snapshot.data!
             .where((req) =>
-        _pick(req['session_type']).toLowerCase() == 'audio_call')
+                _pick(req['session_type']).toLowerCase() == 'audio_call')
             .toList();
 
         if (audioRequests.isEmpty) {
@@ -471,7 +494,7 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
                               onPressed: _actBusy
                                   ? null
                                   : () => _respondToRequest(
-                                  req: req, status: 'declined'),
+                                      req: req, status: 'declined'),
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: Colors.red,
                                 side: const BorderSide(color: Colors.red),
@@ -485,7 +508,7 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
                               onPressed: _actBusy
                                   ? null
                                   : () => _respondToRequest(
-                                  req: req, status: 'accepted'),
+                                      req: req, status: 'accepted'),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.green,
                                 foregroundColor: Colors.white,
