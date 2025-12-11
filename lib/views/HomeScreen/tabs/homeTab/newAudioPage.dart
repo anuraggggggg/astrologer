@@ -1,14 +1,28 @@
 // lib/call/audio_call_page.dart
 import 'dart:async';
-import 'package:astrowaypartner/fastApi/agora_service.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
+import 'package:astrowaypartner/fastApi/agora_service.dart';
 
 class AudioCallPage extends StatefulWidget {
   final String astroId;
+  final bool isAstrologer;
 
-  const AudioCallPage({super.key, required this.astroId});
+  final String? overrideRoomId;
+  final String? overrideToken;
+  final String? overrideAccount;
+  final String? overrideAppId;
+
+  const AudioCallPage({
+    super.key,
+    required this.astroId,
+    required this.isAstrologer,
+    this.overrideRoomId,
+    this.overrideToken,
+    this.overrideAccount,
+    this.overrideAppId,
+  });
 
   @override
   State<AudioCallPage> createState() => _AudioCallPageState();
@@ -18,24 +32,24 @@ class _AudioCallPageState extends State<AudioCallPage> {
   RtcEngine? _engine;
 
   String _appId = '';
-  String _channel = '';
+  String _roomId = '';
   String _token = '';
   String _account = '';
 
-  bool _loading = true;
-  bool _joined = false;
-  bool _muted = false;
-  bool _speakerOn = true;
-
   int? _remoteUid;
+  bool _joined = false;
+  bool _loading = true;
 
-  // === 10-minute call timer ===
-  static const Duration _maxCallDuration = Duration(minutes: 10);
-  DateTime? _callDeadline;
-  Duration _remaining = Duration.zero;
+  bool _micOn = true;
+  bool _speakerOn = true;
+  bool _earpieceOn = false;
+
   Timer? _callTimer;
+  DateTime? _deadline;
+  Duration _remaining = Duration.zero;
+  static const maxDuration = Duration(minutes: 10);
 
-  void _d(Object m) => debugPrint('🎧 [AudioVC] $m');
+  void log(String m) => debugPrint("🎧 [AUDIO] $m");
 
   @override
   void initState() {
@@ -53,119 +67,110 @@ class _AudioCallPageState extends State<AudioCallPage> {
       try {
         await _engine?.release();
       } catch (_) {}
-      _engine = null;
     }();
     super.dispose();
   }
 
-  void _startCallTimer() {
-    _callTimer?.cancel();
-    _callDeadline = DateTime.now().add(_maxCallDuration);
-    _remaining = _maxCallDuration;
-
-    _callTimer = Timer.periodic(const Duration(seconds: 1), (t) async {
-      final deadline = _callDeadline;
-      if (deadline == null) return;
-
-      final rem = deadline.difference(DateTime.now());
-      if (rem <= Duration.zero) {
-        t.cancel();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Call ended (10 min limit reached)")),
-          );
-        }
-        await _leave();
-        return;
-      }
-
-      if (mounted) setState(() => _remaining = rem);
-    });
-  }
-
-  String _formatRemaining(Duration d) {
-    final m = (d.inMinutes % 60).toString().padLeft(2, '0');
-    final s = (d.inSeconds % 60).toString().padLeft(2, '0');
-    return "$m:$s";
-  }
-
+  // --------------------------------------------------------
+  // INIT
+  // --------------------------------------------------------
   Future<void> _bootstrap() async {
     try {
-      _d("🎧 Initializing audio call for astroId=${widget.astroId}");
+      final mic = await Permission.microphone.request();
+      if (mic != PermissionStatus.granted) throw "Microphone permission denied";
 
-      // Step 1 → Mic permission
-      final statuses = await [Permission.microphone].request();
-      if (statuses[Permission.microphone] != PermissionStatus.granted) {
-        throw 'Microphone permission denied';
+      if ((widget.overrideRoomId ?? "").isNotEmpty) {
+        _roomId = widget.overrideRoomId!.trim();
+        _token = widget.overrideToken?.trim() ?? "";
+        _account = widget.overrideAccount?.trim() ?? "";
+        _appId = widget.overrideAppId?.trim() ?? "";
+
+        if (_appId.isEmpty || _token.isEmpty || _account.isEmpty) {
+          final auth = await AgoraService.getTokens(widget.astroId);
+          final join = AgoraService.buildJoinParams(
+            auth: auth,
+            isAstrologer: widget.isAstrologer,
+          );
+
+          _appId = _appId.isNotEmpty ? _appId : auth.appId;
+          _roomId = _roomId.isNotEmpty ? _roomId : join.channel;
+          _token = _token.isNotEmpty ? _token : join.token;
+          _account = _account.isNotEmpty ? _account : join.account;
+        }
+      } else {
+        final auth = await AgoraService.getTokens(widget.astroId);
+        final join = AgoraService.buildJoinParams(
+          auth: auth,
+          isAstrologer: widget.isAstrologer,
+        );
+        _appId = join.appId;
+        _roomId = join.channel;
+        _token = join.token;
+        _account = join.account;
       }
 
-      // Step 2 → Fetch Agora token using VIDEO API (Unified)
-      _d("⚡ Requesting UNIFIED token from server...");
-      final auth = await AgoraService.getTokens(widget.astroId);
+      final eng = createAgoraRtcEngine();
+      await eng.initialize(RtcEngineContext(appId: _appId));
+      _engine = eng;
 
-      _appId = auth.appId;
-      _channel = auth.channelName;
-      _token = auth.astroToken;
-      _account = auth.astroId;
+      await eng
+          .setChannelProfile(ChannelProfileType.channelProfileCommunication);
+      await eng.enableAudio();
+      await eng.disableVideo();
+      await eng.setDefaultAudioRouteToSpeakerphone(true);
 
-      _d("✓ Got Agora fields → channel=$_channel account=$_account token=${_token.isNotEmpty}");
-
-      // Step 3 → Setup Agora Engine
-      final engine = createAgoraRtcEngine();
-      await engine.initialize(RtcEngineContext(appId: _appId));
-      _engine = engine;
-
-      await engine.enableAudio();
-      await engine.disableVideo();
-      await engine.setDefaultAudioRouteToSpeakerphone(true);
-
-      engine.registerEventHandler(RtcEngineEventHandler(
-        onJoinChannelSuccess: (RtcConnection conn, int elapsed) async {
-          _d("Joined channel ${conn.channelId}");
-          if (!mounted) return;
+      eng.registerEventHandler(RtcEngineEventHandler(
+        onJoinChannelSuccess: (_, __) {
           setState(() => _joined = true);
-
-          await Future.delayed(const Duration(milliseconds: 200));
-          await engine.setEnableSpeakerphone(true);
         },
-        onUserJoined: (RtcConnection c, int uid, int elapsed) {
-          _d("Remote joined → uid=$uid");
+        onUserJoined: (_, uid, __) {
           _remoteUid = uid;
           _startCallTimer();
           if (mounted) setState(() {});
         },
-        onUserOffline: (RtcConnection c, int uid, UserOfflineReasonType r) {
-          _d("Remote offline uid=$uid reason=$r");
+        onUserOffline: (_, uid, __) {
           _remoteUid = null;
           if (mounted) setState(() {});
         },
-        onError: (ErrorCodeType code, String msg) {
-          _d("Agora Error: $code -> $msg");
-        },
       ));
 
-      await engine.registerLocalUserAccount(
-          appId: _appId, userAccount: _account);
+      await eng.registerLocalUserAccount(appId: _appId, userAccount: _account);
 
-      _d("Joining $widget.astroId → channel=$_channel user=$_account");
-      await engine.joinChannelWithUserAccount(
+      await eng.joinChannelWithUserAccount(
         token: _token,
-        channelId: _channel,
+        channelId: _roomId,
         userAccount: _account,
         options: const ChannelMediaOptions(
           publishMicrophoneTrack: true,
           publishCameraTrack: false,
           autoSubscribeAudio: true,
+          clientRoleType: ClientRoleType.clientRoleBroadcaster,
         ),
       );
-    } catch (e, st) {
-      _d("❌ INIT FAILED: $e\n$st");
-      if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text("Audio call failed: $e")));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  // --------------------------------------------------------
+  // TIMER
+  // --------------------------------------------------------
+  void _startCallTimer() {
+    _deadline = DateTime.now().add(maxDuration);
+    _callTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      final d = _deadline!.difference(DateTime.now());
+      if (d <= Duration.zero) {
+        _leave();
+        return;
+      }
+      if (mounted) setState(() => _remaining = d);
+    });
+  }
+
+  String _fmt(Duration d) {
+    final m = d.inMinutes.remainder(60).toString().padLeft(2, "0");
+    final s = d.inSeconds.remainder(60).toString().padLeft(2, "0");
+    return "$m:$s";
   }
 
   Future<void> _leave() async {
@@ -175,99 +180,118 @@ class _AudioCallPageState extends State<AudioCallPage> {
     if (mounted) Navigator.pop(context);
   }
 
-  Future<void> _toggleMute() async {
-    _muted = !_muted;
-    await _engine?.muteLocalAudioStream(_muted);
-    if (mounted) setState(() {});
+  // --------------------------------------------------------
+  // BUTTON ACTIONS
+  // --------------------------------------------------------
+  Future<void> _toggleMic() async {
+    _micOn = !_micOn;
+    await _engine?.muteLocalAudioStream(!_micOn);
+    setState(() {});
   }
 
   Future<void> _toggleSpeaker() async {
     _speakerOn = !_speakerOn;
     await _engine?.setEnableSpeakerphone(_speakerOn);
-    if (mounted) setState(() {});
+    if (_speakerOn) _earpieceOn = false;
+    setState(() {});
   }
 
+  Future<void> _toggleEarpiece() async {
+    _earpieceOn = !_earpieceOn;
+    if (_earpieceOn) {
+      await _engine?.setEnableSpeakerphone(false);
+      _speakerOn = false;
+    }
+    setState(() {});
+  }
+
+  // --------------------------------------------------------
+  // UI
+  // --------------------------------------------------------
   @override
   Widget build(BuildContext context) {
-    final showTimer = _remoteUid != null;
-    final remainingText = _formatRemaining(_remaining);
-
     return Scaffold(
       backgroundColor: Colors.black,
-      appBar: AppBar(
-        title: const Text("Audio Call"),
-        backgroundColor: Colors.black,
-        actions: [
-          if (showTimer)
-            Padding(
-              padding: const EdgeInsets.all(10),
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Colors.white10,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.white30),
-                ),
-                child: Text(
-                  remainingText,
-                  style: const TextStyle(color: Colors.white, fontSize: 16),
-                ),
-              ),
-            ),
-        ],
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
+      body: Stack(
+        children: [
+          // Centered content
+          Center(
+            child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(Icons.call, size: 120, color: Colors.white70),
-                const SizedBox(height: 12),
+                const Icon(Icons.call, size: 120, color: Colors.white60),
+                const SizedBox(height: 14),
                 Text(
-                  _remoteUid == null ? "Waiting for other user…" : "Connected",
-                  style: const TextStyle(color: Colors.white70, fontSize: 18),
+                  _remoteUid == null ? "Connecting…" : "Connected",
+                  style: const TextStyle(color: Colors.white70, fontSize: 20),
                 ),
-                const SizedBox(height: 40),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    _circleBtn(
-                      icon: _muted ? Icons.mic_off : Icons.mic,
-                      color: _muted ? Colors.red : Colors.white,
-                      onTap: _toggleMute,
-                    ),
-                    const SizedBox(width: 30),
-                    _circleBtn(
-                      icon: _speakerOn ? Icons.volume_up : Icons.hearing,
-                      onTap: _toggleSpeaker,
-                    ),
-                    const SizedBox(width: 30),
-                    _circleBtn(
-                      icon: Icons.call_end,
-                      bg: Colors.red,
-                      onTap: _leave,
-                    ),
-                  ],
-                )
+                const SizedBox(height: 10),
+                if (_remoteUid != null)
+                  Text(
+                    _fmt(_remaining),
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 26,
+                        fontWeight: FontWeight.bold),
+                  ),
               ],
             ),
+          ),
+
+          // Bottom Controls
+          Positioned(
+            bottom: 40,
+            left: 0,
+            right: 0,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _buildButton(
+                  icon: Icons.mic,
+                  active: _micOn,
+                  onTap: _toggleMic,
+                ),
+                _buildButton(
+                  icon: Icons.hearing,
+                  active: _earpieceOn,
+                  onTap: _toggleEarpiece,
+                ),
+                _buildButton(
+                  icon: Icons.volume_up,
+                  active: _speakerOn,
+                  onTap: _toggleSpeaker,
+                ),
+                _buildButton(
+                  icon: Icons.call_end,
+                  active: true,
+                  color: Colors.red,
+                  onTap: _leave,
+                ),
+              ],
+            ),
+          )
+        ],
+      ),
     );
   }
 
-  Widget _circleBtn({
+  Widget _buildButton({
     required IconData icon,
-    Color color = Colors.white,
-    Color bg = const Color(0x33FFFFFF),
+    required bool active,
     required VoidCallback onTap,
+    Color color = Colors.white24,
   }) {
-    return InkWell(
+    return GestureDetector(
       onTap: onTap,
-      child: Container(
-        width: 60,
-        height: 60,
-        decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
-        child: Icon(icon, color: color, size: 30),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        width: 70,
+        height: 70,
+        decoration: BoxDecoration(
+          color: active ? color : Colors.grey.shade800,
+          shape: BoxShape.circle,
+        ),
+        child: Icon(icon, color: Colors.white, size: 32),
       ),
     );
   }
