@@ -53,6 +53,11 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
   final TextEditingController _facebookController = TextEditingController();
   final TextEditingController _loginBioController = TextEditingController();
 
+  // --- USD charge controllers
+  final TextEditingController _chatUsdController = TextEditingController();
+  final TextEditingController _audioUsdController = TextEditingController();
+  final TextEditingController _videoUsdController = TextEditingController();
+
   // profile image (editable)
   File? _profileImage;
   String? _profileImageUrl;
@@ -175,6 +180,16 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
     return null;
   }
 
+  // --- USD validator: allow zero or positive integer (no admin block assumptions here)
+  String? _validateUsdCharge(String? v, String label) {
+    if (v == null || v.trim().isEmpty) return null; // allow empty
+    final t = v.trim();
+    if (!_isNumeric(t)) return '$label must be a number';
+    final n = int.tryParse(t) ?? 0;
+    if (n < 0) return '$label must be non-negative';
+    return null;
+  }
+
   String? _validatePan(String? v) {
     if (v == null || v.trim().isEmpty) return null;
     return _isValidPan(v.trim()) ? null : 'PAN must be 5 letters, 4 digits, 1 letter (e.g. ABCDE1234F)';
@@ -272,7 +287,7 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
         final imagePath = (rawImagePath ?? '').toString().startsWith('/') ? rawImagePath.toString().substring(1) : rawImagePath.toString();
         _profileImageUrl = imagePath.isNotEmpty ? "$base/$imagePath" : null;
 
-        // fill controllers
+        // fill controllers (text)
         _nameController.text = profile?['name'] ?? '';
         _emailController.text = profile?['email'] ?? '';
         _contactController.text = profile?['contactNo'] ?? '';
@@ -302,6 +317,11 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
         _accountholdername.text = profile?['account_holder_name'] ?? '';
         _upiController.text = profile?['upiId'] ?? '';
         _categoryIdController.text = profile?['astrologerCategoryId'] ?? '';
+
+        // --- USD fields (from API: chatChargeUSD, audioCallChargeUSD, videoCallChargeUSD)
+        _chatUsdController.text = (profile?['chatChargeUSD'] ?? '').toString();
+        _audioUsdController.text = (profile?['audioCallChargeUSD'] ?? '').toString();
+        _videoUsdController.text = (profile?['videoCallChargeUSD'] ?? '').toString();
 
         // KYC doc urls
         String makeUrl(String? raw) {
@@ -627,6 +647,11 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
     put('languageKnown', _languageController.text);
     put('primarySkill', _skillController.text);
 
+    // --- USD fields
+    put('chatChargeUSD', _chatUsdController.text);
+    put('audioCallChargeUSD', _audioUsdController.text);
+    put('videoCallChargeUSD', _videoUsdController.text);
+
     put('linkedInProfileLink', _linkedInController.text);
     put('panNumber', _panNumberController.text);
     put('bankName', _bankNameController.text);
@@ -698,7 +723,15 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
       }
 
       // fast-path: only charges changed -> patch endpoint
-      final chargesSet = {'chatCharge', 'audioCallCharge', 'videoCallCharge'};
+      final chargesSet = {
+        'chatCharge',
+        'audioCallCharge',
+        'videoCallCharge',
+        // include USD fields as well (these are allowed to be patched directly)
+        'chatChargeUSD',
+        'audioCallChargeUSD',
+        'videoCallChargeUSD'
+      };
       final onlyCharges = changedSet.difference(chargesSet).isEmpty && changedSet.isNotEmpty;
 
       if (onlyCharges) {
@@ -793,6 +826,10 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
         'chatCharge': parseCharge(fields['chatCharge']),
         'audioCallCharge': parseCharge(fields['audioCallCharge']),
         'videoCallCharge': parseCharge(fields['videoCallCharge']),
+        // --- USD fields included here
+        'chatChargeUSD': parseCharge(fields['chatChargeUSD']),
+        'audioCallChargeUSD': parseCharge(fields['audioCallChargeUSD']),
+        'videoCallChargeUSD': parseCharge(fields['videoCallChargeUSD']),
       });
 
       final resp = await http.patch(uri, headers: {
@@ -800,6 +837,10 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer ' + (await SharedPreferences.getInstance()).getString('access_token')!,
       }, body: body);
+
+      if (kDebugMode) {
+        debugPrint('Patch charges response: ${resp.statusCode} ${resp.body}');
+      }
 
       return resp.statusCode == 200 || resp.statusCode == 201;
     } catch (e) {
@@ -984,6 +1025,16 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
                             keyboardType: TextInputType.number,
                             validator: (v) => _validateCharge(v, 200, 'Audio Call Charge'),
                           ),
+                          const SizedBox(height: 8),
+
+                          // USD version of Audio charge
+                          _buildField(
+                            'Audio Call Charge (USD)',
+                            _audioUsdController,
+                            'audioCallChargeUSD',
+                            keyboardType: TextInputType.number,
+                            validator: (v) => _validateUsdCharge(v, 'Audio Call Charge (USD)'),
+                          ),
                           const SizedBox(height: 12),
 
                           _buildField(
@@ -993,6 +1044,16 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
                             keyboardType: TextInputType.number,
                             validator: (v) => _validateCharge(v, 50, 'Chat Charge'),
                           ),
+                          const SizedBox(height: 8),
+
+                          // USD chat
+                          _buildField(
+                            'Chat Charge (USD)',
+                            _chatUsdController,
+                            'chatChargeUSD',
+                            keyboardType: TextInputType.number,
+                            validator: (v) => _validateUsdCharge(v, 'Chat Charge (USD)'),
+                          ),
                           const SizedBox(height: 12),
 
                           _buildField(
@@ -1001,6 +1062,16 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
                             'videoCallCharge',
                             keyboardType: TextInputType.number,
                             validator: (v) => _validateCharge(v, 250, 'Video Call Charge'),
+                          ),
+                          const SizedBox(height: 8),
+
+                          // USD video
+                          _buildField(
+                            'Video Call Charge (USD)',
+                            _videoUsdController,
+                            'videoCallChargeUSD',
+                            keyboardType: TextInputType.number,
+                            validator: (v) => _validateUsdCharge(v, 'Video Call Charge (USD)'),
                           ),
                           const SizedBox(height: 18),
 
@@ -1080,7 +1151,7 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
                           ),
 
                           const SizedBox(height: 12),
-                          Center(child: Text('Changes to sensitive fields require admin approval.', style: TextStyle(color: Colors.grey.shade700))),
+                          Center(child: Text('Changes to sensitive fields require admin approval. USD/inr charge changes are patched directly.', style: TextStyle(color: Colors.grey.shade700))),
 
                         ]),
                       ),
@@ -1127,6 +1198,11 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
     _emailController.dispose();
     _facebookController.dispose();
     _loginBioController.dispose();
+
+    // USD controllers
+    _chatUsdController.dispose();
+    _audioUsdController.dispose();
+    _videoUsdController.dispose();
 
     super.dispose();
   }
