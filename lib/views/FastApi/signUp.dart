@@ -54,6 +54,11 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
   final TextEditingController videoChargeCtrl =
   TextEditingController(); // min 250
 
+  // NEW USD fields (required, integer-only)
+  final TextEditingController chatChargeUSDCtrl = TextEditingController();
+  final TextEditingController audioChargeUSDCtrl = TextEditingController();
+  final TextEditingController videoChargeUSDCtrl = TextEditingController();
+
   // Optional fields
   final TextEditingController qualificationCtrl = TextEditingController();
   final TextEditingController learnAstroCtrl = TextEditingController();
@@ -144,6 +149,11 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     chatChargeCtrl.dispose();
     audioChargeCtrl.dispose();
     videoChargeCtrl.dispose();
+
+    // USD charges
+    chatChargeUSDCtrl.dispose();
+    audioChargeUSDCtrl.dispose();
+    videoChargeUSDCtrl.dispose();
 
     // Optional
     qualificationCtrl.dispose();
@@ -594,6 +604,10 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
       "chatCharge": chatChargeCtrl.text.trim(),
       "audioCallCharge": audioChargeCtrl.text.trim(),
       "videoCallCharge": videoChargeCtrl.text.trim(),
+      // USD fields added
+      "chatChargeUSD": chatChargeUSDCtrl.text.trim(),
+      "audioCallChargeUSD": audioChargeUSDCtrl.text.trim(),
+      "videoCallChargeUSD": videoChargeUSDCtrl.text.trim(),
       "experienceInYears": expCtrl.text.trim(),
       "currentCity": cityCtrl.text.trim(),
       "highestQualification": qualificationCtrl.text.trim(),
@@ -729,6 +743,11 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     chatChargeCtrl.clear();
     audioChargeCtrl.clear();
     videoChargeCtrl.clear();
+
+    // USD
+    chatChargeUSDCtrl.clear();
+    audioChargeUSDCtrl.clear();
+    videoChargeUSDCtrl.clear();
 
     qualificationCtrl.clear();
     learnAstroCtrl.clear();
@@ -1020,26 +1039,26 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
                   ?.copyWith(fontWeight: FontWeight.w600)),
           const SizedBox(height: 8),
           TextFormField(
-            controller: birthDateCtrl,
-            keyboardType: TextInputType.datetime,
-            maxLines: 1,
-            validator: _validateBirthDate,
-            inputFormatters: [
-              FilteringTextInputFormatter.allow(RegExp(r'[0-9\-\/]')),
-              LengthLimitingTextInputFormatter(10), // dd-mm-yyyy = 10 chars
-            ],
-            decoration: InputDecoration(
-              hintText: "dd-mm-yyyy",
-              hintStyle: const TextStyle(color: Colors.black), // only color — no fontSize
-              prefixIcon: const Icon(Icons.cake_outlined, color: Color(0xFFFFC107)),
-              suffixIcon: IconButton(
-                icon: const Icon(Icons.calendar_today_outlined),
-                onPressed: _showDatePickerAndSet,
-              ),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-              filled: true,
-              fillColor: Colors.yellow[50],
-            )
+              controller: birthDateCtrl,
+              keyboardType: TextInputType.datetime,
+              maxLines: 1,
+              validator: _validateBirthDate,
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'[0-9\-\/]')),
+                LengthLimitingTextInputFormatter(10), // dd-mm-yyyy = 10 chars
+              ],
+              decoration: InputDecoration(
+                hintText: "dd-mm-yyyy",
+                hintStyle: const TextStyle(color: Colors.black), // only color — no fontSize
+                prefixIcon: const Icon(Icons.cake_outlined, color: Color(0xFFFFC107)),
+                suffixIcon: IconButton(
+                  icon: const Icon(Icons.calendar_today_outlined),
+                  onPressed: _showDatePickerAndSet,
+                ),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+                filled: true,
+                fillColor: Colors.yellow[50],
+              )
 
           ),
           const SizedBox(height: 20),
@@ -1083,6 +1102,20 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
             validator: (v) => _validateMinInt(v, "Chat charge", 50),
 
           ),
+          const SizedBox(height: 12),
+          // Chat USD field (required, integer only)
+          _buildTextField(
+            chatChargeUSDCtrl,
+            "Chat Charge (USD) — integer only",
+            required: true,
+            keyboardType: TextInputType.number,
+            icon: Icons.attach_money,
+            validator: (v) => _validateDigitsOnly(v ?? '', "Chat charge (USD)"),
+            inputFormatters: [
+              FilteringTextInputFormatter.digitsOnly,
+            ],
+          ),
+
           const SizedBox(height: 20),
           _buildTextField(
             audioChargeCtrl,
@@ -1093,6 +1126,20 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
             validator: (v) => _validateMinInt(v, "Audio call charge", 200),
 
           ),
+          const SizedBox(height: 12),
+          // Audio USD
+          _buildTextField(
+            audioChargeUSDCtrl,
+            "Audio Call Charge (USD) — integer only",
+            required: true,
+            keyboardType: TextInputType.number,
+            icon: Icons.attach_money,
+            validator: (v) => _validateDigitsOnly(v ?? '', "Audio charge (USD)"),
+            inputFormatters: [
+              FilteringTextInputFormatter.digitsOnly,
+            ],
+          ),
+
           const SizedBox(height: 20),
           _buildTextField(
             videoChargeCtrl,
@@ -1102,6 +1149,19 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
             icon: Icons.videocam_outlined,
             validator: (v) => _validateMinInt(v, "Video call charge", 250),
 
+          ),
+          const SizedBox(height: 12),
+          // Video USD
+          _buildTextField(
+            videoChargeUSDCtrl,
+            "Video Call Charge (USD) — integer only",
+            required: true,
+            keyboardType: TextInputType.number,
+            icon: Icons.attach_money,
+            validator: (v) => _validateDigitsOnly(v ?? '', "Video charge (USD)"),
+            inputFormatters: [
+              FilteringTextInputFormatter.digitsOnly,
+            ],
           ),
 
           const SizedBox(height: 20),
@@ -1801,6 +1861,14 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
           _showError(chatError);
           return false;
         }
+
+        // CHAT USD
+        final chatUsdError = _validateDigitsOnly(chatChargeUSDCtrl.text, "Chat charge (USD)");
+        if (chatUsdError != null) {
+          _showError(chatUsdError);
+          return false;
+        }
+
         // AUDIO CHARGE
         final audioError = _validateMinInt(
             audioChargeCtrl.text, "Audio call charge", 200);
@@ -1808,6 +1876,14 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
           _showError(audioError);
           return false;
         }
+
+        // AUDIO USD
+        final audioUsdError = _validateDigitsOnly(audioChargeUSDCtrl.text, "Audio charge (USD)");
+        if (audioUsdError != null) {
+          _showError(audioUsdError);
+          return false;
+        }
+
         // VIDEO CHARGE
         final videoError = _validateMinInt(
             videoChargeCtrl.text, "Video call charge", 250);
@@ -1815,6 +1891,14 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
           _showError(videoError);
           return false;
         }
+
+        // VIDEO USD
+        final videoUsdError = _validateDigitsOnly(videoChargeUSDCtrl.text, "Video charge (USD)");
+        if (videoUsdError != null) {
+          _showError(videoUsdError);
+          return false;
+        }
+
         // EXPERIENCE
         final expError = _validateExperience(expCtrl.text);
         if (expError != null) {
@@ -1918,3 +2002,4 @@ class UpperCaseTextFormatter extends TextInputFormatter {
     );
   }
 }
+

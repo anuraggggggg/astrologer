@@ -1,0 +1,321 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>Agora video test — Debug (permissions + single-join)</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <style>
+        body { font-family: system-ui, -apple-system, Roboto, Arial; padding:16px; background:#f7f8fb; color:#111 }
+        .panel{max-width:1000px;margin:auto;background:#fff;padding:14px;border-radius:12px;box-shadow:0 6px 18px rgba(20,20,40,0.06)}
+        label{display:block;margin-top:8px;color:#444;font-size:13px}
+        input, textarea, select {width:100%;padding:8px;margin-top:6px;border-radius:8px;border:1px solid #e6e9ef;box-sizing:border-box}
+        .row{display:flex;gap:12px}
+        .col{flex:1}
+        button{padding:10px 14px;margin-top:10px;border-radius:10px;cursor:pointer;border:0;background:#0b66ff;color:white}
+        .danger{background:#e53e3e}
+        .green{background:#2b9f46}
+        #local-player,#remote-player{width:100%;height:320px;background:#000;border-radius:10px;display:flex;align-items:center;justify-content:center;color:#ccc}
+        .small{font-size:12px;color:#666;margin-top:6px}
+        .log{background:#111;color:#fff;padding:8px;border-radius:8px;margin-top:10px;height:180px;overflow:auto;font-family:monospace;font-size:12px;white-space:pre-wrap}
+        .controls{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+        .hint{font-size:13px;color:#666;margin-top:6px}
+        .note {font-size:12px;color:#444;margin-top:6px}
+    </style>
+
+    <script src="https://download.agora.io/sdk/release/AgoraRTC_N.js"></script>
+</head>
+<body>
+<div class="panel">
+    <h2>Agora video test — Debug (permissions + single-join)</h2>
+    <p class="small">Paste fresh server JSON tokens in the box, click <strong>Load JSON</strong>, then click <strong>Join as User A</strong> on one device and <strong>Join as User B</strong> on the other.</p>
+
+    <label>Server response JSON (paste fresh tokens here)</label>
+    <textarea id="responseJson" rows="7">{
+   "channelName": "e47ddcba510b",
+  "appID": "3a39af44074a40bebc2fff2cba7437e5",
+  "expireIn": 3600,
+  "expireAt": 1765185524,
+  "current_user_id": "user_05623752bc9e43649168108d73903703",
+  "astro_id": "7b11072a-27d0-4795-916a-edc8bb4937ed",
+  "current_user_token": "0063a39af44074a40bebc2fff2cba7437e5IAAqlJyG9bmBtoSEqYuhGsL46T2Q2flnGmqef66yp7gZbCYVAElD7Xa6IgC7XYsBZNs3aQQAAQD0lzZpAgD0lzZpAwD0lzZpBAD0lzZp",
+  "astro_token": "0063a39af44074a40bebc2fff2cba7437e5IADRND3RBFth9N0Whg6EE97vDOuDcoFBJyfpBL0iQEmwByYVAEm05AZWIgDp7QkAZNs3aQQAAQD0lzZpAgD0lzZpAwD0lzZpBAD0lzZp",
+  "role": "publisher"
+}</textarea>
+
+    <div class="controls">
+        <button id="loadJson">Load JSON into fields</button>
+        <button id="joinA" class="green">Join as User A (current_user)</button>
+        <button id="joinB">Join as User B (astro)</button>
+        <button id="leaveBtn" class="danger">Leave</button>
+    </div>
+
+    <label>App ID</label><input id="appId" value="">
+    <label>Channel Name</label><input id="channel" value="">
+    <label>Token</label><textarea id="token" rows="2"></textarea>
+    <label>UID (account string) — must match the account used to generate token (or leave blank to auto-assign)</label>
+    <input id="uid" placeholder="e.g. user_05623... or 7b1107...">
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+        <div>
+            <div id="local-player">Local video</div>
+            <div class="small">Your local stream</div>
+        </div>
+        <div>
+            <div id="remote-player">Remote video</div>
+            <div class="small">Remote stream (other peer)</div>
+        </div>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-top:12px">
+        <div style="flex:1">
+            <div class="small">Current state</div>
+            <div id="state" style="padding:8px;border-radius:8px;background:#f0f4ff">Not joined</div>
+            <div class="note">If permission denied, click the camera icon in address bar and allow camera/mic, then reload.</div>
+        </div>
+        <div style="flex:1">
+            <div class="small">Logs</div>
+            <div id="log" class="log"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    (async function(){
+      const logBox = id => document.getElementById(id);
+      const L = (m)=> { const d=new Date().toLocaleTimeString(); logBox('log').innerText += '['+d+'] '+m + '\n'; logBox('log').scrollTop = logBox('log').scrollHeight; }
+      const loadJsonBtn = document.getElementById('loadJson');
+      const joinABtn = document.getElementById('joinA');
+      const joinBBtn = document.getElementById('joinB');
+      const leaveBtn = document.getElementById('leaveBtn');
+
+      // Agora client (rtc)
+      const client = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
+      let localTracks = { videoTrack: null, audioTrack: null };
+      let joined = false;
+      let connecting = false;
+      let myAssignedUid = null;
+
+      // helpers
+      function safeStr(v){ if (v === undefined || v === null) return ''; return String(v); }
+      function setButtonsEnabled(enabled) {
+        joinABtn.disabled = !enabled;
+        joinBBtn.disabled = !enabled;
+        leaveBtn.disabled = enabled; // leave disabled when not joined
+      }
+
+      // disable while connecting
+      setButtonsEnabled(true);
+
+      // event listeners for debugging
+      client.on('connection-state-change', (cur, rev) => {
+        L(`connection-state-change: ${cur} (reason: ${rev})`);
+        console.debug('connection-state-change', cur, rev);
+      });
+      client.on('token-privilege-will-expire', ()=> L('Token will expire soon — fetch a fresh token.'));
+      client.on('token-privilege-did-expire', ()=> L('Token expired. Rejoin with new token.'));
+      client.on('user-joined', (user)=> L('Event: user-joined -> ' + user.uid));
+      client.on('user-left', (user)=> { L('Event: user-left -> ' + user.uid); document.getElementById('state').innerText = 'Joined (peer left)'; });
+      client.on('user-published', async (user, mediaType)=> {
+        L('Event: user-published -> uid=' + user.uid + ' type=' + mediaType);
+        try {
+          await client.subscribe(user, mediaType);
+          L('Subscribed to remote user ' + user.uid + ' ('+mediaType+')');
+          if (mediaType === 'video') {
+            document.getElementById('remote-player').innerHTML = '';
+            user.videoTrack.play('remote-player');
+          }
+          if (mediaType === 'audio') user.audioTrack.play();
+        } catch (e) {
+          L('Error subscribing to remote user: ' + (e.message || JSON.stringify(e)));
+          console.error(e);
+        }
+      });
+      client.on('user-unpublished', (user, mediaType) => {
+        L('Event: user-unpublished -> uid=' + user.uid + ' type=' + mediaType);
+        if (mediaType === 'video') document.getElementById('remote-player').innerHTML = 'Remote video';
+      });
+
+      // permission helper: try to getUserMedia first to force prompt and fail early
+      async function ensureMediaPermissions() {
+        try {
+          // request both audio + video at low resolution for permission prompt
+          const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+          // immediately stop tracks — we'll create Agora tracks later
+          stream.getTracks().forEach(t => t.stop());
+          L('✅ Media permissions granted (camera & mic).');
+          return true;
+        } catch (err) {
+          L('❌ Media permissions denied or not available: ' + (err && err.message ? err.message : JSON.stringify(err)));
+          return false;
+        }
+      }
+
+      // robust joinWith preventing duplicate joins
+      async function joinWith(appId, channel, token, uid) {
+        if (connecting) { L('Join already in progress — please wait'); return; }
+        if (joined) { L('Already joined — leave first'); return; }
+
+        connecting = true;
+        setButtonsEnabled(false);
+        L('--- joinWith called ---');
+        L('appId=' + safeStr(appId));
+        L('channel=' + safeStr(channel));
+        L('uid (provided)=' + safeStr(uid));
+
+        // 1) request permissions before Agora join (prompts user early)
+        const ok = await ensureMediaPermissions();
+        if (!ok) {
+          alert('Camera/mic permission denied. Please allow camera and microphone in browser settings and reload the page.');
+          connecting = false;
+          setButtonsEnabled(true);
+          return;
+        }
+
+        try {
+          // join (account-based tokens require same uid/account string)
+          const assignedUid = await client.join(appId, channel, token || null, uid || null);
+          myAssignedUid = assignedUid;
+          L('Joined successfully — assigned uid: ' + assignedUid);
+          document.getElementById('state').innerText = 'Joined (uid: ' + assignedUid + ')';
+
+          // create tracks AFTER ensuring permissions and join
+          try {
+            localTracks.audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
+            L('✅ Microphone track created');
+          } catch (micErr) {
+            L('❌ createMicrophoneAudioTrack failed: ' + (micErr && micErr.message ? micErr.message : JSON.stringify(micErr)));
+            console.error('micErr', micErr);
+          }
+
+          try {
+            localTracks.videoTrack = await AgoraRTC.createCameraVideoTrack();
+            L('✅ Camera video track created');
+            try { localTracks.videoTrack.play('local-player'); } catch(e){ L('⚠️ local play failed: ' + (e.message||JSON.stringify(e))); }
+          } catch (camErr) {
+            L('❌ createCameraVideoTrack failed: ' + (camErr && camErr.message ? camErr.message : JSON.stringify(camErr)));
+            console.error('camErr', camErr);
+          }
+
+          // publish with retry
+          const toPublish = [];
+          if (localTracks.audioTrack) toPublish.push(localTracks.audioTrack);
+          if (localTracks.videoTrack) toPublish.push(localTracks.videoTrack);
+
+          if (toPublish.length === 0) {
+            L('⚠️ No local tracks created — nothing to publish. Check camera/mic permissions.');
+          } else {
+            let published = false;
+            for (let attempt=1; attempt<=2 && !published; attempt++) {
+              try {
+                L('Attempting publish (try #' + attempt + ')...');
+                await client.publish(toPublish);
+                L('✅ Published local tracks (attempt #' + attempt + ')');
+                published = true;
+              } catch (pubErr) {
+                L('❌ Publish attempt #' + attempt + ' failed: ' + (pubErr && pubErr.message ? pubErr.message : JSON.stringify(pubErr)));
+                console.error('publishErr', pubErr);
+                if (attempt < 2) await new Promise(r => setTimeout(r, 700));
+              }
+            }
+            if (!published) L('🔴 All publish attempts failed.');
+          }
+
+          joined = true;
+          // start heartbeat
+          if (window._agoraHeartbeat) clearInterval(window._agoraHeartbeat);
+          window._agoraHeartbeat = setInterval(()=> {
+            try {
+              const localPresent = !!localTracks.videoTrack || !!localTracks.audioTrack;
+              L(`♥ Heartbeat: joined=${joined} localTracks=${localPresent ? 'yes' : 'no'} assignedUid=${myAssignedUid}`);
+            } catch (e) { L('♥ Heartbeat error: ' + (e.message||JSON.stringify(e))); }
+          }, 5000);
+
+        } catch (err) {
+          L('Join error: ' + (err && err.message ? err.message : JSON.stringify(err)));
+          console.error('Join error', err);
+          if (err && err.message && err.message.toLowerCase().includes('permission')) {
+            alert('Permission denied: please allow camera/microphone for this site and reload.');
+          } else if (err && err.message && err.message.toLowerCase().includes('token')) {
+            alert('Token issue: expired/invalid or not minted for this UID. Regenerate token and try again.');
+          }
+        } finally {
+          connecting = false;
+          // enable join only if not currently joined
+          setButtonsEnabled(!joined);
+          leaveBtn.disabled = !joined;
+        }
+      }
+
+      // Leave handler
+      async function leaveClean() {
+        if (!joined && !connecting) { L('Not in a channel'); return; }
+        try {
+          // stop heartbeat
+          if (window._agoraHeartbeat) { clearInterval(window._agoraHeartbeat); window._agoraHeartbeat = null; }
+          await client.unpublish();
+          if (localTracks.videoTrack) { try { localTracks.videoTrack.stop(); localTracks.videoTrack.close(); } catch(_){} localTracks.videoTrack = null; }
+          if (localTracks.audioTrack) { try { localTracks.audioTrack.close(); } catch(_){} localTracks.audioTrack = null; }
+          await client.leave();
+          L('Left channel');
+          document.getElementById('state').innerText = 'Not joined';
+          document.getElementById('local-player').innerHTML = 'Local video';
+          document.getElementById('remote-player').innerHTML = 'Remote video';
+        } catch (e) {
+          L('Leave error: ' + (e.message||JSON.stringify(e)));
+          console.error(e);
+        } finally {
+          joined = false;
+          connecting = false;
+          myAssignedUid = null;
+          setButtonsEnabled(true);
+          leaveBtn.disabled = true;
+        }
+      }
+
+      // UI wiring
+      loadJsonBtn.onclick = ()=>{
+        try {
+          const txt = document.getElementById('responseJson').value;
+          const obj = JSON.parse(txt);
+          document.getElementById('appId').value = obj.appID || obj.appId || '';
+          document.getElementById('channel').value = obj.channelName || obj.channel || '';
+          document.getElementById('token').value = obj.current_user_token || obj.astro_token || '';
+          document.getElementById('uid').value = obj.current_user_id || obj.astro_id || '';
+          L('Loaded JSON into fields.');
+        } catch (e) { alert('Invalid JSON: ' + e.message); }
+      };
+
+      joinABtn.onclick = async ()=>{
+        const objTxt = document.getElementById('responseJson').value;
+        let obj = {};
+        try { obj = JSON.parse(objTxt); } catch(e){}
+        const appId = obj.appID || obj.appId || document.getElementById('appId').value;
+        const channel = obj.channelName || obj.channel || document.getElementById('channel').value;
+        const token = obj.current_user_token || document.getElementById('token').value;
+        const uid = obj.current_user_id || document.getElementById('uid').value || null;
+        L('Join as User A requested');
+        await joinWith(appId, channel, token, uid ? String(uid) : null);
+      };
+
+      joinBBtn.onclick = async ()=>{
+        const objTxt = document.getElementById('responseJson').value;
+        let obj = {};
+        try { obj = JSON.parse(objTxt); } catch(e){}
+        const appId = obj.appID || obj.appId || document.getElementById('appId').value;
+        const channel = obj.channelName || obj.channel || document.getElementById('channel').value;
+        const token = obj.astro_token || document.getElementById('token').value;
+        const uid = obj.astro_id || document.getElementById('uid').value || null;
+        L('Join as User B requested');
+        await joinWith(appId, channel, token, uid ? String(uid) : null);
+      };
+
+      leaveBtn.onclick = leaveClean;
+
+      // initial UI state
+      setButtonsEnabled(true);
+      leaveBtn.disabled = true;
+      L('Ready. Load JSON and then join as User A and User B on two devices.');
+    })();
+</script>
+</body>
+</html>
