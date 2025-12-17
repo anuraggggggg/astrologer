@@ -319,9 +319,16 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
         _categoryIdController.text = profile?['astrologerCategoryId'] ?? '';
 
         // --- USD fields (from API: chatChargeUSD, audioCallChargeUSD, videoCallChargeUSD)
-        _chatUsdController.text = (profile?['chatChargeUSD'] ?? '').toString();
-        _audioUsdController.text = (profile?['audioCallChargeUSD'] ?? '').toString();
-        _videoUsdController.text = (profile?['videoCallChargeUSD'] ?? '').toString();
+        _chatUsdController.text =
+            intText(profile?['chatChargeUSD']);
+
+        _audioUsdController.text =
+            intText(profile?['audioCallChargeUSD']);
+
+        _videoUsdController.text =
+            intText(profile?['videoCallChargeUSD']);
+
+
 
         // KYC doc urls
         String makeUrl(String? raw) {
@@ -354,6 +361,18 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
       });
     }
   }
+
+  String intText(dynamic value) {
+    if (value == null) return '';
+    if (value is int) return value.toString();
+    if (value is double) return value.toInt().toString();
+    if (value is String) {
+      final d = double.tryParse(value);
+      return d == null ? '' : d.toInt().toString();
+    }
+    return '';
+  }
+
 
   // ---------------- file validators ----------------
   bool _isExtAllowed(String pathOrName) {

@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Astrologer API JWT Tester</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background: #f5f7fa;
+        }
+
+        h2 {
+            color: #333;
+        }
+
+        textarea, input {
+            width: 100%;
+            max-width: 700px;
+            padding: 10px;
+            margin: 8px 0;
+            font-size: 14px;
+        }
+
+        button {
+            padding: 10px 20px;
+            font-size: 15px;
+            cursor: pointer;
+        }
+
+        #log {
+            background: #111;
+            color: #0f0;
+            padding: 15px;
+            margin-top: 15px;
+            height: 350px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            font-family: monospace;
+        }
+    </style>
+</head>
+
+<body>
+
+<h2>🧪 Astrologer API JWT Manual Tester</h2>
+
+<label><strong>JWT Access Token</strong></label>
+<textarea
+        id="token"
+        rows="4"
+        placeholder="Paste ONLY the access_token here (no Bearer)"
+></textarea>
+
+<label><strong>Astro ID</strong></label>
+<input
+        id="astroId"
+        placeholder="Example: 7b11072a-27d0-4795-916a-edc8bb4937ed"
+/>
+
+<button onclick="fetchAstrologer()">Call API</button>
+
+<div id="log"></div>
+
+<script>
+    function log(message) {
+        const logBox = document.getElementById("log");
+        logBox.textContent += message + "\n";
+        logBox.scrollTop = logBox.scrollHeight;
+    }
+
+    async function fetchAstrologer() {
+        const token = document.getElementById("token").value.trim();
+        const astroId = document.getElementById("astroId").value.trim();
+
+        if (!token) {
+            log("❌ ERROR: Token is missing");
+            return;
+        }
+
+        if (!astroId) {
+            log("❌ ERROR: Astro ID is missing");
+            return;
+        }
+
+        const url = `https://fastapi.jyotishionline.com/api/v1/astro/astrologers/${astroId}`;
+
+        log("\n===============================");
+        log("📡 REQUEST");
+        log("URL: " + url);
+        log("Authorization: Bearer " + token);
+        log("===============================\n");
+
+        try {
+            const response = await fetch(url, {
+                method: "GET",
+                headers: {
+                    "Accept": "application/json",
+                    "Authorization": "Bearer " + token
+                }
+            });
+
+            const responseText = await response.text();
+
+            log("⬅️ STATUS: " + response.status);
+            log("⬅️ RESPONSE:");
+            log(responseText);
+            log("\n--------------------------------\n");
+
+        } catch (error) {
+            log("❌ FETCH ERROR: " + error);
+        }
+    }
+</script>
+
+</body>
+</html>

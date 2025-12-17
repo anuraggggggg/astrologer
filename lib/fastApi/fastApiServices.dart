@@ -18,77 +18,59 @@ class FastApiServices {
 
   // ---------------- LOGIN & TOKEN ----------------
   Future<void> loginAndGetToken() async {
-    print("🔑 Starting Login Process...");
-    final url = Uri.parse(FastApiEndpoints.login);
-    print("🌐 Login URL: $url");
+    print("🔍 Checking existing token...");
 
-    final response = await http.post(
-      url,
-      headers: {"Content-Type": "application/x-www-form-urlencoded"},
-      body: {
-        "username": "jincyt@example.com",
-        "password": "jincy1",
-      },
-    );
+    final prefs = await SharedPreferences.getInstance();
+    String? token = prefs.getString("access_token");
 
-    print("📡 Login Status Code: ${response.statusCode}");
-    print("📩 Login Raw Body: ${response.body}");
+    print("📦 Previously saved token (key: 'access_token'): $token");
 
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      print("✅ Login JSON Parsed: $data");
-      _accessToken = data["access_token"];
-      if (_accessToken == null) {
-        throw Exception("❌ access_token not found in API response!");
-      }
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString("access_token", _accessToken!);
-      print("✅ Token Saved Successfully: $_accessToken");
-      print("==============================\n");
-    } else {
-      print("🚨 Login Failed with Status ${response.statusCode}");
-      throw Exception("🚨 Failed to login: ${response.body}");
+    if (token == null || token.isEmpty) {
+      throw Exception("❌ No existing token found. Please verify OTP again.");
     }
+
+    _accessToken = token;
+
+    print("🔐 Using access_token: $_accessToken");
+    print("==============================\n");
   }
+
+
+
 
   Future<String?> _getSavedToken() async {
     final prefs = await SharedPreferences.getInstance();
-    final savedToken = prefs.getString("access_token");
+    final savedToken = prefs.getString("token");
     print("🔍 Retrieved Saved Token: ${savedToken ?? "❌ No token found"}");
     return savedToken;
   }
 
+
   Future<Map<String, dynamic>> getAstrologerById() async {
     final prefs = await SharedPreferences.getInstance();
 
-    // Fetch saved astro_id and token
-    final astroId = prefs.getString("astro_id"); // keep dashes
-    final token = prefs.getString("access_token");
-    final userId = prefs.getString("user_id");
+    // Fetch astro_id only
+    final astroId = prefs.getString("astro_id");
 
     print("🔍 SharedPreferences Data:");
     print("   astro_id: ${astroId ?? "❌ Not Found"}");
-    print("   access_token: ${token ?? "❌ Not Found"}");
-    print("   user_id: ${userId ?? "❌ Not Found"}");
 
-    if (astroId == null || token == null) {
-      throw Exception("Missing astro_id or token. Please login again.");
+    if (astroId == null) {
+      throw Exception("Missing astro_id. Please login again.");
     }
 
     final url = Uri.parse("$baseUrl/astro/astrologers/$astroId");
     print("🌐 Constructed URL: $url");
 
-    // Print headers
-    final headers = {
-      "accept": "application/json",
-      "Authorization": "Bearer $token",
-    };
-    print("📝 Request Headers:");
-    headers.forEach((key, value) => print("   $key: $value"));
-
     try {
-      print("📡 Sending GET request to fetch astrologer details...");
-      final response = await http.get(url, headers: headers);
+      print("📡 Sending GET request (No Authorization)...");
+
+      final response = await http.get(
+        url,
+        headers: {
+          "accept": "application/json",
+        },
+      );
 
       print("⬅️ Response received");
       print("   Status Code: ${response.statusCode}");
@@ -96,19 +78,14 @@ class FastApiServices {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        print("✅ Successfully fetched profile data:");
+        print("✅ Successfully fetched astrologer data:");
         print(const JsonEncoder.withIndent('  ').convert(data));
         return data;
-      } else if (response.statusCode == 401) {
-        print("🚨 Unauthorized: Invalid token");
-        await prefs.remove("access_token");
-        throw Exception("Unauthorized: Invalid token. Please login again.");
       } else if (response.statusCode == 404) {
-        print("⚠️ Not Found: Check if astro_id is correct and exists in API");
-        throw Exception("Astrologer not found: ${response.body}");
+        throw Exception("Astrologer not found");
       } else {
-        print("❌ Failed to fetch astrologer details");
-        throw Exception("HTTP ${response.statusCode}: ${response.body}");
+        throw Exception(
+            "Failed to fetch astrologer details (HTTP ${response.statusCode})");
       }
     } catch (e, stackTrace) {
       print("🚨 Exception during API call: $e");
@@ -117,17 +94,24 @@ class FastApiServices {
     }
   }
 
+
   // ---------------- FETCH ASTROLOGER REQUESTS ----------------
   Future<List<Map<String, dynamic>>> getAstrologerRequests(
       String astrologerId) async {
     final url = Uri.parse(FastApiEndpoints.getAstrologerRequests(astrologerId));
+
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString("access_token");
+
     final response = await http.get(
       url,
       headers: {
         "Content-Type": "application/json",
-        "Authorization": "Bearer $_accessToken",
+        "Authorization": "Bearer $token",
       },
     );
+
+
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body) as List;
@@ -414,17 +398,27 @@ class FastApiServices {
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
 
-      // ✅ Save token & user details in SharedPreferences
+      // ✅ Save token & user details
       final prefs = await SharedPreferences.getInstance();
       final token = data["access_token"];
       final astro = data["astro"];
 
       if (token != null && astro != null) {
         await prefs.setString("access_token", token);
+        await prefs.setString("token", token);
+        await prefs.setString("auth_token", token);
+
+
         await prefs.setString("token_type", data["token_type"] ?? "");
 
-        // ✅ Store all astro details safely
-        await prefs.setString("user_id", astro["user_id"] ?? "");
+
+        String? savedToken = prefs.getString("access_token");
+
+// Print confirmed saved token
+        print("🔐 access_token for pooji (from SharedPreferences): $savedToken");
+
+        // ✅ Store all astro details
+      //  await prefs.setString("user_id", astro["user_id"] ?? "");
         await prefs.setString("astro_id", astro["astro_id"] ?? "");
         await prefs.setString("contactNo", astro["contactNo"] ?? "");
         await prefs.setString("countryCode", astro["countryCode"] ?? "");
@@ -432,9 +426,9 @@ class FastApiServices {
         await prefs.setString("profileImage", astro["profileImage"] ?? "");
 
         print("✅ Saved User Data:");
-        print("   user_id: ${astro["user_id"]}");
+        // print("   user_id: ${astro["user_id"]}");
         print("   astro_id: ${astro["astro_id"]}");
-        print("   token: $token");
+        print("   token saved: $token");
       } else {
         print("⚠️ Missing token or astro details in response.");
       }

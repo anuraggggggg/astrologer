@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Customer Token → Astrologer API Test</title>
+    <style>
+        body { font-family: Arial; padding: 20px; }
+        input, textarea {
+            width: 450px;
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+        button { padding: 10px 15px; margin-top: 10px; }
+        #log {
+            background: #000;
+            color: #0f0;
+            padding: 15px;
+            margin-top: 20px;
+            height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+
+<h2>🧪 Test CUSTOMER Token Against ASTRO API</h2>
+
+<p><b>Step 1:</b> Paste Customer Login Access Token</p>
+<textarea id="token" placeholder="Paste customer access_token here"></textarea>
+
+<p><b>Step 2:</b> Paste Astro ID to test</p>
+<input id="astroId" placeholder="Example: 019ebe38-2e51-4a32-89a1-f77a7ca9a56f" />
+
+<button onclick="testApi()">TEST ACCESS</button>
+
+<h3>📜 RESULT LOG</h3>
+<div id="log"></div>
+
+<script>
+    function log(msg) {
+        document.getElementById("log").textContent += msg + "\n";
+    }
+
+    async function testApi() {
+        const token = document.getElementById("token").value.trim();
+        const astroId = document.getElementById("astroId").value.trim();
+
+        if (!token) {
+            log("❌ ERROR: No token provided");
+            return;
+        }
+        if (!astroId) {
+            log("❌ ERROR: Astro ID missing");
+            return;
+        }
+
+        const url = `https://fastapi.jyotishionline.com/api/v1/astro/astrologers/${astroId}`;
+
+        log("\n================================");
+        log("📡 Making Request to ASTRO API");
+        log("URL: " + url);
+        log("Authorization: Bearer " + token);
+        log("================================\n");
+
+        try {
+            const res = await fetch(url, {
+                method: "GET",
+                headers: {
+                    "accept": "application/json",
+                    "Authorization": "Bearer " + token
+                }
+            });
+
+            const text = await res.text();
+
+            log("⬅️ Status Code: " + res.status);
+            log("⬅️ API Response:");
+            log(text);
+            log("\n--------------------------------\n");
+
+        } catch (err) {
+            log("❌ ERROR: " + err);
+        }
+    }
+</script>
+
+</body>
+</html>

@@ -89,51 +89,37 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
     try {
       final api = FastApiServices();
       final prefs = await SharedPreferences.getInstance();
+
+      // READ token directly, NEVER call loginAndGetToken()
       String? token = prefs.getString("access_token");
 
-      // If token is null or we're retrying due to auth error, get new token
-      if (token == null || isRetry) {
-        await api.loginAndGetToken();
-        token = prefs.getString("access_token");
-        _retryCount++;
+      print("🔍 Token in fetchProfile: $token");
+
+      if (token == null || token.isEmpty) {
+        throw Exception("❌ Access token missing. User must verify OTP again.");
       }
 
-
-      if (token == null) {
-        throw Exception("Token missing even after login!");
-      }
-
-      final userId = prefs.getString("user_id");
-      if (userId == null) {
-        throw Exception("User ID missing. Cannot fetch profile.");
+      final astroId = prefs.getString("astro_id");
+      if (astroId == null) {
+        throw Exception("❌ astro_id missing. User must verify OTP again.");
       }
 
       final fetchedProfile = await api.getAstrologerById();
-
-      // get astro id for later use and store locally
-      _astroId = prefs.getString("astro_id") ?? fetchedProfile?['astro_id'] ?? fetchedProfile?['id'];
-
-      // Reset retry count on successful fetch
-      _retryCount = 0;
+      _astroId = prefs.getString("astro_id") ?? fetchedProfile['astro_id'];
 
       setState(() {
         profile = fetchedProfile;
         isLoading = false;
       });
-    } catch (e) {
-      // Handle unauthorized error specifically
-      if (e.toString().contains('Unauthorized') && _retryCount < _maxRetries) {
-        // Retry with new token
-        await fetchProfile(isRetry: true);
-        return;
-      }
 
+    } catch (e) {
       setState(() {
         errorMessage = e.toString();
         isLoading = false;
       });
     }
   }
+
 
   Future<void> _initializeWallet() async {
     try {

@@ -194,84 +194,174 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
 
   // ---------------------------------------------------------------------------
   // UI
-  // ---------------------------------------------------------------------------
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<Map<String, dynamic>>>(
       future: _requestsFuture,
-      builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting) {
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
 
-        if (!snap.hasData || snap.data!.isEmpty) {
+        if (snapshot.hasError) {
+          return Center(child: Text("Error: ${snapshot.error}"));
+        }
+
+        if (!snapshot.hasData || snapshot.data!.isEmpty) {
           return const _EmptyState();
         }
 
-        final audioList = snap.data!
-            .where(
-                (e) => _pick(e['session_type']).toLowerCase() == "audio_call")
+        final audioRequests = snapshot.data!
+            .where((req) =>
+        (_pick(req['session_type'])).toLowerCase() == 'audio_call')
             .toList();
 
-        if (audioList.isEmpty) return const _EmptyState();
+        if (audioRequests.isEmpty) return const _EmptyState();
 
         return ListView.builder(
           padding: const EdgeInsets.all(16),
-          itemCount: audioList.length,
-          itemBuilder: (_, i) {
-            final req = audioList[i];
-            final status = _pick(req['status']);
-            final userName = (req['user'] is Map)
-                ? _pick(req['user']['name'])
-                : _pick(req['user_name']);
+          itemCount: audioRequests.length,
+          itemBuilder: (context, index) {
+            final req = audioRequests[index];
+            final status = (_pick(req['status'])).toLowerCase();
+
+            final userName = req['user'] is Map
+                ? (_pick((req['user'] as Map)['name']) == ''
+                ? 'Unknown User'
+                : _pick((req['user'] as Map)['name']))
+                : (_pick(req['user_name']) == ''
+                ? 'Unknown User'
+                : _pick(req['user_name']));
 
             return Card(
               margin: const EdgeInsets.symmetric(vertical: 8),
+              elevation: 2,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Header row
+                    // HEADER
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(userName.isEmpty ? "User" : userName,
-                            style: const TextStyle(fontSize: 18)),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(Icons.person,
+                                    size: 16,
+                                    color: Theme.of(context).primaryColor),
+                                const SizedBox(width: 6),
+                                Text("User",
+                                    style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey.shade600)),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              userName,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
                         _chip(status),
+                      ],
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // SESSION TYPE
+                    Row(
+                      children: [
+                        Icon(Icons.call,
+                            size: 16, color: Colors.orange.shade700),
+                        const SizedBox(width: 6),
+                        Text(
+                          "Audio Call Session",
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey.shade700,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
                       ],
                     ),
 
                     const SizedBox(height: 12),
 
-                    Row(children: const [
-                      Icon(Icons.call, size: 18),
-                      SizedBox(width: 6),
-                      Text("Audio Call Session")
-                    ]),
-
-                    const SizedBox(height: 12),
-
-                    if (status == "pending")
+                    // ACTIONS
+                    if (status == 'pending') ...[
                       Row(
                         children: [
                           Expanded(
                             child: OutlinedButton(
-                              onPressed: () =>
-                                  _respond(req: req, status: "declined"),
+                              onPressed: _actBusy
+                                  ? null
+                                  : () => _respond(
+                                req: req,
+                                status: "declined",
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.red,
+                                side: const BorderSide(color: Colors.red),
+                              ),
                               child: const Text("Reject"),
                             ),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
                             child: ElevatedButton(
-                              onPressed: () =>
-                                  _respond(req: req, status: "accepted"),
+                              onPressed: _actBusy
+                                  ? null
+                                  : () => _respond(
+                                req: req,
+                                status: "accepted",
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.green,
+                                foregroundColor: Colors.white,
+                              ),
                               child: const Text("Accept & Join"),
                             ),
                           ),
                         ],
+                      ),
+                    ] else if (status == 'accepted') ...[
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: null,
+                          icon: const Icon(Icons.lock),
+                          label: const Text('Session over'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.grey,
+                            foregroundColor: Colors.white,
+                            padding:
+                            const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                        ),
                       )
+                    ] else ...[
+                      Text(
+                        "This request is $status.",
+                        style: TextStyle(
+                          color: Colors.grey.shade600,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -281,6 +371,7 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
       },
     );
   }
+
 
   Widget _chip(String status) {
     Color c;

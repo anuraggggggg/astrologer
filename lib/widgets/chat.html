@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>WebSocket Chat Test</title>
+    <style>
+        body { font-family: Arial; background:#f5f6fa; padding:20px }
+        #log { height:300px; overflow:auto; background:#fff; border:1px solid #ccc; padding:10px }
+        input, button { padding:8px; margin-top:6px; width:100% }
+        .ok { color:green }
+        .err { color:red }
+    </style>
+</head>
+<body>
+
+<h2>FastAPI WebSocket Chat Test</h2>
+
+<label>Room ID</label>
+<input id="room" placeholder="room_abc123" />
+
+<label>JWT Token</label>
+<input id="token" placeholder="paste access_token here" />
+
+<button onclick="connect()">Connect</button>
+
+<hr/>
+
+<input id="msg" placeholder="Type message" />
+<button onclick="send()">Send</button>
+
+<h3>Logs</h3>
+<div id="log"></div>
+
+<script>
+    let ws;
+
+    function log(msg, cls="") {
+      const div = document.getElementById("log");
+      const p = document.createElement("div");
+      p.textContent = msg;
+      if (cls) p.className = cls;
+      div.appendChild(p);
+      div.scrollTop = div.scrollHeight;
+    }
+
+    function connect() {
+      const room = document.getElementById("room").value;
+      const token = document.getElementById("token").value;
+
+      if (!room || !token) {
+        alert("Room ID & token required");
+        return;
+      }
+
+      const url = `wss://fastapi.jyotishionline.com/ws/${room}?access_token=${token}`;
+
+      log("🌐 Connecting to " + url);
+
+      ws = new WebSocket(url);
+
+      ws.onopen = () => log("✅ Connected", "ok");
+      ws.onclose = () => log("❌ Disconnected", "err");
+      ws.onerror = e => log("🔥 Error", "err");
+
+      ws.onmessage = e => {
+        log("📩 " + e.data);
+      };
+    }
+
+    function send() {
+      if (!ws || ws.readyState !== 1) {
+        alert("Not connected");
+        return;
+      }
+
+      const msg = document.getElementById("msg").value;
+      ws.send(JSON.stringify({
+        content: msg,
+        metadata: {}
+      }));
+      log("📤 Sent: " + msg);
+    }
+</script>
+
+</body>
+</html>

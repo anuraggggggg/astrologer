@@ -33,12 +33,12 @@ class AgoraVideoAuth {
     return AgoraVideoAuth(
       appId: (j['appID'] ?? j['appId'] ?? '').toString(),
       channelName: (j['channelName'] ?? j['channel_name'] ?? '').toString(),
-      astroId: (j['astro_id'] ?? '').toString(),
-      astroToken: (j['astro_token'] ?? '').toString(),
+      astroId: (j['astrologer_id'] ?? '').toString(),
+      astroToken: (j['astrologer_token'] ?? '').toString(),
       currentUserId:
-          (j['current_user_id'] ?? j['current_user'] ?? j['user'] ?? '').toString(),
+          (j['user_id'] ?? j['current_user'] ?? j['user'] ?? '').toString(),
       currentUserToken:
-          (j['current_user_token'] ?? j['currentUserToken'] ?? '').toString(),
+          (j['user_token'] ?? j['currentUserToken'] ?? '').toString(),
       expireIn: j['expireIn'] is int
           ? j['expireIn']
           : int.tryParse('${j['expireIn'] ?? ''}'),
