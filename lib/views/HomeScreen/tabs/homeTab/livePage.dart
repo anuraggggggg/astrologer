@@ -5,6 +5,7 @@
   import 'package:astrowaypartner/fastApi/fastApiServices.dart';
   import 'package:permission_handler/permission_handler.dart';
   import 'package:shared_preferences/shared_preferences.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
   class GoLivePage extends StatefulWidget {
     const GoLivePage({super.key});
@@ -57,91 +58,103 @@
       });
 
       try {
-        // 🔹 Get astrologer_id dynamically
+        // 🔹 Get astrologer_id
         final prefs = await SharedPreferences.getInstance();
         final astrologerId = prefs.getString('astro_id');
 
         if (astrologerId == null || astrologerId.isEmpty) {
-          throw Exception('Astrologer ID not found in SharedPreferences');
+          throw Exception('Astrologer ID not found');
         }
 
-        // 🔹 Hit API
+        // 🔹 Call API to start live
         final res = await _api.startAgoraLive(
           astrologerId: astrologerId,
           ttlSeconds: _ttlSeconds,
         );
 
         final payload = (res['data'] is Map) ? res['data'] : res;
+        final bool status = res['status'] == true;
 
-        final status = (res['status'] == true);
-
-        final channel = (payload['channelName'] ??
-                payload['channel_name'] ??
-                payload['channel'] ??
-                payload['room'] ??
-                '')
+        final String channel = (payload['channelName'] ??
+            payload['channel_name'] ??
+            payload['channel'] ??
+            payload['room'] ??
+            '')
             .toString();
 
-        final appId =
-            (payload['appID'] ?? payload['appid'] ?? payload['app_id'] ?? '')
-                .toString();
+        final String appId =
+        (payload['appID'] ?? payload['appid'] ?? payload['app_id'] ?? '')
+            .toString();
 
-        final msg = (res['message'] ?? 'Live started').toString();
+        final String rtcToken =
+        (payload['rtc_token'] ?? payload['token'] ?? '').toString();
 
-        final rtcToken =
-            (payload['rtc_token'] ?? payload['token'] ?? '').toString();
+        final String msg = (res['message'] ?? 'Live started').toString();
 
-        setState(() {
-          _live = status && channel.isNotEmpty;
-          _channelName = channel.isNotEmpty ? channel : null;
-          _appId = appId.isNotEmpty ? appId : null;
-          _rtcToken = rtcToken.isNotEmpty ? rtcToken : null;
-          _message = msg;
-        });
+        if (!status || channel.isEmpty || appId.isEmpty || rtcToken.isEmpty) {
+          throw Exception('Invalid live session data received');
+        }
 
-        // 🚨 ASK PERMISSIONS BEFORE ENTERING LIVE ROOM
+        // 🔹 Ask permissions BEFORE live
         if (!await _checkPermissions()) {
           return;
         }
 
-        // 🔹 Enter live room
-        if (_rtcToken != null && _rtcToken!.isNotEmpty) {
-          final result = await Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => HostLiveRoomPage(
-                appId: _appId!,
-                channelName: _channelName!,
-                rtcToken: _rtcToken!,
-              ),
-            ),
-          );
+        // 🔒 KEEP SCREEN AWAKE DURING LIVE
+        await WakelockPlus.enable();
 
-          // Reset UI after returning
-          if (mounted) {
-            setState(() {
-              _live = false;
-              _starting = false;
-              _ending = false;
-              _message = "Session ended successfully";
-            });
-          }
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content: Text('RTC Token missing. Cannot start live session.')),
-          );
-        }
-      } catch (e) {
-        setState(() {
-          _message = e.toString();
-          _live = false;
-        });
+        // 🔹 Update UI state
         if (!mounted) return;
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Failed to start live: $e')));
+        setState(() {
+          _live = true;
+          _channelName = channel;
+          _appId = appId;
+          _rtcToken = rtcToken;
+          _message = msg;
+        });
+
+        // 🔹 Enter Live Room
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => HostLiveRoomPage(
+              appId: _appId!,
+              channelName: _channelName!,
+              rtcToken: _rtcToken!,
+            ),
+          ),
+        );
+
+        // 🔓 Live ended → release wakelock
+        await WakelockPlus.disable();
+
+        if (!mounted) return;
+        setState(() {
+          _live = false;
+          _starting = false;
+          _ending = false;
+          _message = "Session ended successfully";
+        });
+
+      } catch (e) {
+        // 🔓 Safety: always release wakelock on error
+        await WakelockPlus.disable();
+
+        if (!mounted) return;
+        setState(() {
+          _live = false;
+          _message = e.toString();
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to start live: $e')),
+        );
       } finally {
-        if (mounted) setState(() => _starting = false);
+        if (mounted) {
+          setState(() {
+            _starting = false;
+          });
+        }
       }
     }
 

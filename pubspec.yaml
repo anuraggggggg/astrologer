@@ -8,6 +8,7 @@ environment:
   sdk: ">=3.5.0 <4.0.0"
 dependencies:
   agora_rtc_engine: ^6.3.2
+
   agora_rtm: ^2.2.5
   agora_chat_sdk: ^1.3.3
 

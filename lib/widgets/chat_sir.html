@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>Jyotishi WebSocket Chat Test</title>
+
+    <style>
+        body {
+          font-family: Arial, sans-serif;
+          max-width: 600px;
+          margin: auto;
+          padding: 20px;
+        }
+        input, button {
+          padding: 8px;
+          width: 100%;
+          margin-top: 8px;
+        }
+        ul {
+          list-style: none;
+          padding: 0;
+          margin-top: 20px;
+          border: 1px solid #ccc;
+          height: 300px;
+          overflow-y: auto;
+        }
+        li {
+          padding: 6px;
+          border-bottom: 1px solid #eee;
+        }
+        .me {
+          text-align: right;
+          color: green;
+        }
+        .other {
+          text-align: left;
+          color: blue;
+        }
+    </style>
+</head>
+
+<body>
+
+<h2>Jyotishi WebSocket Chat Test</h2>
+
+<label>Room ID</label>
+<input id="roomId" placeholder="room_id (same for both users)" />
+
+<label>JWT Token</label>
+<input id="token" placeholder="JWT token of logged-in user" />
+
+<button onclick="connect()">Connect</button>
+
+<hr>
+
+<input id="message" placeholder="Type message..." />
+<button onclick="sendMessage()">Send</button>
+
+<ul id="chat"></ul>
+
+<script>
+    let socket = null;
+    let currentUserId = null;
+
+    function connect() {
+      const roomId = document.getElementById("roomId").value.trim();
+      const token = document.getElementById("token").value.trim();
+
+      if (!roomId || !token) {
+        alert("Room ID and Token required");
+        return;
+      }
+
+      socket = new WebSocket(
+        wss://fastapi.jyotishionline.com/chat/ws/${roomId}?token=${token}
+      );
+
+      socket.onopen = () => {
+        console.log("✅ WebSocket connected");
+      };
+
+      socket.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+
+        if (data.type === "message") {
+          const msg = data.message;
+
+          if (!currentUserId) {
+            currentUserId = msg.sender_user_id;
+          }
+
+          const li = document.createElement("li");
+          li.textContent = ${msg.sender_user_id}: ${msg.content};
+
+          li.className =
+            msg.sender_user_id === currentUserId ? "me" : "other";
+
+          document.getElementById("chat").appendChild(li);
+        }
+      };
+
+      socket.onclose = () => {
+        console.log("❌ WebSocket disconnected");
+      };
+
+      socket.onerror = (err) => {
+        console.error("WebSocket error", err);
+      };
+    }
+
+    function sendMessage() {
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        alert("WebSocket not connected");
+        return;
+      }
+
+      const input = document.getElementById("message");
+      const text = input.value.trim();
+      if (!text) return;
+
+      socket.send(JSON.stringify({
+        content: text,
+        metadata: {}
+      }));
+
+      input.value = "";
+    }
+</script>
+
+</body>
+</html>

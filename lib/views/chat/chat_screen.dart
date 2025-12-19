@@ -7,7 +7,7 @@ import 'package:astrowaypartner/fastApi/fastApiServices.dart';
 
 class AstrologerChatPage extends StatefulWidget {
   final String roomId;
-  final String myUserId; // ASTRO ID
+  final String myUserId;
   final String receiverId;
   final String receiverName;
   final String? authToken;
@@ -40,144 +40,59 @@ class _AstrologerChatPageState extends State<AstrologerChatPage> {
   late String _myUserId;
   late String _token;
 
-  int _page = 1;
-  final int _pageSize = 20;
-  int _total = 0;
-  bool _isFetchingMore = false;
-  bool _hasMore = true;
+  @override
+  void initState() {
+    super.initState();
+    _init();
+  }
 
   // ---------------------------------------------------------------------------
   // INIT
   // ---------------------------------------------------------------------------
 
-  @override
-  void initState() {
-    super.initState();
-    debugPrint('🟢 ChatPage initState');
-
-    _scrollCtrl.addListener(() {
-      debugPrint(
-          '📜 Scroll offset=${_scrollCtrl.position.pixels.toStringAsFixed(1)}');
-
-      if (_scrollCtrl.position.pixels <= 100 &&
-          !_isFetchingMore &&
-          _hasMore &&
-          !_loading) {
-        debugPrint('⬆️ TOP reached → triggering pagination');
-        _loadHistory(loadMore: true);
-      }
-    });
-
-    _init();
-  }
-
   Future<void> _init() async {
-
-    debugPrint('🧠 [_init] START');
-    debugPrint('🧠 [_init] ROOM ID = ${widget.roomId}');
-    debugPrint('🧠 [_init] ASTRO ID = ${widget.myUserId}');
-    debugPrint('🧠 [_init] RECEIVER ID = ${widget.receiverId}');
-    debugPrint('🧠 [_init] Loading SharedPreferences...');
     final prefs = await SharedPreferences.getInstance();
 
     _roomId = widget.roomId.trim();
     _myUserId = widget.myUserId.trim();
     _token = widget.authToken ?? prefs.getString('access_token') ?? '';
 
-    debugPrint('🧠 [_init] roomId=$_roomId');
-    debugPrint('🧠 [_init] astroId=$_myUserId');
-    debugPrint('🧠 [_init] token=${_token.isNotEmpty ? "FOUND" : "MISSING"}');
-
-    if (_roomId.isEmpty || _myUserId.isEmpty || _token.isEmpty) {
-      debugPrint('❌ [_init] Missing required chat params');
-      return;
-    }
-
-    await _loadHistory();
+    // await _loadHistory();
     if (!mounted) return;
 
     setState(() => _loading = false);
-    debugPrint('🟢 [_init] History loaded → connecting WebSocket');
     _connectWebSocket();
   }
 
   // ---------------------------------------------------------------------------
-  // HISTORY (PAGINATION)
+  // HISTORY
   // ---------------------------------------------------------------------------
 
-  Future<void> _loadHistory({bool loadMore = false}) async {
-    if (_isFetchingMore) {
-      debugPrint('⏸️ [_loadHistory] Already fetching, skipping');
-      return;
-    }
-
-    _isFetchingMore = true;
-
-    debugPrint(
-        '📜 [_loadHistory] START page=$_page size=$_pageSize loadMore=$loadMore');
-
+  Future<void> _loadHistory() async {
     try {
       final resp = await _api.getChatHistoryForAstrologerSelf(
         otherUserId: widget.receiverId,
-        page: _page,
-        size: _pageSize,
+        page: 1,
+        size: 50,
       );
 
-      final items = resp['messages'] as List? ?? [];
-      _total = resp['total'] ?? 0;
 
-      debugPrint(
-          '📜 [_loadHistory] received=${items.length} total=$_total');
 
-      if (items.isEmpty) {
-        debugPrint('📜 [_loadHistory] No more messages');
-        _hasMore = false;
-        return;
-      }
+      final items = (resp['messages'] as List? ?? []).reversed.toList();
 
-      final newMessages = items.map((m) {
-        debugPrint(
-            '📦 API MSG → sender=${m['sender_user_id']} content="${m['content']}"');
+      setState(() {
+        _messages
+          ..clear()
+          ..addAll(items.map((m) => {
+            'sender_id': m['sender_user_id']?.toString(),
+            'message': m['content']?.toString() ?? '',
+            'created_at': m['created_at'],
+          }));
+      });
 
-        return {
-          'sender_id': m['sender_user_id'], // 🔥 IMPORTANT
-          'message': m['content'],
-          'created_at': m['created_at'],
-        };
-      }).toList();
-
-      if (loadMore) {
-        final oldOffset = _scrollCtrl.offset;
-        final oldMax = _scrollCtrl.position.maxScrollExtent;
-
-        setState(() {
-          _messages.insertAll(0, newMessages);
-          _page++;
-          if (_messages.length >= _total) _hasMore = false;
-        });
-
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          final newMax = _scrollCtrl.position.maxScrollExtent;
-          _scrollCtrl.jumpTo(newMax - oldMax + oldOffset);
-          debugPrint('📜 Pagination scroll position preserved');
-        });
-      } else {
-        setState(() {
-          _messages.clear();
-          _messages.addAll(newMessages);
-          _page = 2;
-          _hasMore = _messages.length < _total;
-        });
-
-        debugPrint('📜 Initial history loaded (${_messages.length})');
-        _scrollToBottom();
-      }
-    } catch (e, st) {
-      debugPrint('❌ [_loadHistory] Error: $e');
-      debugPrint(st.toString());
-    } finally {
-      _isFetchingMore = false;
-      debugPrint('📜 [_loadHistory] END');
+      _scrollToBottom();
+    } catch (e) {
+      debugPrint('❌ History error: $e');
     }
   }
 
@@ -186,14 +101,6 @@ class _AstrologerChatPageState extends State<AstrologerChatPage> {
   // ---------------------------------------------------------------------------
 
   Future<void> _connectWebSocket() async {
-    if (_socket != null) {
-      debugPrint('⚠️ [_connectWebSocket] Socket already active');
-      return;
-      // debugPrint('🌐 [_connectWebSocket] ROOM ID = $_roomId');
-      // debugPrint('🌐 [_connectWebSocket] FULL URL = $uri');
-
-    }
-
     final uri = Uri(
       scheme: 'wss',
       host: 'fastapi.jyotishionline.com',
@@ -201,71 +108,45 @@ class _AstrologerChatPageState extends State<AstrologerChatPage> {
       queryParameters: {'token': _token},
     );
 
-    debugPrint('🌐 [_connectWebSocket] Connecting → $uri');
+    _socket = await WebSocket.connect(uri.toString());
+    _socket!.pingInterval = const Duration(seconds: 20);
 
-    try {
-      final ws = await WebSocket.connect(uri.toString());
-      _socket = ws;
-      _socket!.pingInterval = const Duration(seconds: 20);
+    setState(() => _connected = true);
 
-      setState(() => _connected = true);
-      debugPrint('✅ [_connectWebSocket] CONNECTED');
-
-      _socket!.listen(
-        _onMessage,
-        onDone: _onDisconnect,
-        onError: (e) {
-          debugPrint('🔥 WS ERROR: $e');
-          _onDisconnect();
-        },
-      );
-    } catch (e, st) {
-      debugPrint('❌ WS CONNECT FAILED: $e');
-      debugPrint(st.toString());
-    }
+    _socket!.listen(_onMessage);
   }
 
-  void _onMessage(dynamic data) {
-    debugPrint('⬅️ WS FRAME: $data');
-
+  void _onMessage(dynamic data) async {
     try {
-      final parsed = jsonDecode(data);
-      if (parsed['type'] != 'message') {
-        debugPrint('ℹ️ WS non-message ignored');
-        return;
-      }
+      final raw = data is String ? data : utf8.decode(data);
+      final parsed = jsonDecode(raw);
+
+      if (parsed is! Map || parsed['type'] != 'message') return;
 
       final msg = parsed['message'];
-      debugPrint(
-          '📩 WS MSG room=${msg['room_id']} sender=${msg['sender_user_id']}'
-      );
-      final sender = msg['sender_user_id'];
+      if (msg is! Map) return;
 
-      debugPrint(
-          '📩 WS MESSAGE sender=$sender isMine=${sender == _myUserId}');
+      final String senderId = msg['sender_user_id']?.toString() ?? '';
+
+      // 🔥 get user_id from SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      final String useridforastro = prefs.getString('user_id') ?? '';
+
+      // 🔥 ignore self WS echo (duplicate prevention)
+      if (senderId == useridforastro) return;
 
       setState(() {
         _messages.add({
-          'sender_id': sender,
-          'message': msg['content'],
+          'sender_id': senderId,
+          'message': msg['content']?.toString() ?? '',
           'created_at': msg['created_at'],
         });
       });
 
       _scrollToBottom();
-    } catch (e, st) {
-      debugPrint('❌ WS PARSE ERROR: $e');
-      debugPrint(st.toString());
+    } catch (e) {
+      debugPrint('❌ WS onMessage error: $e');
     }
-  }
-
-  void _onDisconnect() {
-    debugPrint('🔴 WS DISCONNECTED');
-    try {
-      _socket?.close();
-    } catch (_) {}
-    _socket = null;
-    setState(() => _connected = false);
   }
 
   // ---------------------------------------------------------------------------
@@ -274,27 +155,20 @@ class _AstrologerChatPageState extends State<AstrologerChatPage> {
 
   void _sendMessage() {
     final text = _textCtrl.text.trim();
-    debugPrint('➡️ SEND pressed text="$text" connected=$_connected');
+    if (text.isEmpty || !_connected || _socket == null) return;
 
-    if (text.isEmpty || !_connected || _socket == null) {
-      debugPrint('⚠️ SEND blocked (empty / disconnected)');
-      return;
-    }
-
-    final payload = {"content": text, "metadata": {}};
-    debugPrint('➡️ WS SEND PAYLOAD: ${jsonEncode(payload)}');
-
-    _socket!.add(jsonEncode(payload));
-
+    // Optimistic UI
     setState(() {
       _messages.add({
         'sender_id': _myUserId,
         'message': text,
         'created_at': DateTime.now().toIso8601String(),
       });
-      _textCtrl.clear();
     });
 
+    _socket!.add(jsonEncode({'content': text}));
+
+    _textCtrl.clear();
     _scrollToBottom();
   }
 
@@ -305,7 +179,6 @@ class _AstrologerChatPageState extends State<AstrologerChatPage> {
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollCtrl.hasClients) {
-        debugPrint('⬇️ Auto-scroll to bottom');
         _scrollCtrl.jumpTo(_scrollCtrl.position.maxScrollExtent);
       }
     });
@@ -313,10 +186,7 @@ class _AstrologerChatPageState extends State<AstrologerChatPage> {
 
   @override
   void dispose() {
-    debugPrint('🧹 ChatPage dispose');
-    try {
-      _socket?.close();
-    } catch (_) {}
+    _socket?.close();
     _textCtrl.dispose();
     _scrollCtrl.dispose();
     super.dispose();
@@ -328,10 +198,15 @@ class _AstrologerChatPageState extends State<AstrologerChatPage> {
 
   @override
   Widget build(BuildContext context) {
-    debugPrint('🖼️ build() connected=$_connected messages=${_messages.length}');
-
     return Scaffold(
-      appBar: AppBar(title: Text(widget.receiverName)),
+      backgroundColor: const Color(0xFFF5F5F5),
+      appBar: AppBar(
+        elevation: 1,
+        title: Text(
+          widget.receiverName,
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+      ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : Column(
@@ -339,66 +214,157 @@ class _AstrologerChatPageState extends State<AstrologerChatPage> {
           Expanded(
             child: ListView.builder(
               controller: _scrollCtrl,
-              itemCount: _messages.length +
-                  (_isFetchingMore ? 1 : 0),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 12, vertical: 8),
+              itemCount: _messages.length,
               itemBuilder: (_, i) {
-                if (_isFetchingMore && i == 0) {
-                  return const Padding(
-                    padding: EdgeInsets.all(8),
-                    child: Center(
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2)),
-                  );
-                }
-
-                final msg =
-                _messages[_isFetchingMore ? i - 1 : i];
+                final msg = _messages[i];
                 final isMine =
                     msg['sender_id'] == _myUserId;
 
-                debugPrint(
-                    '🧩 Render msg sender=${msg['sender_id']} isMine=$isMine');
-
-                return Align(
-                  alignment: isMine
-                      ? Alignment.centerRight
-                      : Alignment.centerLeft,
-                  child: Container(
-                    margin: const EdgeInsets.all(6),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: isMine
-                          ? Colors.orange
-                          : Colors.grey.shade200,
-                      borderRadius:
-                      BorderRadius.circular(12),
-                    ),
-                    child: Text(msg['message']),
-                  ),
+                return _ChatBubble(
+                  message: msg['message'],
+                  isMine: isMine,
+                  time: msg['created_at'],
                 );
               },
             ),
           ),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _textCtrl,
-                  onSubmitted: (_) => _sendMessage(),
-                  decoration: const InputDecoration(
-                    hintText: 'Type message',
-                  ),
+          _buildInputBar(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInputBar() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 8,
+            offset: const Offset(0, -2),
+          )
+        ],
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _textCtrl,
+              minLines: 1,
+              maxLines: 4,
+              decoration: InputDecoration(
+                hintText: 'Type a message…',
+                contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16, vertical: 12),
+                filled: true,
+                fillColor: const Color(0xFFF2F2F2),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(24),
+                  borderSide: BorderSide.none,
                 ),
               ),
-              IconButton(
-                icon: const Icon(Icons.send),
-                onPressed:
-                _connected ? _sendMessage : null,
+              onSubmitted: (_) => _sendMessage(),
+            ),
+          ),
+          const SizedBox(width: 8),
+          InkWell(
+            onTap: _sendMessage,
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.orange,
               ),
-            ],
+              child: const Icon(
+                Icons.send,
+                color: Colors.white,
+                size: 20,
+              ),
+            ),
           ),
         ],
       ),
     );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// CHAT BUBBLE
+// ---------------------------------------------------------------------------
+
+class _ChatBubble extends StatelessWidget {
+  final String message;
+  final bool isMine;
+  final String? time;
+
+  const _ChatBubble({
+    required this.message,
+    required this.isMine,
+    this.time,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.of(context).size.width * 0.75,
+        ),
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: isMine ? Colors.orange : Colors.white,
+          borderRadius: BorderRadius.only(
+            topLeft: const Radius.circular(16),
+            topRight: const Radius.circular(16),
+            bottomLeft:
+            isMine ? const Radius.circular(16) : Radius.zero,
+            bottomRight:
+            isMine ? Radius.zero : const Radius.circular(16),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
+            )
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment:
+          isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          children: [
+            Text(
+              message,
+              style: TextStyle(
+                fontSize: 15,
+                color: isMine ? Colors.white : Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              _formatTime(time),
+              style: TextStyle(
+                fontSize: 10,
+                color:
+                isMine ? Colors.white70 : Colors.grey.shade600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static String _formatTime(String? iso) {
+    if (iso == null) return '';
+    final dt = DateTime.tryParse(iso);
+    if (dt == null) return '';
+    return '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
   }
 }

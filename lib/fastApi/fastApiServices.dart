@@ -409,6 +409,7 @@ class FastApiServices {
         await prefs.setString("auth_token", token);
 
 
+
         await prefs.setString("token_type", data["token_type"] ?? "");
 
 
@@ -420,6 +421,7 @@ class FastApiServices {
         // ✅ Store all astro details
       //  await prefs.setString("user_id", astro["user_id"] ?? "");
         await prefs.setString("astro_id", astro["astro_id"] ?? "");
+        await prefs.setString("user_id", astro["user_id"] ?? "");
         await prefs.setString("contactNo", astro["contactNo"] ?? "");
         await prefs.setString("countryCode", astro["countryCode"] ?? "");
         await prefs.setString("name", astro["name"] ?? "");

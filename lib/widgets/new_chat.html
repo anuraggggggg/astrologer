@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Jyotishi WebSocket 2-Browser Test</title>
+
+    <style>
+        body { font-family: Arial; background:#f4f6fb }
+        .box {
+          max-width:700px;
+          margin:30px auto;
+          background:#fff;
+          padding:16px;
+          border-radius:10px;
+          box-shadow:0 4px 12px rgba(0,0,0,.1)
+        }
+        input, textarea, select, button {
+          width:100%; padding:8px; margin-top:8px;
+          border-radius:6px; border:1px solid #ccc
+        }
+        button { font-weight:bold; cursor:pointer }
+        .log {
+          background:#020617; color:#e5e7eb;
+          height:300px; overflow:auto;
+          font-size:12px; font-family:monospace;
+          padding:8px; margin-top:12px
+        }
+        .ok { color:#22c55e }
+        .err { color:#fb7185 }
+        .sys { color:#a3a3a3 }
+    </style>
+</head>
+
+<body>
+
+<div class="box">
+    <h2>🔁 WebSocket 2-Browser Debug Test</h2>
+
+    <label>Role</label>
+    <select id="role">
+        <option value="">-- select --</option>
+        <option value="user">User (Customer)</option>
+        <option value="astro">Astrologer</option>
+    </select>
+
+    <label>Room ID</label>
+    <input id="room" placeholder="room_xxxxx">
+
+    <label>JWT Token</label>
+    <textarea id="token" placeholder="Paste JWT here"></textarea>
+
+    <button onclick="connectWS()">Connect</button>
+
+    <label>Message</label>
+    <input id="msg" placeholder="Type message">
+    <button onclick="sendMsg()">Send</button>
+
+    <div class="log" id="log"></div>
+</div>
+
+<script>
+    let ws = null;
+
+    function log(msg, cls="sys") {
+      const el = document.getElementById("log");
+      el.innerHTML += `[${new Date().toLocaleTimeString()}] <span class="${cls}">${msg}</span><br>`;
+      el.scrollTop = el.scrollHeight;
+    }
+
+    function decodeSub(token) {
+      try {
+        return JSON.parse(atob(token.split('.')[1])).sub;
+      } catch {
+        return null;
+      }
+    }
+
+    function connectWS() {
+      const room = document.getElementById("room").value.trim();
+      const token = document.getElementById("token").value.trim();
+      const role = document.getElementById("role").value;
+
+      if (!room || !token || !role) {
+        log("ROOM / TOKEN / ROLE missing", "err");
+        return;
+      }
+
+      const sub = decodeSub(token);
+      if (!sub) {
+        log("INVALID JWT", "err");
+        return;
+      }
+
+      log(`ROLE=${role}`, "ok");
+      log(`JWT sub=${sub}`, "ok");
+
+      const url = `wss://fastapi.jyotishionline.com/chat/ws/${room}?token=${token}`;
+      log("CONNECT → " + url);
+
+      ws = new WebSocket(url);
+
+      ws.onopen = () => log("CONNECTED", "ok");
+
+      ws.onmessage = e => {
+        try {
+          const d = JSON.parse(e.data);
+          if (d.type === "message") {
+            log(
+              `RECV | sender=${d.message.sender_user_id} | msg="${d.message.content}"`,
+              "ok"
+            );
+          } else {
+            log("RECV RAW: " + e.data);
+          }
+        } catch {
+          log("RECV RAW: " + e.data);
+        }
+      };
+
+      ws.onerror = () => log("SOCKET ERROR", "err");
+      ws.onclose = () => log("DISCONNECTED", "err");
+    }
+
+    function sendMsg() {
+      if (!ws || ws.readyState !== 1) {
+        log("NOT CONNECTED", "err");
+        return;
+      }
+
+      const msg = document.getElementById("msg").value.trim();
+      if (!msg) return;
+
+      ws.send(JSON.stringify({ content: msg }));
+      log("SEND → " + msg, "ok");
+    }
+</script>
+
+</body>
+</html>

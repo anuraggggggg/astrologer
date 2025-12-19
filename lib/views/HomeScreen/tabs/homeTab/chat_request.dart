@@ -18,6 +18,8 @@
     Future<List<Map<String, dynamic>>>? _requestsFuture;
 
     String? _myAstroId;
+
+
     String? _myAstroName;
     String? _bearerToken;
     String _chatRate = "0";
@@ -132,6 +134,18 @@
         return;
       }
 
+
+      final prefs = await SharedPreferences.getInstance();
+      final String? userIdOfAstro = prefs.getString("user_id");
+
+      if (userIdOfAstro == null || userIdOfAstro.isEmpty) {
+        debugPrint("❌ user_id_of_astro not found in SharedPreferences");
+        setState(() => _busy = false);
+        return;
+      }
+
+      debugPrint("🧠 ASTRO USER ID (from prefs): $userIdOfAstro");
+
       debugPrint("💬 Request accepted successfully.");
 
       // Step 2 → Send Notification to CUSTOMER (FULL DATA)
@@ -144,14 +158,25 @@
           screen: "chatPage",
           data: {
             "roomId": roomId,
-            "astrologerUid": _myAstroId,
+            "astrologerUid": userIdOfAstro,
             "myUserId": userId,
+            "astro_id": _myAstroId,
+
             "astrologerName":
                 _myAstroName?.isEmpty ?? true ? "Astrologer" : _myAstroName,
             "chatRate": "0",
-            "token": _bearerToken,
+            // "token": _bearerToken,
           },
         );
+
+
+
+
+
+
+
+
+        // _myAstroId    userId
 
         debugPrint("📨 Customer notified with full payload.");
       } catch (e) {
