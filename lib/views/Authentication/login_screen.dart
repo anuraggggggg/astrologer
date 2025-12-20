@@ -146,41 +146,57 @@ class _LoginScreenState extends State<LoginScreen> {
                             /// SEND OTP BUTTON
                             GestureDetector(
                               onTap: () async {
-                                if (_formKey.currentState!.validate()) {
-                                  final authProvider =
-                                      Provider.of<AuthProvider>(context,
-                                          listen: false);
+                                // Prevent tap while loading
+                                final authProvider =
+                                Provider.of<AuthProvider>(context, listen: false);
 
-                                  String phoneNumber = loginOtpController
-                                      .cMobileNumber.text
-                                      .trim();
-                                  String countryCode =
+                                if (authProvider.isLoading) return;
+
+                                if (_formKey.currentState!.validate()) {
+                                  FocusScope.of(context).unfocus();
+
+                                  final String phoneNumber =
+                                  loginOtpController.cMobileNumber.text.trim();
+                                  final String countryCode =
                                       loginOtpController.countryCode;
 
-                                  bool success = await authProvider.requestOtp(
+                                  final bool success = await authProvider.requestOtp(
                                     contactNo: phoneNumber,
                                     countryCode: countryCode,
                                   );
 
-                                  // Remove any old snackbars first
-                                  ScaffoldMessenger.of(context)
-                                      .removeCurrentSnackBar();
+                                  // Build clean message
+                                  final String message = success
+                                      ? "OTP sent successfully"
+                                      : (authProvider.errorMessage?.trim().isNotEmpty == true
+                                      ? authProvider.errorMessage!
+                                      : "Failed to send OTP");
 
-                                  // Show success or failure message
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text(success
-                                          ? "OTP sent successfully"
-                                          : authProvider.errorMessage ??
-                                              "Failed to send OTP"),
-                                      backgroundColor:
-                                          success ? Colors.green : Colors.red,
-                                    ),
-                                  );
+                                  // Remove previous snackbar & show new one
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context)
+                                      ..removeCurrentSnackBar()
+                                      ..showSnackBar(
+                                        SnackBar(
+                                          content: Row(
+                                            children: [
+                                              Icon(
+                                                success ? Icons.check_circle : Icons.error,
+                                                color: Colors.white,
+                                              ),
+                                              const SizedBox(width: 10),
+                                              Expanded(child: Text(message)),
+                                            ],
+                                          ),
+                                          backgroundColor: success ? Colors.green : Colors.red,
+                                          behavior: SnackBarBehavior.floating,
+                                          duration: const Duration(seconds: 3),
+                                        ),
+                                      );
+                                  }
 
-                                  // Navigate to OTP screen if successful
-                                  if (success) {
-                                    // Use Future.microtask or WidgetsBinding to avoid context issues
+                                  // Navigate only if OTP request succeeded
+                                  if (success && context.mounted) {
                                     Future.microtask(() {
                                       Navigator.push(
                                         context,
@@ -212,33 +228,32 @@ class _LoginScreenState extends State<LoginScreen> {
                                   child: Consumer<AuthProvider>(
                                     builder: (_, authProvider, __) {
                                       return authProvider.isLoading
-                                          ? const CircularProgressIndicator(
-                                              color: Colors.white)
+                                          ? const CircularProgressIndicator(color: Colors.white)
                                           : Row(
-                                              mainAxisAlignment:
-                                                  MainAxisAlignment.center,
-                                              children: [
-                                                Text(
-                                                  'SEND_OTP',
-                                                  style: TextStyle(
-                                                    color: Colors.white,
-                                                    fontSize: 12.sp,
-                                                    fontWeight: FontWeight.w600,
-                                                  ),
-                                                ).tr(),
-                                                const SizedBox(width: 10),
-                                                Icon(
-                                                  Icons.arrow_forward,
-                                                  color: Colors.white,
-                                                  size: 18.sp,
-                                                ),
-                                              ],
-                                            );
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          Text(
+                                            'SEND_OTP',
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 12.sp,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ).tr(),
+                                          const SizedBox(width: 10),
+                                          Icon(
+                                            Icons.arrow_forward,
+                                            color: Colors.white,
+                                            size: 18.sp,
+                                          ),
+                                        ],
+                                      );
                                     },
                                   ),
                                 ),
                               ),
                             ),
+
 
                             SizedBox(height: 3.h),
                           ],
@@ -275,7 +290,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             }
                             signupController.clearAstrologer();
                             Get.to(() => AstrologerSignupPage(),
-                                routeName: "Signup Screen");
+                                routeName: "Sign up Screen");
                           },
                           child: GetBuilder<LoginController>(builder: (_) {
                             return Center(
@@ -288,7 +303,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                       .copyWith(fontSize: 11.sp),
                                   children: [
                                     TextSpan(
-                                      text: " ${tr("signUp")}",
+                                      text: " ${tr("Sign Up")}",
                                       style: TextStyle(
                                         fontWeight: FontWeight.w700,
                                         color: COLORS().primaryColor,

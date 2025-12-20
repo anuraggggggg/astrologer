@@ -52,7 +52,7 @@ class AuthProvider with ChangeNotifier {
       _successMessage = response['message'] ?? 'OTP sent successfully!';
       return true;
     } catch (e) {
-      _errorMessage = "Failed to send OTP: $e";
+      _errorMessage = e.toString().replaceFirst("Exception: ", "");
       print("🚨 Exception occurred: $e");
       return false;
     } finally {

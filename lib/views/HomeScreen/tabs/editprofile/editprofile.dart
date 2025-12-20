@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart'; // optional
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/services.dart';
+
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' show basename;
 import 'package:url_launcher/url_launcher_string.dart';
@@ -53,6 +55,19 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
   final TextEditingController _facebookController = TextEditingController();
   final TextEditingController _loginBioController = TextEditingController();
 
+
+  final onlyLettersFormatter =
+  FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z ]'));
+
+  final onlyDigitsFormatter =
+      FilteringTextInputFormatter.digitsOnly;
+
+  final upperCaseFormatter = TextInputFormatter.withFunction(
+        (oldValue, newValue) =>
+        newValue.copyWith(text: newValue.text.toUpperCase()),
+  );
+
+
   // --- USD charge controllers
   final TextEditingController _chatUsdController = TextEditingController();
   final TextEditingController _audioUsdController = TextEditingController();
@@ -61,6 +76,88 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
   // profile image (editable)
   File? _profileImage;
   String? _profileImageUrl;
+
+
+  String? validateName(String? v) {
+    if (v == null || v
+        .trim()
+        .isEmpty) return 'Name is required';
+    final t = v.trim();
+    if (t.length < 3) return 'Minimum 3 characters required';
+    if (t.length > 50) return 'Maximum 50 characters allowed';
+    if (!RegExp(r'^[A-Za-z ]+$').hasMatch(t)) {
+      return 'Only alphabets allowed';
+    }
+    return null;
+  }
+
+  String? validateEmail(String? v) {
+    if (v == null || v
+        .trim()
+        .isEmpty) return null;
+    final emailRegex = RegExp(
+        r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$");
+    return emailRegex.hasMatch(v.trim())
+        ? null
+        : 'Enter valid email';
+  }
+
+  String? validatePhone(String? v) {
+    if (v == null || v
+        .trim()
+        .isEmpty) return 'Contact required';
+    if (!RegExp(r'^[0-9]+$').hasMatch(v)) return 'Only numbers allowed';
+    if (v.length < 7 || v.length > 12) {
+      return '7–12 digits required';
+    }
+    return null;
+  }
+
+  String? validateAadhaar(String? v) {
+    if (v == null || v
+        .trim()
+        .isEmpty) return null;
+    return RegExp(r'^[0-9]{12}$').hasMatch(v)
+        ? null
+        : 'Aadhaar must be 12 digits';
+  }
+
+  String? validatePan(String? v) {
+    if (v == null || v
+        .trim()
+        .isEmpty) return null;
+    return RegExp(r'^[A-Z]{5}[0-9]{4}[A-Z]$').hasMatch(v.toUpperCase())
+        ? null
+        : 'Invalid PAN (ABCDE1234F)';
+  }
+
+  String? validateIFSC(String? v) {
+    if (v == null || v
+        .trim()
+        .isEmpty) return null;
+    return RegExp(r'^[A-Z]{4}0[A-Z0-9]{6}$').hasMatch(v.toUpperCase())
+        ? null
+        : 'Invalid IFSC';
+  }
+
+  String? validateUPI(String? v) {
+    if (v == null || v
+        .trim()
+        .isEmpty) return null;
+    return RegExp(r'^[\w.\-]{2,256}@[a-zA-Z]{2,64}$').hasMatch(v)
+        ? null
+        : 'Invalid UPI ID';
+  }
+
+  String? validateNumberOnly(String? v, String label) {
+    if (v == null || v
+        .trim()
+        .isEmpty) return 'Enter $label';
+    if (!RegExp(r'^[0-9]+$').hasMatch(v)) {
+      return '$label must be numeric';
+    }
+    return null;
+  }
 
   // KYC docs: local selected files
   final Map<String, File?> _docFiles = {
@@ -140,26 +237,34 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
   }
 
   bool _isValidUrl(String s) {
-    if (s.trim().isEmpty) return true;
+    if (s
+        .trim()
+        .isEmpty) return true;
     try {
       final uri = Uri.parse(s);
-      return uri.hasScheme && (uri.scheme == 'http' || uri.scheme == 'https') && uri.host.isNotEmpty;
+      return uri.hasScheme && (uri.scheme == 'http' || uri.scheme == 'https') &&
+          uri.host.isNotEmpty;
     } catch (_) {
       return false;
     }
   }
 
   String? _validateName(String? v) {
-    if (v == null || v.trim().isEmpty) return 'Enter name';
+    if (v == null || v
+        .trim()
+        .isEmpty) return 'Enter name';
     final t = v.trim();
     if (t.length < 3) return 'Name must be at least 3 characters';
     if (t.length > 50) return 'Name must be maximum 50 characters';
-    if (!RegExp(r"^[A-Za-z\s\.\-']+$").hasMatch(t)) return 'Name contains invalid characters';
+    if (!RegExp(r"^[A-Za-z\s\.\-']+$").hasMatch(t))
+      return 'Name contains invalid characters';
     return null;
   }
 
   String? _validateContact(String? v) {
-    if (v == null || v.trim().isEmpty) return 'Enter contact number';
+    if (v == null || v
+        .trim()
+        .isEmpty) return 'Enter contact number';
     final t = v.trim();
     if (!_isNumeric(t)) return 'Contact must contain only digits';
     if (t.length < 10) return 'Contact must be 10 digits';
@@ -167,12 +272,16 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
   }
 
   String? _validateEmail(String? v) {
-    if (v == null || v.trim().isEmpty) return null;
+    if (v == null || v
+        .trim()
+        .isEmpty) return null;
     return _isValidEmail(v.trim()) ? null : 'Enter a valid email address';
   }
 
   String? _validateCharge(String? v, int minValue, String label) {
-    if (v == null || v.trim().isEmpty) return 'Enter $label';
+    if (v == null || v
+        .trim()
+        .isEmpty) return 'Enter $label';
     final t = v.trim();
     if (!_isNumeric(t)) return '$label must be a number';
     final n = int.tryParse(t) ?? 0;
@@ -182,7 +291,9 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
 
   // --- USD validator: allow zero or positive integer (no admin block assumptions here)
   String? _validateUsdCharge(String? v, String label) {
-    if (v == null || v.trim().isEmpty) return null; // allow empty
+    if (v == null || v
+        .trim()
+        .isEmpty) return null; // allow empty
     final t = v.trim();
     if (!_isNumeric(t)) return '$label must be a number';
     final n = int.tryParse(t) ?? 0;
@@ -191,37 +302,59 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
   }
 
   String? _validatePan(String? v) {
-    if (v == null || v.trim().isEmpty) return null;
-    return _isValidPan(v.trim()) ? null : 'PAN must be 5 letters, 4 digits, 1 letter (e.g. ABCDE1234F)';
+    if (v == null || v
+        .trim()
+        .isEmpty) return null;
+    return _isValidPan(v.trim())
+        ? null
+        : 'PAN must be 5 letters, 4 digits, 1 letter (e.g. ABCDE1234F)';
   }
 
   String? _validateAadhaar(String? v) {
-    if (v == null || v.trim().isEmpty) return null;
-    return _isValidAadhaar(v.trim()) ? null : 'Aadhaar must be a 12-digit number';
+    if (v == null || v
+        .trim()
+        .isEmpty) return null;
+    return _isValidAadhaar(v.trim())
+        ? null
+        : 'Aadhaar must be a 12-digit number';
   }
 
   String? _validateBankName(String? v) {
-    if (v == null || v.trim().isEmpty) return null;
+    if (v == null || v
+        .trim()
+        .isEmpty) return null;
     return _isValidBankName(v.trim()) ? null : 'Invalid bank name';
   }
 
   String? _validateAccount(String? v) {
-    if (v == null || v.trim().isEmpty) return null;
-    return _isValidAccountNumber(v.trim()) ? null : 'Account number must be 8 to 18 digits';
+    if (v == null || v
+        .trim()
+        .isEmpty) return null;
+    return _isValidAccountNumber(v.trim())
+        ? null
+        : 'Account number must be 8 to 18 digits';
   }
 
   String? _validateIfsc(String? v) {
-    if (v == null || v.trim().isEmpty) return null;
-    return _isValidIfsc(v.trim()) ? null : 'IFSC must be 11 alphanumeric characters';
+    if (v == null || v
+        .trim()
+        .isEmpty) return null;
+    return _isValidIfsc(v.trim())
+        ? null
+        : 'IFSC must be 11 alphanumeric characters';
   }
 
   String? _validateUpi(String? v) {
-    if (v == null || v.trim().isEmpty) return null;
+    if (v == null || v
+        .trim()
+        .isEmpty) return null;
     return _isValidUpi(v.trim()) ? null : 'Invalid UPI id (example: name@bank)';
   }
 
   String? _validateBio(String? v) {
-    if (v == null || v.trim().isEmpty) return null;
+    if (v == null || v
+        .trim()
+        .isEmpty) return null;
     final t = v.trim();
     if (t.length < 3) return 'Bio must be at least 3 characters';
     if (t.length > 300) return 'Bio must be at most 300 characters';
@@ -229,9 +362,12 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
   }
 
   String? _validateUrlField(String? v) {
-    if (v == null || v.trim().isEmpty) return null;
+    if (v == null || v
+        .trim()
+        .isEmpty) return null;
     return _isValidUrl(v.trim()) ? null : 'Enter a valid URL (http/https)';
   }
+
   // ----------------- End validation helpers -----------------
 
   Future<void> _loadProfileAndBlocked({bool isRetry = false}) async {
@@ -256,9 +392,12 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
 
       final fetchedProfile = await _api.getAstrologerById();
 
-      final String astroId = (fetchedProfile['astro_id'] as String?) ?? prefs.getString('astro_id') ?? prefs.getString('user_id') ?? '';
+      final String astroId = (fetchedProfile['astro_id'] as String?) ??
+          prefs.getString('astro_id') ?? prefs.getString('user_id') ?? '';
 
-      final unlockUri = Uri.parse(FastApiEndpoints.fastApiBaseUrl + '/admin/admin/unlock-fields/' + astroId);
+      final unlockUri = Uri.parse(
+          FastApiEndpoints.fastApiBaseUrl + '/admin/admin/unlock-fields/' +
+              astroId);
       final unlockResp = await http.get(unlockUri, headers: {
         'accept': 'application/json',
         'Authorization': 'Bearer ' + token,
@@ -267,8 +406,11 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
       Set<String> blockedFromApi = {};
       if (unlockResp.statusCode == 200) {
         try {
-          final unlockJson = json.decode(unlockResp.body) as Map<String, dynamic>;
-          final blockedList = (unlockJson['blocked_fields'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? <String>[];
+          final unlockJson = json.decode(unlockResp.body) as Map<String,
+              dynamic>;
+          final blockedList = (unlockJson['blocked_fields'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList() ?? <String>[];
           blockedFromApi = blockedList.toSet();
         } catch (_) {
           blockedFromApi = {};
@@ -279,12 +421,16 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
       setState(() {
         profile = fetchedProfile;
         isLoading = false;
-        _blockedFields..clear()..addAll(blockedFromApi);
+        _blockedFields
+          ..clear()
+          ..addAll(blockedFromApi);
 
         // profile image
         final rawImagePath = profile?['profileImage'] ?? '';
         final base = FastApiEndpoints.fastApiBaseUrl.replaceAll('+', '');
-        final imagePath = (rawImagePath ?? '').toString().startsWith('/') ? rawImagePath.toString().substring(1) : rawImagePath.toString();
+        final imagePath = (rawImagePath ?? '').toString().startsWith('/')
+            ? rawImagePath.toString().substring(1)
+            : rawImagePath.toString();
         _profileImageUrl = imagePath.isNotEmpty ? "$base/$imagePath" : null;
 
         // fill controllers (text)
@@ -295,10 +441,13 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
         _cityController.text = profile?['currentCity'] ?? '';
         _languageController.text = profile?['languageKnown'] ?? '';
         _skillController.text = profile?['primarySkill'] ?? '';
-        _experienceController.text = (profile?['experienceInYears'] ?? '').toString();
-        _audioCallController.text = (profile?['audioCallCharge'] ?? '').toString();
+        _experienceController.text =
+            (profile?['experienceInYears'] ?? '').toString();
+        _audioCallController.text =
+            (profile?['audioCallCharge'] ?? '').toString();
         _chatController.text = (profile?['chatCharge'] ?? '').toString();
-        _videoCallController.text = (profile?['videoCallCharge'] ?? '').toString();
+        _videoCallController.text =
+            (profile?['videoCallCharge'] ?? '').toString();
         _loginBioController.text = profile?['loginBio'] ?? '';
 
         _linkedInController.text = profile?['linkedInProfileLink'] ?? '';
@@ -309,7 +458,8 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
 
         _panNumberController.text = profile?['panNumber'] ?? '';
         _aadhaarController.text = profile?['aadhaarNumber'] ?? '';
-        _highestQualificationController.text = profile?['highestQualification'] ?? '';
+        _highestQualificationController.text =
+            profile?['highestQualification'] ?? '';
         _learnAstrologyController.text = profile?['learnAstrology'] ?? '';
         _bankNameController.text = profile?['bankName'] ?? '';
         _accountNumberController.text = profile?['accountNumber'] ?? '';
@@ -329,10 +479,11 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
             intText(profile?['videoCallChargeUSD']);
 
 
-
         // KYC doc urls
         String makeUrl(String? raw) {
-          if (raw == null || raw.trim().isEmpty) return '';
+          if (raw == null || raw
+              .trim()
+              .isEmpty) return '';
           final r = raw.trim();
           if (r.startsWith('http')) return r;
           final base2 = FastApiEndpoints.fastApiBaseUrl.replaceAll('+', '');
@@ -340,10 +491,13 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
           return '$base2/$p';
         }
 
-        _docUrls['aadhaarFrontImage'] = makeUrl(profile?['aadhaarFrontImage'] as String?);
-        _docUrls['aadhaarBackImage'] = makeUrl(profile?['aadhaarBackImage'] as String?);
+        _docUrls['aadhaarFrontImage'] =
+            makeUrl(profile?['aadhaarFrontImage'] as String?);
+        _docUrls['aadhaarBackImage'] =
+            makeUrl(profile?['aadhaarBackImage'] as String?);
         _docUrls['panCardImage'] = makeUrl(profile?['panCardImage'] as String?);
-        _docUrls['bankPassbookImage'] = makeUrl(profile?['bankPassbookImage'] as String?);
+        _docUrls['bankPassbookImage'] =
+            makeUrl(profile?['bankPassbookImage'] as String?);
 
         // clear local picked files map (we show server versions)
         _docFiles.updateAll((k, v) => null);
@@ -376,7 +530,12 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
 
   // ---------------- file validators ----------------
   bool _isExtAllowed(String pathOrName) {
-    final parts = pathOrName.split('?').first.split('/').last.split('.');
+    final parts = pathOrName
+        .split('?')
+        .first
+        .split('/')
+        .last
+        .split('.');
     if (parts.length < 2) return false;
     final ext = parts.last.toLowerCase();
     return _allowedExt.contains(ext);
@@ -394,7 +553,8 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
   // ---------------- pick & upload profile image ----------------
   Future<void> _pickProfileImage() async {
     if (_isBlocked('profileImage')) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('This field is blocked and requires admin approval.')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('This field is blocked and requires admin approval.')));
       return;
     }
 
@@ -432,7 +592,8 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
     });
 
     try {
-      final result = await _api.editProfile(formFields: {}, profileImage: file, extraFiles: null);
+      final result = await _api.editProfile(
+          formFields: {}, profileImage: file, extraFiles: null);
       setState(() => isLoading = false);
 
       if (result == null) {
@@ -450,7 +611,8 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
   // ---------------- pick & upload kyc doc ----------------
   Future<void> _pickAndUploadDoc(String fieldName) async {
     if (_isBlocked(fieldName)) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('This field is blocked and requires admin approval.')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('This field is blocked and requires admin approval.')));
       return;
     }
 
@@ -485,7 +647,8 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
     });
 
     try {
-      final result = await _api.editProfile(formFields: {}, profileImage: null, extraFiles: {fieldName: file});
+      final result = await _api.editProfile(
+          formFields: {}, profileImage: null, extraFiles: {fieldName: file});
       setState(() => isLoading = false);
 
       if (result == null) {
@@ -493,11 +656,14 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
         return;
       }
 
-      if ((result['success'] == true) || (result['statusCode'] != null && result['statusCode'] is int && result['statusCode'] >= 200 && result['statusCode'] < 300)) {
+      if ((result['success'] == true) ||
+          (result['statusCode'] != null && result['statusCode'] is int &&
+              result['statusCode'] >= 200 && result['statusCode'] < 300)) {
         _showSimpleSnack('Uploaded — changes submitted for approval.');
         await _loadProfileAndBlocked();
       } else {
-        _showSimpleSnack('Upload failed: ${result['error'] ?? result['body'] ?? result['raw'] ?? result}');
+        _showSimpleSnack('Upload failed: ${result['error'] ?? result['body'] ??
+            result['raw'] ?? result}');
       }
     } catch (e) {
       setState(() => isLoading = false);
@@ -511,25 +677,73 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
 
   bool _isBlocked(String key) => _blockedFields.contains(key);
 
-  Widget _buildField(String label, TextEditingController controller, String keyName,
-      {TextInputType keyboardType = TextInputType.text, String? Function(String?)? validator, int maxLines = 1}) {
+  Widget _buildField(String label,
+      TextEditingController controller,
+      String keyName, {
+        TextInputType keyboardType = TextInputType.text,
+        String? Function(String?)? validator,
+        int maxLines = 1,
+        List<TextInputFormatter>? inputFormatters,
+      }) {
     final bool blocked = _isBlocked(keyName);
+
     return TextFormField(
       controller: controller,
+      keyboardType: keyboardType,
+      maxLines: maxLines,
+      validator: validator,
+      inputFormatters: inputFormatters,
+      enabled: !blocked,
       decoration: InputDecoration(
         labelText: label,
         filled: true,
         fillColor: Colors.yellow.shade50,
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-        contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
-        suffixIcon: blocked ? Tooltip(message: 'Change requires admin approval', child: const Icon(Icons.lock, size: 18)) : null,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
+        ),
+        contentPadding:
+        const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+        suffixIcon: blocked
+            ? Tooltip(
+          message: 'Change requires admin approval',
+          child: const Icon(Icons.lock, size: 18),
+        )
+            : null,
       ),
-      keyboardType: keyboardType,
-      validator: validator,
-      maxLines: maxLines,
-      enabled: !blocked,
     );
   }
+
+  final lettersOnly = [
+    FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z ]')),
+  ];
+
+  final digitsOnly = [
+    FilteringTextInputFormatter.digitsOnly,
+  ];
+
+  final List<TextInputFormatter> panFormatters = [
+    TextInputFormatter.withFunction(
+          (oldValue, newValue) =>
+          newValue.copyWith(text: newValue.text.toUpperCase()),
+    ),
+    FilteringTextInputFormatter.allow(RegExp(r'[A-Z0-9]')),
+    LengthLimitingTextInputFormatter(10),
+  ];
+
+  final List<TextInputFormatter> aadhaarFormatters = [
+    FilteringTextInputFormatter.digitsOnly,
+    LengthLimitingTextInputFormatter(12),
+  ];
+
+  final List<TextInputFormatter> ifscFormatters = [
+    TextInputFormatter.withFunction(
+          (oldValue, newValue) =>
+          newValue.copyWith(text: newValue.text.toUpperCase()),
+    ),
+    FilteringTextInputFormatter.allow(RegExp(r'[A-Z0-9]')),
+    LengthLimitingTextInputFormatter(11),
+  ];
 
   // Build doc tile
   Widget _buildDocTile(String label, String fieldName) {
@@ -538,30 +752,41 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
 
     Widget previewChild;
     if (localFile != null) {
-      final ext = localFile.path.split('.').last.toLowerCase();
+      final ext = localFile.path
+          .split('.')
+          .last
+          .toLowerCase();
       if (ext == 'pdf') {
-        previewChild = Center(child: Column(mainAxisSize: MainAxisSize.min, children: const [
-          Icon(Icons.picture_as_pdf, size: 48, color: Colors.redAccent),
-          SizedBox(height: 6),
-          Text('PDF'),
-        ]));
+        previewChild = Center(
+            child: Column(mainAxisSize: MainAxisSize.min, children: const [
+              Icon(Icons.picture_as_pdf, size: 48, color: Colors.redAccent),
+              SizedBox(height: 6),
+              Text('PDF'),
+            ]));
       } else {
-        previewChild = Image.file(localFile, fit: BoxFit.cover, width: double.infinity);
+        previewChild =
+            Image.file(localFile, fit: BoxFit.cover, width: double.infinity);
       }
     } else if (url != null && url.isNotEmpty) {
-      final ext = url.split('.').last.toLowerCase();
+      final ext = url
+          .split('.')
+          .last
+          .toLowerCase();
       if (ext == 'pdf') {
-        previewChild = Center(child: Column(mainAxisSize: MainAxisSize.min, children: const [
-          Icon(Icons.picture_as_pdf, size: 48, color: Colors.redAccent),
-          SizedBox(height: 6),
-          Text('PDF'),
-        ]));
+        previewChild = Center(
+            child: Column(mainAxisSize: MainAxisSize.min, children: const [
+              Icon(Icons.picture_as_pdf, size: 48, color: Colors.redAccent),
+              SizedBox(height: 6),
+              Text('PDF'),
+            ]));
       } else {
         previewChild = Image.network(
           url,
           fit: BoxFit.cover,
           width: double.infinity,
-          errorBuilder: (_, __, ___) => Container(color: Colors.yellow.shade50, child: const Center(child: Icon(Icons.image_not_supported))),
+          errorBuilder: (_, __, ___) =>
+              Container(color: Colors.yellow.shade50,
+              child: const Center(child: Icon(Icons.image_not_supported))),
         );
       }
     } else {
@@ -572,7 +797,9 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
           children: [
             Icon(Icons.upload_file, size: 28, color: Colors.yellow.shade800),
             const SizedBox(height: 8),
-            Text('Tap to view\nor use edit to upload', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey.shade600)),
+            Text('Tap to view\nor use edit to upload',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey.shade600)),
           ],
         ),
       );
@@ -587,13 +814,17 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
           children: [
             GestureDetector(
               onTap: () {
-                final has = (localFile != null) || (url != null && url.isNotEmpty);
+                final has = (localFile != null) ||
+                    (url != null && url.isNotEmpty);
                 if (!has) {
-                  _showSimpleSnack('No document uploaded yet. Tap the edit icon to upload.');
+                  _showSimpleSnack(
+                      'No document uploaded yet. Tap the edit icon to upload.');
                   return;
                 }
                 Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => FullScreenMediaPage(localFile: localFile, url: url, title: label),
+                  builder: (_) =>
+                      FullScreenMediaPage(
+                      localFile: localFile, url: url, title: label),
                 ));
               },
               child: Container(
@@ -604,7 +835,8 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
                   color: Colors.grey.shade50,
                   border: Border.all(color: Colors.grey.shade200),
                 ),
-                child: ClipRRect(borderRadius: BorderRadius.circular(10), child: previewChild),
+                child: ClipRRect(borderRadius: BorderRadius.circular(10),
+                    child: previewChild),
               ),
             ),
 
@@ -616,9 +848,15 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
                 borderRadius: BorderRadius.circular(20),
                 child: Container(
                   decoration: BoxDecoration(
-                    gradient: LinearGradient(colors: [Colors.amber.shade700, Colors.yellow.shade400]),
+                    gradient: LinearGradient(colors: [
+                      Colors.amber.shade700,
+                      Colors.yellow.shade400
+                    ]),
                     shape: BoxShape.circle,
-                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.12), blurRadius: 6)],
+                    boxShadow: [
+                      BoxShadow(
+                          color: Colors.black.withOpacity(0.12), blurRadius: 6)
+                    ],
                   ),
                   padding: const EdgeInsets.all(6),
                   child: const Icon(Icons.edit, size: 16, color: Colors.white),
@@ -629,14 +867,17 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
             if (_isBlocked(fieldName))
               Positioned.fill(
                 child: Container(
-                  decoration: BoxDecoration(color: Colors.white.withOpacity(0.7), borderRadius: BorderRadius.circular(10)),
+                  decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.7),
+                      borderRadius: BorderRadius.circular(10)),
                   child: Center(
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: const [
                           Icon(Icons.lock, size: 28, color: Colors.black45),
                           SizedBox(height: 6),
-                          Text('Requires admin approval', style: TextStyle(color: Colors.black54)),
+                          Text('Requires admin approval',
+                              style: TextStyle(color: Colors.black54)),
                         ],
                       )),
                 ),
@@ -704,7 +945,8 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
   }
 
   /// Build a map containing only changed key/value pairs (text fields)
-  Map<String, dynamic> _buildChangedFields(Map<String, dynamic> allFields, Iterable<String> changedKeys) {
+  Map<String, dynamic> _buildChangedFields(Map<String, dynamic> allFields,
+      Iterable<String> changedKeys) {
     final Map<String, dynamic> m = {};
     for (final k in changedKeys) {
       if (allFields.containsKey(k)) {
@@ -751,7 +993,9 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
         'audioCallChargeUSD',
         'videoCallChargeUSD'
       };
-      final onlyCharges = changedSet.difference(chargesSet).isEmpty && changedSet.isNotEmpty;
+      final onlyCharges = changedSet
+          .difference(chargesSet)
+          .isEmpty && changedSet.isNotEmpty;
 
       if (onlyCharges) {
         final ok = await _patchChargesDirectly(allFields);
@@ -767,7 +1011,8 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
       }
 
       // build formFields & extraFiles
-      final changedTextKeys = changedSet.where((k) => k != 'profileImage' && !_docFiles.keys.contains(k));
+      final changedTextKeys = changedSet.where((k) =>
+      k != 'profileImage' && !_docFiles.keys.contains(k));
       final formFieldsToSend = _buildChangedFields(allFields, changedTextKeys);
 
       final Map<String, File?> extraFilesToSend = {};
@@ -777,7 +1022,11 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
 
       final File? profileImageFile = _profileImage;
 
-      debugPrint('Submitting changed fields: ${formFieldsToSend.keys.toList()} files: ${[if (profileImageFile != null) 'profileImage', ...extraFilesToSend.keys]}');
+      debugPrint('Submitting changed fields: ${formFieldsToSend.keys
+          .toList()} files: ${[
+        if (profileImageFile != null) 'profileImage',
+        ...extraFilesToSend.keys
+      ]}');
 
       final result = await _api.editProfile(
         formFields: formFieldsToSend,
@@ -795,23 +1044,31 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
       Map<String, dynamic>? decoded;
       if (result is Map<String, dynamic>) decoded = result;
 
-      final updated = (decoded?['pending_fields'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? <String>[];
-      final message = decoded?['message']?.toString() ?? 'Changes submitted for admin approval';
+      final updated = (decoded?['pending_fields'] as List<dynamic>?)?.map((e) =>
+          e.toString()).toList() ?? <String>[];
+      final message = decoded?['message']?.toString() ??
+          'Changes submitted for admin approval';
 
       _showSimpleSnack(message);
       await showDialog(
         context: context,
-        builder: (_) => AlertDialog(
-          title: Row(
-            children: [
-              Icon(updated.isEmpty ? Icons.hourglass_bottom : Icons.check_circle, color: updated.isEmpty ? Colors.orange : Colors.green),
-              const SizedBox(width: 8),
-              Text(updated.isEmpty ? 'Pending' : 'Updated'),
-            ],
-          ),
-          content: Text(message),
-          actions: [TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('OK'))],
-        ),
+        builder: (_) =>
+            AlertDialog(
+              title: Row(
+                children: [
+                  Icon(updated.isEmpty ? Icons.hourglass_bottom : Icons
+                      .check_circle,
+                      color: updated.isEmpty ? Colors.orange : Colors.green),
+                  const SizedBox(width: 8),
+                  Text(updated.isEmpty ? 'Pending' : 'Updated'),
+                ],
+              ),
+              content: Text(message),
+              actions: [
+                TextButton(onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('OK'))
+              ],
+            ),
       );
 
       if (updated.isNotEmpty) await _loadProfileAndBlocked();
@@ -828,10 +1085,13 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
       final token = prefs.getString('access_token');
       if (token == null) throw Exception('Missing token');
 
-      final astroId = (profile?['astro_id'] as String?) ?? prefs.getString('astro_id') ?? prefs.getString('user_id');
+      final astroId = (profile?['astro_id'] as String?) ??
+          prefs.getString('astro_id') ?? prefs.getString('user_id');
       if (astroId == null) throw Exception('Missing astro id');
 
-      final uri = Uri.parse(FastApiEndpoints.fastApiBaseUrl + '/api/v1/astro/astrologers/' + astroId + '/charges');
+      final uri = Uri.parse(
+          FastApiEndpoints.fastApiBaseUrl + '/api/v1/astro/astrologers/' +
+              astroId + '/charges');
 
       int parseCharge(dynamic v) {
         if (v == null) return 0;
@@ -854,7 +1114,8 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
       final resp = await http.patch(uri, headers: {
         'accept': 'application/json',
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + (await SharedPreferences.getInstance()).getString('access_token')!,
+        'Authorization': 'Bearer ' +
+            (await SharedPreferences.getInstance()).getString('access_token')!,
       }, body: body);
 
       if (kDebugMode) {
@@ -873,8 +1134,18 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
   Widget build(BuildContext context) {
     final mq = MediaQuery.of(context);
 
-    if (isLoading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    if (errorMessage != null) return Scaffold(appBar: AppBar(title: const Text('Edit Profile')), body: Center(child: Text('Error: ' + errorMessage!)));
+    if (isLoading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (errorMessage != null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Edit Profile')),
+        body: Center(child: Text('Error: $errorMessage')),
+      );
+    }
 
     return Scaffold(
       backgroundColor: Colors.grey.shade100,
@@ -895,284 +1166,362 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+
+                  /// PROFILE CARD
                   Card(
-                    color: Colors.white,
                     elevation: 6,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
                     child: Padding(
                       padding: const EdgeInsets.all(16),
-                      child: Row(children: [
-                        Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            GestureDetector(
-                              onTap: () {
-                                final has = (_profileImage != null) || (_profileImageUrl != null && _profileImageUrl!.isNotEmpty);
-                                if (!has) {
-                                  _showSimpleSnack('No profile image. Tap edit to upload.');
-                                  return;
-                                }
-                                Navigator.of(context).push(MaterialPageRoute(
-                                  builder: (_) => FullScreenMediaPage(localFile: _profileImage, url: _profileImageUrl, title: 'Profile Image'),
-                                ));
-                              },
-                              child: Container(
-                                padding: const EdgeInsets.all(4),
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(colors: [Colors.amber.shade600, Colors.yellow.shade400]),
-                                  shape: BoxShape.circle,
+                      child: Row(
+                        children: [
+                          CircleAvatar(
+                            radius: 44,
+                            backgroundImage: _profileImage != null
+                                ? FileImage(_profileImage!)
+                                : (_profileImageUrl != null
+                                ? NetworkImage(_profileImageUrl!)
+                                : null) as ImageProvider?,
+                            child: _profileImage == null &&
+                                (_profileImageUrl == null ||
+                                    _profileImageUrl!.isEmpty)
+                                ? const Icon(Icons.camera_alt,
+                                size: 36, color: Colors.black45)
+                                : null,
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  _nameController.text.isNotEmpty
+                                      ? _nameController.text
+                                      : (profile?['name'] ?? ''),
+                                  style: const TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold),
                                 ),
-                                child: CircleAvatar(
-                                  radius: 44,
-                                  backgroundColor: Colors.grey.shade100,
-                                  backgroundImage: _profileImage != null
-                                      ? FileImage(_profileImage!)
-                                      : (_profileImageUrl != null ? NetworkImage(_profileImageUrl!) as ImageProvider : null),
-                                  child: (_profileImage == null && _profileImageUrl == null) ? const Icon(Icons.camera_alt, size: 36, color: Colors.black45) : null,
+                                const SizedBox(height: 6),
+                                Text(
+                                  profile?['primarySkill'] ?? '',
+                                  style: TextStyle(
+                                      color: Colors.grey.shade700),
                                 ),
-                              ),
-                            ),
-                            Positioned(
-                              bottom: 4,
-                              right: 4,
-                              child: Material(
-                                color: Colors.transparent,
-                                shape: const CircleBorder(),
-                                child: InkWell(
-                                  onTap: _pickProfileImage,
-                                  customBorder: const CircleBorder(),
-                                  child: Container(
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      gradient: LinearGradient(
-                                        colors: [Colors.amber.shade700, Colors.yellow.shade400],
-                                      ),
-                                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.12), blurRadius: 6, offset: const Offset(0,2))],
-                                    ),
-                                    padding: const EdgeInsets.all(8),
-                                    child: const Icon(Icons.edit, size: 16, color: Colors.white),
-                                  ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  profile?['contactNo'] ?? '',
+                                  style: TextStyle(
+                                      color: Colors.grey.shade600),
                                 ),
-                              ),
+                              ],
                             ),
-                          ],
-                        ),
-
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            Text(
-                              _nameController.text.isNotEmpty ? _nameController.text : (profile?['name'] ?? 'Your Name'),
-                              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                            ),
-                            const SizedBox(height: 6),
-                            Text(profile?['primarySkill'] ?? 'Astrologer', style: TextStyle(color: Colors.grey.shade700)),
-                            const SizedBox(height: 10),
-                            Text(profile?['contactNo'] ?? '', style: TextStyle(color: Colors.grey.shade600)),
-                          ]),
-                        )
-                      ]),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
 
                   const SizedBox(height: 18),
 
+                  /// FORM CARD
                   Card(
                     elevation: 8,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
                     child: Padding(
                       padding: const EdgeInsets.all(18),
                       child: Form(
                         key: _formKey,
-                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          const Text('Profile Details', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-                          const SizedBox(height: 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
 
-                          LayoutBuilder(builder: (context, constraints) {
-                            final wide = constraints.maxWidth > 720;
-                            if (wide) {
-                              return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                Expanded(
-                                    child: Column(children: [
-                                      _buildField('Name', _nameController, 'name', validator: _validateName),
-                                      const SizedBox(height: 12),
-                                      _buildField('Email', _emailController, 'email', keyboardType: TextInputType.emailAddress, validator: _validateEmail),
-                                      const SizedBox(height: 12),
-                                      _buildField('Contact No', _contactController, 'contactNo', keyboardType: TextInputType.phone, validator: _validateContact),
-                                      const SizedBox(height: 12),
-                                      _buildField('Country Code', _countryCodeController, 'countryCode', keyboardType: TextInputType.phone),
-                                    ])),
-                                const SizedBox(width: 16),
-                                Expanded(
-                                    child: Column(children: [
-                                      _buildField('Current City', _cityController, 'currentCity'),
-                                      const SizedBox(height: 12),
-                                      _buildField('Languages Known', _languageController, 'languageKnown'),
-                                      const SizedBox(height: 12),
-                                      _buildField('Primary Skill', _skillController, 'primarySkill'),
-                                      const SizedBox(height: 12),
-                                      _buildField('Experience (Years)', _experienceController, 'experienceInYears', keyboardType: TextInputType.number),
-                                    ])),
-                              ]);
-                            }
+                            const Text(
+                              'Profile Details',
+                              style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700),
+                            ),
+                            const SizedBox(height: 12),
 
-                            return Column(children: [
-                              _buildField('Name', _nameController, 'name', validator: _validateName),
-                              const SizedBox(height: 12),
-                              _buildField('Email', _emailController, 'email', keyboardType: TextInputType.emailAddress, validator: _validateEmail),
-                              const SizedBox(height: 12),
-                              _buildField('Contact No', _contactController, 'contactNo', keyboardType: TextInputType.phone, validator: _validateContact),
-                              const SizedBox(height: 12),
-                              _buildField('Country Code', _countryCodeController, 'countryCode', keyboardType: TextInputType.phone),
-                              const SizedBox(height: 12),
-                              _buildField('Current City', _cityController, 'currentCity'),
-                              const SizedBox(height: 12),
-                              _buildField('Languages Known', _languageController, 'languageKnown'),
-                              const SizedBox(height: 12),
-                              _buildField('Primary Skill', _skillController, 'primarySkill'),
-                              const SizedBox(height: 12),
-                              _buildField('Experience (Years)', _experienceController, 'experienceInYears', keyboardType: TextInputType.number),
-                            ]);
-                          }),
+                            /// BASIC DETAILS
+                            _buildField(
+                              'Name',
+                              _nameController,
+                              'name',
+                              validator: _validateName,
+                              inputFormatters: [
+                                ...lettersOnly,
+                                LengthLimitingTextInputFormatter(50),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
 
-                          const SizedBox(height: 16),
+                            _buildField(
+                              'Email',
+                              _emailController,
+                              'email',
+                              keyboardType: TextInputType.emailAddress,
+                              validator: _validateEmail,
+                            ),
+                            const SizedBox(height: 12),
 
-                          _buildField(
-                            'Audio Call Charge (₹/10 min)',
-                            _audioCallController,
-                            'audioCallCharge',
-                            keyboardType: TextInputType.number,
-                            validator: (v) => _validateCharge(v, 200, 'Audio Call Charge'),
-                          ),
-                          const SizedBox(height: 8),
+                            _buildField(
+                              'Contact No',
+                              _contactController,
+                              'contactNo',
+                              keyboardType: TextInputType.phone,
+                              validator: _validateContact,
+                              inputFormatters: digitsOnly,
+                            ),
+                            const SizedBox(height: 12),
 
-                          // USD version of Audio charge
-                          _buildField(
-                            'Audio Call Charge (USD)',
-                            _audioUsdController,
-                            'audioCallChargeUSD',
-                            keyboardType: TextInputType.number,
-                            validator: (v) => _validateUsdCharge(v, 'Audio Call Charge (USD)'),
-                          ),
-                          const SizedBox(height: 12),
+                            _buildField(
+                              'Country Code',
+                              _countryCodeController,
+                              'countryCode',
+                              keyboardType: TextInputType.phone,
+                              inputFormatters: [
+                                ...digitsOnly,
+                                LengthLimitingTextInputFormatter(4),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
 
-                          _buildField(
-                            'Chat Charge (₹/10 min)',
-                            _chatController,
-                            'chatCharge',
-                            keyboardType: TextInputType.number,
-                            validator: (v) => _validateCharge(v, 50, 'Chat Charge'),
-                          ),
-                          const SizedBox(height: 8),
+                            _buildField(
+                              'Current City',
+                              _cityController,
+                              'currentCity',
+                              inputFormatters: lettersOnly,
+                            ),
+                            const SizedBox(height: 12),
 
-                          // USD chat
-                          _buildField(
-                            'Chat Charge (USD)',
-                            _chatUsdController,
-                            'chatChargeUSD',
-                            keyboardType: TextInputType.number,
-                            validator: (v) => _validateUsdCharge(v, 'Chat Charge (USD)'),
-                          ),
-                          const SizedBox(height: 12),
+                            _buildField(
+                              'Languages Known',
+                              _languageController,
+                              'languageKnown',
+                              inputFormatters: lettersOnly,
+                            ),
+                            const SizedBox(height: 12),
 
-                          _buildField(
-                            'Video Call Charge (₹/10 min)',
-                            _videoCallController,
-                            'videoCallCharge',
-                            keyboardType: TextInputType.number,
-                            validator: (v) => _validateCharge(v, 250, 'Video Call Charge'),
-                          ),
-                          const SizedBox(height: 8),
+                            _buildField(
+                              'Primary Skill',
+                              _skillController,
+                              'primarySkill',
+                              inputFormatters: lettersOnly,
+                            ),
+                            const SizedBox(height: 12),
 
-                          // USD video
-                          _buildField(
-                            'Video Call Charge (USD)',
-                            _videoUsdController,
-                            'videoCallChargeUSD',
-                            keyboardType: TextInputType.number,
-                            validator: (v) => _validateUsdCharge(v, 'Video Call Charge (USD)'),
-                          ),
-                          const SizedBox(height: 18),
+                            _buildField(
+                              'Experience (Years)',
+                              _experienceController,
+                              'experienceInYears',
+                              keyboardType: TextInputType.number,
+                              inputFormatters: digitsOnly,
+                            ),
 
-                          const Text('KYC & Bank details', style: TextStyle(fontWeight: FontWeight.w600)),
-                          const SizedBox(height: 8),
+                            const SizedBox(height: 18),
 
-                          _buildField('Pan Number', _panNumberController, 'panNumber', validator: _validatePan),
-                          const SizedBox(height: 12),
+                            /// CHARGES
+                            _buildField(
+                              'Audio Call Charge (₹/10 min)',
+                              _audioCallController,
+                              'audioCallCharge',
+                              keyboardType: TextInputType.number,
+                              validator: (v) =>
+                                  _validateCharge(v, 200, 'Audio Call Charge'),
+                              inputFormatters: digitsOnly,
+                            ),
+                            const SizedBox(height: 12),
 
-                          _buildField('Aadhaar Number', _aadhaarController, 'aadhaarNumber', validator: _validateAadhaar),
-                          const SizedBox(height: 12),
+                            _buildField(
+                              'Chat Charge (₹/10 min)',
+                              _chatController,
+                              'chatCharge',
+                              keyboardType: TextInputType.number,
+                              validator: (v) =>
+                                  _validateCharge(v, 50, 'Chat Charge'),
+                              inputFormatters: digitsOnly,
+                            ),
+                            const SizedBox(height: 12),
 
-                          _buildField('Bank Name', _bankNameController, 'bankName', validator: _validateBankName),
-                          const SizedBox(height: 12),
+                            _buildField(
+                              'Video Call Charge (₹/10 min)',
+                              _videoCallController,
+                              'videoCallCharge',
+                              keyboardType: TextInputType.number,
+                              validator: (v) =>
+                                  _validateCharge(v, 250, 'Video Call Charge'),
+                              inputFormatters: digitsOnly,
+                            ),
 
-                          _buildField('Account Number', _accountNumberController, 'accountNumber', validator: _validateAccount),
-                          const SizedBox(height: 12),
+                            const SizedBox(height: 18),
 
-                          _buildField('IFSC Code', _ifscController, 'ifscCode', validator: _validateIfsc),
-                          const SizedBox(height: 12),
-                          _buildField('Account Holder Name', _accountholdername, 'account_holder_name', validator: _validateBankName),
-                          const SizedBox(height: 12),
+                            /// BANK & KYC
+                            _buildField(
+                              'PAN Number',
+                              _panNumberController,
+                              'panNumber',
+                              validator: _validatePan,
+                              inputFormatters: panFormatters,
+                            ),
+                            const SizedBox(height: 12),
 
-                          _buildField('UPI ID', _upiController, 'upiId', validator: _validateUpi),
+                            _buildField(
+                              'Aadhaar Number',
+                              _aadhaarController,
+                              'aadhaarNumber',
+                              validator: _validateAadhaar,
+                              inputFormatters: aadhaarFormatters,
+                            ),
+                            const SizedBox(height: 12),
 
-                          const SizedBox(height: 16),
+                            _buildField(
+                              'Bank Name',
+                              _bankNameController,
+                              'bankName',
+                              validator: _validateBankName,
+                              inputFormatters: lettersOnly,
+                            ),
+                            const SizedBox(height: 12),
 
-                          // KYC document images
-                          _buildDocTile('Aadhaar Front', 'aadhaarFrontImage'),
-                          _buildDocTile('Aadhaar Back', 'aadhaarBackImage'),
-                          _buildDocTile('PAN Card', 'panCardImage'),
-                          _buildDocTile('Bank Passbook', 'bankPassbookImage'),
+                            _buildField(
+                              'Account Number',
+                              _accountNumberController,
+                              'accountNumber',
+                              validator: _validateAccount,
+                              keyboardType: TextInputType.number,
+                              inputFormatters: digitsOnly,
+                            ),
+                            const SizedBox(height: 12),
 
-                          const SizedBox(height: 16),
-                          const Text('Social & Links', style: TextStyle(fontWeight: FontWeight.w600)),
-                          const SizedBox(height: 8),
+                            _buildField(
+                              'IFSC Code',
+                              _ifscController,
+                              'ifscCode',
+                              validator: _validateIfsc,
+                              inputFormatters: ifscFormatters,
+                            ),
+                            const SizedBox(height: 12),
 
-                          _buildField('LinkedIn', _linkedInController, 'linkedInProfileLink',
-                              keyboardType: TextInputType.url, validator: _validateUrlField),
-                          const SizedBox(height: 12),
+                            _buildField(
+                              'Account Holder Name',
+                              _accountholdername,
+                              'account_holder_name',
+                              inputFormatters: lettersOnly,
+                            ),
+                            const SizedBox(height: 12),
 
-                          _buildField('Youtube', _youtubeController, 'websiteProfileLink',
-                              keyboardType: TextInputType.url, validator: _validateUrlField),
-                          const SizedBox(height: 12),
+                            _buildField(
+                              'UPI ID',
+                              _upiController,
+                              'upiId',
+                              validator: _validateUpi,
+                            ),
 
-                          _buildField('Instagram', _instaController, 'instaProfileLink',
-                              keyboardType: TextInputType.url, validator: _validateUrlField),
-                          const SizedBox(height: 12),
+                            const SizedBox(height: 16),
 
-                          _buildField('Facebook', _facebookController, 'facebookProfileLink',
-                              keyboardType: TextInputType.url, validator: _validateUrlField),
-                          const SizedBox(height: 12),
+                            /// DOCUMENTS
+                            _buildDocTile('Aadhaar Front', 'aadhaarFrontImage'),
+                            _buildDocTile('Aadhaar Back', 'aadhaarBackImage'),
+                            _buildDocTile('PAN Card', 'panCardImage'),
+                            _buildDocTile('Bank Passbook', 'bankPassbookImage'),
 
-                          _buildField('Login Bio', _loginBioController, 'loginBio', maxLines: 4, validator: _validateBio),
+                            const SizedBox(height: 16),
 
-                          const SizedBox(height: 22),
+                            /// SOCIAL LINKS
+                            _buildField(
+                              'LinkedIn',
+                              _linkedInController,
+                              'linkedInProfileLink',
+                              keyboardType: TextInputType.url,
+                              validator: _validateUrlField,
+                            ),
+                            const SizedBox(height: 12),
 
-                          Center(
-                            child: InkWell(
-                              onTap: _submit,
-                              borderRadius: BorderRadius.circular(12),
-                              child: Container(
-                                width: mq.size.width > 600 ? 360 : double.infinity,
-                                padding: const EdgeInsets.symmetric(vertical: 14),
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(colors: [Colors.amber.shade700, Colors.yellow.shade400]),
-                                  borderRadius: BorderRadius.circular(12),
-                                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.12), blurRadius: 8, offset: const Offset(0, 4))],
+                            _buildField(
+                              'YouTube',
+                              _youtubeController,
+                              'youtubeChannelLink',
+                              keyboardType: TextInputType.url,
+                              validator: _validateUrlField,
+                            ),
+                            const SizedBox(height: 12),
+
+                            _buildField(
+                              'Instagram',
+                              _instaController,
+                              'instaProfileLink',
+                              keyboardType: TextInputType.url,
+                              validator: _validateUrlField,
+                            ),
+                            const SizedBox(height: 12),
+
+                            _buildField(
+                              'Facebook',
+                              _facebookController,
+                              'facebookProfileLink',
+                              keyboardType: TextInputType.url,
+                              validator: _validateUrlField,
+                            ),
+                            const SizedBox(height: 12),
+
+                            _buildField(
+                              'Login Bio',
+                              _loginBioController,
+                              'loginBio',
+                              maxLines: 4,
+                              validator: _validateBio,
+                            ),
+
+                            const SizedBox(height: 22),
+
+                            /// SUBMIT
+                            Center(
+                              child: InkWell(
+                                onTap: _submit,
+                                borderRadius: BorderRadius.circular(12),
+                                child: Container(
+                                  width: mq.size.width > 600 ? 360 : double
+                                      .infinity,
+                                  padding: const EdgeInsets.symmetric(
+                                      vertical: 14),
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: [
+                                        Colors.amber.shade700,
+                                        Colors.yellow.shade400
+                                      ],
+                                    ),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: const Center(
+                                    child: Text(
+                                      'Update Profile',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
                                 ),
-                                child: Row(mainAxisSize: MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.center, children: const [
-                                  Icon(Icons.save_outlined, color: Colors.white),
-                                  SizedBox(width: 10),
-                                  Text('Update Profile', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700))
-                                ]),
                               ),
                             ),
-                          ),
 
-                          const SizedBox(height: 12),
-                          Center(child: Text('Changes to sensitive fields require admin approval. USD/inr charge changes are patched directly.', style: TextStyle(color: Colors.grey.shade700))),
-
-                        ]),
+                            const SizedBox(height: 12),
+                            Center(
+                              child: Text(
+                                'Changes to sensitive fields require admin approval.',
+                                style: TextStyle(color: Colors.grey.shade700),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -1185,44 +1534,5 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
         ),
       ),
     );
-  }
-
-  @override
-  void dispose() {
-    _nameController.dispose();
-    _contactController.dispose();
-    _countryCodeController.dispose();
-    _cityController.dispose();
-    _experienceController.dispose();
-    _audioCallController.dispose();
-    _chatController.dispose();
-    _videoCallController.dispose();
-    _languageController.dispose();
-    _skillController.dispose();
-
-    _linkedInController.dispose();
-    _panNumberController.dispose();
-    _bankNameController.dispose();
-    _websiteController.dispose();
-    _instaController.dispose();
-    _upiController.dispose();
-    _categoryIdController.dispose();
-    _highestQualificationController.dispose();
-    _learnAstrologyController.dispose();
-    _accountNumberController.dispose();
-    _aadhaarController.dispose();
-    _youtubeController.dispose();
-    _ifscController.dispose();
-    _accountholdername.dispose();
-    _emailController.dispose();
-    _facebookController.dispose();
-    _loginBioController.dispose();
-
-    // USD controllers
-    _chatUsdController.dispose();
-    _audioUsdController.dispose();
-    _videoUsdController.dispose();
-
-    super.dispose();
   }
 }

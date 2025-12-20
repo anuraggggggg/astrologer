@@ -225,7 +225,8 @@ class FastApiServices {
       if (response.statusCode == 200) {
         return jsonDecode(response.body);
       } else {
-        throw Exception("Failed to request OTP: ${response.body}");
+        final decoded = jsonDecode(response.body);
+        throw Exception(decoded['detail'] ?? 'Failed to request OTP');
       }
     } catch (e) {
       print("🚨 Exception occurred: $e");

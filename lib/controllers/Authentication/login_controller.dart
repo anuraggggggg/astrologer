@@ -33,7 +33,7 @@ class LoginController extends GetxController {
   final liveAstrologerController = Get.find<LiveAstrologerController>();
   final loginOtpController = Get.put(LoginOtpController());
 
-  String signupText = tr('By signin up you agree to our');
+  String signupText = tr('By sign in up you agree to our');
   String termsConditionText = tr('Terms of Services');
   String andText = tr('and');
   String privacyPolicyText = tr('Privacy Policy');
@@ -46,7 +46,7 @@ class LoginController extends GetxController {
   @override
   void onInit() {
     super.onInit();
-    signupText = tr('By signin up you agree to our');
+    signupText = tr('By sign in up you agree to our');
     termsConditionText = tr('Terms of Services');
     andText = tr('and');
     privacyPolicyText = tr('Privacy Policy');

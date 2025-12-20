@@ -6,11 +6,14 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:intl_phone_number_input/intl_phone_number_input.dart';
 import 'package:path/path.dart' as p;
 
 // NEW imports
 import 'package:file_picker/file_picker.dart';
 import 'package:mime/mime.dart';
+
+import '../../country_code.dart';
 
 class AstrologerSignupPage extends StatefulWidget {
   const AstrologerSignupPage({Key? key}) : super(key: key);
@@ -25,6 +28,11 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
   int _currentPage = 0;
   bool isLoading = false;
   bool _obscureConfirmPassword = true;
+  bool _forceValidate = false;
+  bool _birthDateTouched = false;
+  bool _genderTouched = false;
+
+
 
   // ---------------------------
   // Controllers
@@ -47,6 +55,9 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
   final TextEditingController accountHolderCtrl = TextEditingController();
 
   // NEW: separate charges with minimums
+
+  bool _phoneTouched = false;
+
   final TextEditingController chatChargeCtrl =
   TextEditingController(); // min 50
   final TextEditingController audioChargeCtrl =
@@ -55,6 +66,13 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
   TextEditingController(); // min 250
 
   // NEW USD fields (required, integer-only)
+
+
+  final List<TextInputFormatter> nameInputFormatters = [
+    FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z ]')),
+    LengthLimitingTextInputFormatter(50),
+  ];
+
   final TextEditingController chatChargeUSDCtrl = TextEditingController();
   final TextEditingController audioChargeUSDCtrl = TextEditingController();
   final TextEditingController videoChargeUSDCtrl = TextEditingController();
@@ -83,10 +101,14 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
   // Settings switches & selection
   bool isVerified = false;
   bool isActive = true;
-  String selectedGender = "Male"; // Male / Female / Other
+  String? selectedGender; // ✅ null by default
+
 
   // Payment method selection: 'none' | 'upi' | 'bank'
   String paymentMethod = 'none';
+  final PhoneNumber initialPhone =
+  PhoneNumber(isoCode: "IN", phoneNumber: '');
+
 
   // Password visibility toggle
   bool _obscurePassword = true;
@@ -324,6 +346,48 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     return null;
   }
 
+  String? _validateGlobalPhone(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return "Contact number is required";
+    }
+
+    final number = value.trim();
+    final countryCode = countryCodeCtrl.text.replaceAll('+', '').trim();
+
+    // digits only (always)
+    if (!RegExp(r'^[0-9]+$').hasMatch(number)) {
+      return "Only digits allowed";
+    }
+
+    // 🔥 STRICT RULES ONLY FOR INDIA (91)
+    if (countryCode == "91") {
+      // exactly 10 digits
+      if (number.length != 10) {
+        return "Indian mobile number must be 10 digits";
+      }
+
+      // must start with 6–9
+      if (!RegExp(r'^[6-9]').hasMatch(number)) {
+        return "Invalid Indian mobile number";
+      }
+    }
+
+    // ✅ ALL OTHER COUNTRIES → NO VALIDATION
+    return null;
+  }
+
+  List<TextInputFormatter> _phoneInputFormatters() {
+    final countryCode = countryCodeCtrl.text.replaceAll('+', '').trim();
+    final rule = phoneRules[countryCode];
+
+    return [
+      FilteringTextInputFormatter.digitsOnly,
+      if (rule != null)
+        LengthLimitingTextInputFormatter(rule.maxLength),
+    ];
+  }
+
+
   String? _validatePhone(String? v) {
     if (v == null || v.trim().isEmpty) {
       return "Contact number is required";
@@ -333,7 +397,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     final reg = RegExp(r'^[0-9]{10}$');
 
     if (!reg.hasMatch(v.trim())) {
-      return "Enter a valid 10-digit mobile number";
+      return "Enter a valid  mobile number";
     }
 
     return null;
@@ -390,11 +454,25 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
   }
 
   String? _validateAadhaar(String? v) {
-    if (v == null || v.trim().isEmpty) return "Aadhaar number is required";
+    if (v == null || v.trim().isEmpty) {
+      return "Aadhaar number is required";
+    }
+
     final digits = v.replaceAll(RegExp(r'\D'), '');
-    if (digits.length != 12) return "Aadhaar must be exactly 12 digits";
-    return null;
+
+    // Must be exactly 12 digits
+    if (digits.length != 12) {
+      return "Aadhaar must be exactly 12 digits";
+    }
+
+    // ❌ Block all-zero Aadhaar
+    if (RegExp(r'^0{12}$').hasMatch(digits)) {
+      return "Invalid Aadhaar number";
+    }
+
+    return null; // ✅ valid
   }
+
 
   String? _validatePAN(String? v) {
     if (v == null || v.trim().isEmpty) return "PAN is required";
@@ -567,12 +645,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     }
 
     // Validate birth date again before sending
-    final birthError = _validateBirthDate(birthDateCtrl.text);
-    if (birthError != null) {
-      _showError(birthError);
-      _pageController.jumpToPage(0);
-      return;
-    }
+
 
     setState(() => isLoading = true);
 
@@ -725,6 +798,29 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     setState(() => isLoading = false);
   }
 
+
+  String? _validateFullName(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return "Full Name is required";
+    }
+
+    final name = value.trim();
+
+    if (name.length < 3) {
+      return "Full Name must be at least 3 letters";
+    }
+
+    if (name.length > 50) {
+      return "Full Name cannot exceed 50 letters";
+    }
+
+    if (!RegExp(r'^[a-zA-Z ]+$').hasMatch(name)) {
+      return "Full Name can contain only letters";
+    }
+
+    return null;
+  }
+
   void _resetControllers() {
     emailCtrl.clear();
     confirmPasswordCtrl.clear();
@@ -768,7 +864,8 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
 
     birthDateCtrl.clear();
 
-    selectedGender = "Male";
+
+
     isVerified = false;
     isActive = true;
     profileImageFile = null;
@@ -850,38 +947,56 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text("Gender",
-            style: Theme
-                .of(context)
-                .textTheme
-                .titleSmall
-                ?.copyWith(fontWeight: FontWeight.w600)),
+        Text(
+          "Gender",
+          style: Theme.of(context)
+              .textTheme
+              .titleSmall
+              ?.copyWith(fontWeight: FontWeight.w600),
+        ),
         const SizedBox(height: 8),
+
         DropdownButtonFormField<String>(
           value: selectedGender,
+          hint: const Text("Select Gender"),
+
           items: const [
             DropdownMenuItem(value: "Male", child: Text("Male")),
             DropdownMenuItem(value: "Female", child: Text("Female")),
             DropdownMenuItem(value: "Other", child: Text("Other")),
           ],
-          onChanged: (v) => setState(() => selectedGender = v ?? "Male"),
-          decoration: InputDecoration(
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-            filled: true,
-            fillColor: Colors.yellow[50],
-            contentPadding: const EdgeInsets.symmetric(
-                horizontal: 12, vertical: 8),
-          ),
+
+          onChanged: (v) {
+            setState(() {
+              selectedGender = v;
+              _genderTouched = true;
+            });
+            _formKey.currentState?.validate();
+          },
+
           validator: (v) {
-            if (v == null || v
-                .trim()
-                .isEmpty) return "Please select gender";
+            if (!_genderTouched && !_forceValidate) return null;
+            if (v == null || v.isEmpty) {
+              return "Please select gender";
+            }
             return null;
           },
+
+          decoration: InputDecoration(
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            filled: true,
+            fillColor: Colors.yellow[50],
+            contentPadding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          ),
         ),
       ],
     );
   }
+
+
 
   String? _validateExperience(String? v) {
     if (v == null || v.trim().isEmpty) {
@@ -902,9 +1017,172 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     return null;
   }
 
-  // ---------------------------
-  // Sections (PageView children)
-  // ---------------------------
+
+
+  Widget _buildSmartTextField(
+      TextEditingController controller,
+      String label, {
+        bool required = false,
+        TextInputType keyboardType = TextInputType.text,
+        IconData? icon,
+        int maxLines = 1,
+        String? Function(String?)? validator,
+        bool obscure = false,
+        Widget? suffix,
+        List<TextInputFormatter>? inputFormatters,
+      }) {
+    final FocusNode focusNode = FocusNode();
+    bool touched = false;
+
+    bool isSlim(BuildContext context) {
+      return MediaQuery.of(context).size.width < 360;
+    }
+
+    return StatefulBuilder(
+      builder: (context, setLocalState) {
+        return Focus(
+          focusNode: focusNode,
+          onFocusChange: (hasFocus) {
+            if (!hasFocus && (touched || _forceValidate)) {
+              _formKey.currentState?.validate();
+            }
+          },
+          child: TextFormField(
+            controller: controller,
+            keyboardType: keyboardType,
+            maxLines: maxLines,
+            obscureText: obscure,
+            inputFormatters: inputFormatters,
+
+            // ✅ mark touched
+            onChanged: (_) {
+              if (!touched) {
+                setLocalState(() => touched = true);
+              }
+              _formKey.currentState?.validate();
+            },
+
+            validator: (value) {
+              if (!touched && !_forceValidate) return null;
+
+              if (validator != null) {
+                return validator(value);
+              }
+
+              if (required) {
+                return _validateRequired(value, label);
+              }
+
+              return null;
+            },
+
+            decoration: InputDecoration(
+              labelText: label,
+
+              // 🔥 responsive label font (NO ellipsis)
+              labelStyle: TextStyle(
+                fontSize: isSlim(context) ? 11 : 14,
+              ),
+
+              hintStyle: const TextStyle(color: Colors.black),
+
+              prefixIcon: icon != null
+                  ? Icon(icon, size: 20, color: const Color(0xFFFFC107))
+                  : null,
+
+              suffixIcon: suffix,
+
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+
+              // 🔥 reduce padding on slim phones
+              contentPadding: EdgeInsets.symmetric(
+                horizontal: isSlim(context) ? 8 : 12,
+                vertical: 14,
+              ),
+
+              filled: true,
+              fillColor: Colors.yellow[50],
+              errorMaxLines: 2,
+            ),
+          ),
+        );
+      },
+    );
+  }
+  Widget _buildInternationalPhoneField() {
+    bool isSlim(BuildContext context) =>
+        MediaQuery.of(context).size.width < 360;
+
+    return StatefulBuilder(
+      builder: (context, setLocalState) {
+        return Focus(
+          onFocusChange: (hasFocus) {
+            if (!hasFocus) {
+              setLocalState(() => _phoneTouched = true);
+              _formKey.currentState?.validate();
+            }
+          },
+          child: InternationalPhoneNumberInput(
+            initialValue: initialPhone,
+            textFieldController: contactNoCtrl,
+
+            // ❌ IMPORTANT: disable auto validate
+            autoValidateMode: AutovalidateMode.disabled,
+
+            formatInput: false,
+            maxLength: 15,
+            keyboardType: TextInputType.number,
+
+            selectorConfig: const SelectorConfig(
+              selectorType: PhoneInputSelectorType.BOTTOM_SHEET,
+              setSelectorButtonAsPrefixIcon: true,
+            ),
+
+            inputDecoration: InputDecoration(
+              labelText: "Contact Number",
+              labelStyle: TextStyle(
+                fontSize: isSlim(context) ? 11 : 14,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              filled: true,
+              fillColor: Colors.yellow[50],
+              contentPadding: EdgeInsets.symmetric(
+                horizontal: isSlim(context) ? 8 : 12,
+                vertical: 14,
+              ),
+            ),
+
+            onInputChanged: (PhoneNumber number) {
+              countryCodeCtrl.text =
+                  number.dialCode?.replaceAll('+', '') ?? "";
+
+              if (!_phoneTouched) {
+                setLocalState(() => _phoneTouched = true);
+              }
+
+              _formKey.currentState?.validate();
+            },
+
+            validator: (value) {
+              // 🚫 don't validate until touched or forced
+              if (!_phoneTouched && !_forceValidate) return null;
+              return _validateGlobalPhone(value);
+            },
+          ),
+        );
+      },
+    );
+  }
+
+
+
+
+
+  //----------
   Widget _buildRequiredSection() {
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 12.0),
@@ -912,7 +1190,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildSectionHeader(
-              "Basic Information", "Please provide your essential details."),
+              "Your Information", "Please provide your essential details."),
           Center(
             child: Stack(
               children: [
@@ -947,7 +1225,18 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
             ),
           ),
           const SizedBox(height: 20),
-          _buildTextField(
+          _buildSmartTextField(
+            nameCtrl,
+            "Full Name",
+            required: true,
+            icon: Icons.person_outline,
+            validator: _validateFullName,
+            inputFormatters: nameInputFormatters,
+          ),
+
+
+          const SizedBox(height: 20),
+          _buildSmartTextField(
             emailCtrl,
             "Email",
             required: true,
@@ -955,8 +1244,10 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
             icon: Icons.email_outlined,
             validator: _validateEmail,
           ),
+
+
           const SizedBox(height: 20),
-          _buildTextField(
+          _buildSmartTextField(
             passwordCtrl,
             "Password",
             required: true,
@@ -974,7 +1265,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
 
           const SizedBox(height: 12),
 
-          _buildTextField(
+          _buildSmartTextField(
             confirmPasswordCtrl,
             "Confirm Password",
             required: true,
@@ -991,80 +1282,68 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
           ),
 
           const SizedBox(height: 20),
-          Row(
-            children: [
-              Flexible(
-                flex: 2,
-                child: _buildTextField(
-                  countryCodeCtrl,
-                  "Code",
-                  required: true,
-                  keyboardType: TextInputType.phone,
-                  icon: Icons.flag_outlined,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Flexible(
-                flex: 5,
-                child: _buildTextField(
-                  contactNoCtrl,
-                  "Contact Number",
-                  required: true,
-                  keyboardType: TextInputType.phone,
-                  icon: Icons.phone_outlined,
-                  validator: _validatePhone,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          _buildTextField(
-            nameCtrl,
-            "Full Name",
-            required: true,
-            icon: Icons.person_outline,
-            validator: (v) => _validateLettersOnly(v ?? '', "Full Name"),
-          ),
-
+          _buildInternationalPhoneField(),
           const SizedBox(height: 20),
           _buildGenderSelector(),
           const SizedBox(height: 12),
 
           // ---------- NEW: Birthdate (dd-mm-yyyy display, calendar + typed) ----------
-          Text("Date of Birth",
-              style: Theme
-                  .of(context)
-                  .textTheme
-                  .titleSmall
-                  ?.copyWith(fontWeight: FontWeight.w600)),
+          // ---------- Birthdate ----------
+          Text(
+            "Date of Birth",
+            style: Theme.of(context)
+                .textTheme
+                .titleSmall
+                ?.copyWith(fontWeight: FontWeight.w600),
+          ),
           const SizedBox(height: 8),
-          TextFormField(
+
+          Focus(
+            onFocusChange: (hasFocus) {
+              if (!hasFocus) {
+                setState(() => _birthDateTouched = true);
+                _formKey.currentState?.validate();
+              }
+            },
+            child: TextFormField(
               controller: birthDateCtrl,
-              keyboardType: TextInputType.datetime,
-              maxLines: 1,
-              validator: _validateBirthDate,
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'[0-9\-\/]')),
-                LengthLimitingTextInputFormatter(10), // dd-mm-yyyy = 10 chars
-              ],
+
+              // 🔒 Disable typing
+              readOnly: true,
+
+              // 🚫 No keyboard
+              enableInteractiveSelection: false,
+
+              validator: (v) {
+                if (!_birthDateTouched && !_forceValidate) return null;
+                return _validateBirthDate(v);
+              },
+
+              // 📅 Open calendar on tap
+              onTap: () async {
+                setState(() => _birthDateTouched = true);
+                await _showDatePickerAndSet();
+              },
+
               decoration: InputDecoration(
-                hintText: "dd-mm-yyyy",
-                hintStyle: const TextStyle(color: Colors.black), // only color — no fontSize
-                prefixIcon: const Icon(Icons.cake_outlined, color: Color(0xFFFFC107)),
-                suffixIcon: IconButton(
-                  icon: const Icon(Icons.calendar_today_outlined),
-                  onPressed: _showDatePickerAndSet,
+                hintText: "Select Date of Birth",
+                prefixIcon:
+                const Icon(Icons.cake_outlined, color: Color(0xFFFFC107)),
+                suffixIcon: const Icon(Icons.calendar_today_outlined),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
                 ),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
                 filled: true,
                 fillColor: Colors.yellow[50],
-              )
-
+              ),
+            ),
           ),
+
+
           const SizedBox(height: 20),
           // ---------- END Birthdate ----------
 
-          _buildTextField(
+          _buildSmartTextField(
             skillCtrl,
             "Primary Skill",
             required: true,
@@ -1073,7 +1352,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
           ),
 
           const SizedBox(height: 20),
-          _buildTextField(
+          _buildSmartTextField(
             languageCtrl,
             "Languages Known",
             required: true,
@@ -1082,7 +1361,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
           ),
 
           const SizedBox(height: 20),
-          _buildTextField(
+          _buildSmartTextField(
             cityCtrl,
             "Current City",
             required: true,
@@ -1092,7 +1371,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
 
           // NEW: Three charge fields with min validation
           const SizedBox(height: 20),
-          _buildTextField(
+          _buildSmartTextField(
             chatChargeCtrl,
             "Chat Charge ₹50 for 10 minutes",
 
@@ -1104,20 +1383,20 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
           ),
           const SizedBox(height: 12),
           // Chat USD field (required, integer only)
-          _buildTextField(
+          _buildSmartTextField(
             chatChargeUSDCtrl,
-            "Chat Charge (USD) — integer only",
+            "Chat Charge(USD)/ 10 minutes",
             required: true,
             keyboardType: TextInputType.number,
             icon: Icons.attach_money,
-            validator: (v) => _validateDigitsOnly(v ?? '', "Chat charge (USD)"),
+            validator: (v) => _validateDigitsOnly(v ?? '', "Chat charge(USD)/ 10 minutes"),
             inputFormatters: [
               FilteringTextInputFormatter.digitsOnly,
             ],
           ),
 
           const SizedBox(height: 20),
-          _buildTextField(
+          _buildSmartTextField(
             audioChargeCtrl,
             "Audio Call ₹200 for 10 minutes",
             required: true,
@@ -1128,20 +1407,20 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
           ),
           const SizedBox(height: 12),
           // Audio USD
-          _buildTextField(
+          _buildSmartTextField(
             audioChargeUSDCtrl,
-            "Audio Call Charge (USD) — integer only",
+            "Audio Call Charge (USD)/ 10 minutes",
             required: true,
             keyboardType: TextInputType.number,
             icon: Icons.attach_money,
-            validator: (v) => _validateDigitsOnly(v ?? '', "Audio charge (USD)"),
+            validator: (v) => _validateDigitsOnly(v ?? '', "Audio charge (USD)/ 10 minutes"),
             inputFormatters: [
               FilteringTextInputFormatter.digitsOnly,
             ],
           ),
 
           const SizedBox(height: 20),
-          _buildTextField(
+          _buildSmartTextField(
             videoChargeCtrl,
             "Video Call ₹250 for 10 minutes",
             required: true,
@@ -1152,20 +1431,20 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
           ),
           const SizedBox(height: 12),
           // Video USD
-          _buildTextField(
+          _buildSmartTextField(
             videoChargeUSDCtrl,
-            "Video Call Charge (USD) — integer only",
+            "Video Call Charge (USD)/ 10 minutes",
             required: true,
             keyboardType: TextInputType.number,
             icon: Icons.attach_money,
-            validator: (v) => _validateDigitsOnly(v ?? '', "Video charge (USD)"),
+            validator: (v) => _validateDigitsOnly(v ?? '', "Video charge (USD)/ 10 minutes"),
             inputFormatters: [
               FilteringTextInputFormatter.digitsOnly,
             ],
           ),
 
           const SizedBox(height: 20),
-          _buildTextField(
+          _buildSmartTextField(
             expCtrl,
             "Experience (Years)",
             required: true,
@@ -1175,7 +1454,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
           ),
 
           const SizedBox(height: 20),
-          _buildTextField(
+          _buildSmartTextField(
             bioCtrl,
             "Bio / Introduction",
             required: true,
@@ -1192,6 +1471,8 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     );
   }
 
+
+
   Widget _buildOptionalSection() {
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 12.0),
@@ -1202,17 +1483,21 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
               "Help clients know you better (optional)."),
 
           // Highest Qualification (optional but must be letters if entered)
-          _buildTextField(
+          _buildSmartTextField(
             qualificationCtrl,
             "Highest Qualification",
             icon: Icons.school_outlined,
-            validator: (v) =>
-                _validateOptionalLetters(v, "Highest Qualification"),
+            validator: _validateQualification,
+            inputFormatters: [
+              FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z0-9 .()]')),
+              LengthLimitingTextInputFormatter(100),
+            ],
           ),
+
           const SizedBox(height: 20),
 
           // How did you learn Astrology? (optional, min length if provided)
-          _buildTextField(
+          _buildSmartTextField(
             learnAstroCtrl,
             "How did you learn Astrology?",
             icon: Icons.auto_awesome_outlined,
@@ -1231,7 +1516,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
                   ?.copyWith(fontWeight: FontWeight.bold)),
           const SizedBox(height: 16),
 
-          _buildTextField(
+          _buildSmartTextField(
             instaCtrl,
             "Instagram (URL or @handle)",
             icon: Icons.camera_alt_outlined,
@@ -1239,7 +1524,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
           ),
           const SizedBox(height: 12),
 
-          _buildTextField(
+          _buildSmartTextField(
             fbCtrl,
             "Facebook (URL or @handle)",
             icon: Icons.facebook,
@@ -1247,7 +1532,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
           ),
           const SizedBox(height: 12),
 
-          _buildTextField(
+          _buildSmartTextField(
             linkedinCtrl,
             "LinkedIn (profile / company URL)",
             icon: Icons.linked_camera,
@@ -1255,7 +1540,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
           ),
           const SizedBox(height: 12),
 
-          _buildTextField(
+          _buildSmartTextField(
             youtubeCtrl,
             "YouTube (URL or @handle)",
             icon: Icons.video_collection,
@@ -1476,6 +1761,26 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     return null;
   }
 
+  String? _validateQualification(String? v) {
+    if (v == null || v.trim().isEmpty) return null; // optional field
+
+    final text = v.trim();
+
+    // Length check (optional but recommended)
+    if (text.length < 2) return "Qualification is too short";
+    if (text.length > 100) return "Qualification is too long";
+
+    // Allow: letters, numbers, space, dot, parentheses
+    final regex = RegExp(r'^[a-zA-Z0-9 .()]+$');
+
+    if (!regex.hasMatch(text)) {
+      return "Only letters, numbers, spaces, '.', and ( ) are allowed";
+    }
+
+    return null; // ✅ valid
+  }
+
+
   Widget _buildKycSection() {
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 12.0),
@@ -1488,29 +1793,36 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
           ),
 
           // Aadhaar (12 digits) - immediate validation via validator
-          _buildTextField(
+          _buildSmartTextField(
             aadhaarNumberCtrl,
             "Aadhaar Number",
             required: true,
             keyboardType: TextInputType.number,
             icon: Icons.credit_card,
             validator: _validateAadhaar,
+            inputFormatters: [
+              FilteringTextInputFormatter.digitsOnly, // only numbers
+              LengthLimitingTextInputFormatter(12),   // 🔒 hard limit 12
+            ],
           ),
+
           const SizedBox(height: 12),
 
           // PAN - immediate validation via validator
-          _buildTextField(
+          _buildSmartTextField(
             panNumberCtrl,
             "PAN Number",
             required: true,
             keyboardType: TextInputType.text,
             icon: Icons.credit_card,
             validator: _validatePAN,
-            // ⬇️ Make characters become uppercase automatically
             inputFormatters: [
-              UpperCaseTextFormatter(),
+              UpperCaseTextFormatter(),                           // auto uppercase
+              FilteringTextInputFormatter.allow(RegExp(r'[A-Z0-9]')), // only A–Z & 0–9
+              LengthLimitingTextInputFormatter(10),               // 🔒 hard limit 10
             ],
           ),
+
 
           const SizedBox(height: 12),
 
@@ -1536,7 +1848,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
           ),
           if (paymentMethod == 'upi') ...[
             const SizedBox(height: 8),
-            _buildTextField(
+            _buildSmartTextField(
               upiCtrl,
               "UPI ID",
               required: true,
@@ -1559,7 +1871,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
             const SizedBox(height: 8),
 
             // Bank Name
-            _buildTextField(
+            _buildSmartTextField(
               bankNameCtrl,
               "Bank Name",
               required: true,
@@ -1570,7 +1882,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
             const SizedBox(height: 12),
 
             // Account Holder Name
-            _buildTextField(
+            _buildSmartTextField(
               bankHolderNameCtrl, // <- use bankHolderNameCtrl
               "Account Holder Name",
               required: true,
@@ -1581,7 +1893,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
             const SizedBox(height: 12),
 
             // Account Number
-            _buildTextField(
+            _buildSmartTextField(
               accountNumberCtrl,
               "Account Number",
               required: true,
@@ -1592,7 +1904,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
             const SizedBox(height: 12),
 
             // IFSC
-            _buildTextField(
+            _buildSmartTextField(
               ifscCtrl,
               "IFSC Code",
               required: true,
@@ -1657,8 +1969,8 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     );
   }
 
-  // control when inline errors are shown
-  AutovalidateMode _autoValidateMode = AutovalidateMode.disabled;
+  AutovalidateMode _autoValidateMode = AutovalidateMode.onUserInteraction;
+
 
   Widget _buildSectionHeader(String title, String subtitle) {
     return Column(
@@ -1687,7 +1999,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Astrologer Signup"),
+        title: const Text("Astrologer Sign Up"),
         backgroundColor: const Color(0xFFFFC107),
       ),
       body: Stack(
@@ -1718,31 +2030,6 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
         padding: const EdgeInsets.all(12.0),
         child: Row(
           children: [
-            // LEFT: Back button (only shown when not on first page)
-            if (_currentPage > 0)
-              Expanded(
-                child: ElevatedButton(
-                  onPressed: isLoading
-                      ? null
-                      : () {
-                    FocusScope.of(context).unfocus();
-                    // simply go back, no need to revalidate
-                    _pageController.previousPage(
-                      duration: const Duration(milliseconds: 300),
-                      curve: Curves.easeInOut,
-                    );
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.grey[300],
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                  ),
-                  child: const Text("Back", style: TextStyle(color: Colors.black)),
-                ),
-              ),
-
-            if (_currentPage > 0) const SizedBox(width: 12),
-
-            // RIGHT: Next or Submit depending on page
             Expanded(
               child: ElevatedButton(
                 onPressed: isLoading
@@ -1750,18 +2037,25 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
                     : () {
                   FocusScope.of(context).unfocus();
 
-                  // Validate current page before performing action
+                  // 🚨 FORCE validation for ALL fields
+                  setState(() {
+                    _forceValidate = true;
+                  });
+
                   final valid = _validateCurrentPage(_currentPage);
                   if (!valid) return;
 
+                  // ✅ Reset force flag after successful validation
+                  setState(() {
+                    _forceValidate = false;
+                  });
+
                   if (_currentPage < 2) {
-                    // move to next page
                     _pageController.nextPage(
                       duration: const Duration(milliseconds: 300),
                       curve: Curves.easeInOut,
                     );
                   } else {
-                    // last page -> submit
                     submitForm();
                   }
                 },
@@ -1775,6 +2069,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
           ],
         ),
       ),
+
     );
   }
 
@@ -1792,7 +2087,9 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     switch (pageIndex) {
       case 0:
       // Run field validators first (they show inline errors due to autovalidateMode)
-        if (!_formKey.currentState!.validate()) return false;
+        if (!_formKey.currentState!.validate())
+
+        return false;
 
         // Additional manual checks (if any)
         // EMAIL
@@ -1808,11 +2105,11 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
           return false;
         }
         // PHONE
-        final phoneError = _validatePhone(contactNoCtrl.text);
-        if (phoneError != null) {
-          _showError(phoneError);
-          return false;
-        }
+        // final phoneError = _validatePhone(contactNoCtrl.text);
+        // if (phoneError != null) {
+        //   _showError(phoneError);
+        //   return false;
+        // }
         // NAME
         final nameError = _validateLettersOnly(nameCtrl.text, "Full Name");
         if (nameError != null) {
@@ -1823,7 +2120,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
         // BIRTHDATE (new)
         final birthError = _validateBirthDate(birthDateCtrl.text);
         if (birthError != null) {
-          _showError(birthError);
+
           return false;
         }
 
