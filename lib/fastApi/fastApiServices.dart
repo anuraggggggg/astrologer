@@ -310,61 +310,75 @@ class FastApiServices {
 // In FastApiServices
 
   Future<Map<String, dynamic>> getChatHistoryForAstrologerSelf({
-    required String
-        otherUserId, // currently you pass astrologer id (self) due to backend quirk
+    required String otherUserId,
     int page = 1,
     int size = 20,
   }) async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString("access_token");
 
-    // Build URL using your Endpoints util or inline:
     final Uri url = Uri.parse(
-      FastApiEndpoints.chatHistoryOther(otherUserId, page: page, size: size),
-      // If you don't have FastApiEndpoints.chatHistoryOther:
-      // Uri.parse("https://fastapi.jyotishionline.com/chat/history/$otherUserId?page=$page&size=$size"),
+      FastApiEndpoints.chatHistoryOther(
+        otherUserId,
+        page: page,
+        size: size,
+      ),
     );
 
-    // DEBUG: Log everything we’re about to send
-    debugPrint("🛰️ [CHAT_HISTORY_REQ]");
-    debugPrint(
-        "   • otherUserId: $otherUserId  (NOTE: passing astrologer/self id due to backend quirk)");
-    debugPrint("   • page: $page, size: $size");
-    debugPrint("   • URL: $url");
-    debugPrint("   • Token present: ${token != null && token.isNotEmpty}");
-    if (token != null && token.isNotEmpty) {
-      final tail =
-          token.length > 12 ? token.substring(token.length - 12) : token;
-      debugPrint("   • Token tail: ...$tail");
-    }
+    debugPrint("════════ CHAT HISTORY REQUEST ════════");
+    debugPrint("📨 otherUserId : $otherUserId");
+    debugPrint("📄 page        : $page");
+    debugPrint("📦 size        : $size");
+    debugPrint("🌐 url         : $url");
+    debugPrint("🔐 token       : ${token != null && token.isNotEmpty}");
 
     final headers = <String, String>{
       "accept": "application/json",
-      if (token != null && token.isNotEmpty) "Authorization": "Bearer $token",
+      if (token != null && token.isNotEmpty)
+        "Authorization": "Bearer $token",
     };
-    debugPrint("   • Headers: $headers");
 
     try {
-      final resp = await http.get(url, headers: headers);
-      debugPrint("⬅️ [CHAT_HISTORY_RES] status=${resp.statusCode}");
-      debugPrint("⬅️ Body: ${resp.body}");
+      final resp = await http
+          .get(url, headers: headers)
+          .timeout(const Duration(seconds: 15));
 
-      if (resp.statusCode == 200) {
-        final decoded = jsonDecode(resp.body) as Map<String, dynamic>;
-        // quick sanity counters
-        final msgs = (decoded['messages'] as List?)?.length ?? 0;
-        debugPrint(
-            "✅ Parsed OK. messages=$msgs page=${decoded['page']} size=${decoded['size']} total=${decoded['total']}");
-        return decoded;
-      } else {
-        throw Exception("History failed ${resp.statusCode}: ${resp.body}");
+      debugPrint("⬅️ statusCode : ${resp.statusCode}");
+
+      if (resp.statusCode != 200) {
+        debugPrint("❌ ERROR BODY : ${resp.body}");
+        throw Exception(
+          "Chat history failed (${resp.statusCode})",
+        );
       }
+
+      final decoded = jsonDecode(resp.body);
+
+      if (decoded is! Map<String, dynamic>) {
+        throw Exception("Invalid response format");
+      }
+
+      final messages = decoded['messages'];
+      final int msgCount =
+      messages is List ? messages.length : 0;
+
+      debugPrint("✅ messages    : $msgCount");
+      debugPrint("📄 resp page  : ${decoded['page']}");
+      debugPrint("📦 resp size  : ${decoded['size']}");
+      debugPrint("📊 total      : ${decoded['total']}");
+      debugPrint("══════════════════════════════════════");
+
+      return decoded;
+    } on SocketException {
+      debugPrint("🌐 No internet connection");
+      rethrow;
     } catch (e, st) {
-      debugPrint("🔥 [CHAT_HISTORY_ERR] $e");
-      debugPrint("$st");
+      debugPrint("🔥 CHAT HISTORY EXCEPTION: $e");
+      debugPrint(st.toString());
       rethrow;
     }
   }
+
 
   // ---------------- VERIFY OTP & SAVE USER ----------------
   static Future<Map<String, dynamic>> verifyOtp({
@@ -980,6 +994,51 @@ Future<bool> sendCustomerNotification({
       return false;
     }
   }
+
+
+  Future<Map<String, dynamic>?> getWithdrawHistoryPaged({
+    int page = 1,
+    int size = 10,
+  }) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('access_token');
+      if (token == null || token.isEmpty) return null;
+
+      final base = FastApiEndpoints.fastApiBaseUrl;
+
+      final uri = Uri.parse(
+        '$base/api/v1/astro/withdrawals'
+            '?page=$page'
+            '&size=$size'
+            '&order_by=created_at'
+            '&order_dir=desc',
+      );
+
+      debugPrint('📤 Withdraw API → $uri');
+
+      final response = await http.get(
+        uri,
+        headers: {
+          'accept': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      debugPrint(
+          '📥 Withdraw status=${response.statusCode} body=${response.body}');
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      }
+
+      return null;
+    } catch (e, st) {
+      debugPrint('❌ getWithdrawHistoryPaged error: $e\n$st');
+      return null;
+    }
+  }
+
 
 
   /// Get withdraw history for logged-in astrologer

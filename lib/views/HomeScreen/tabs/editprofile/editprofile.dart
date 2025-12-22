@@ -1177,20 +1177,53 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
                       padding: const EdgeInsets.all(16),
                       child: Row(
                         children: [
-                          CircleAvatar(
-                            radius: 44,
-                            backgroundImage: _profileImage != null
-                                ? FileImage(_profileImage!)
-                                : (_profileImageUrl != null
-                                ? NetworkImage(_profileImageUrl!)
-                                : null) as ImageProvider?,
-                            child: _profileImage == null &&
-                                (_profileImageUrl == null ||
-                                    _profileImageUrl!.isEmpty)
-                                ? const Icon(Icons.camera_alt,
-                                size: 36, color: Colors.black45)
-                                : null,
+                          GestureDetector(
+                            onTap: _pickProfileImage,
+                            child: Stack(
+                              children: [
+                                CircleAvatar(
+                                  radius: 44,
+                                  backgroundImage: _profileImage != null
+                                      ? FileImage(_profileImage!)
+                                      : (_profileImageUrl != null && _profileImageUrl!.isNotEmpty
+                                      ? NetworkImage(_profileImageUrl!)
+                                      : null) as ImageProvider?,
+                                  backgroundColor: Colors.grey.shade200,
+                                  child: (_profileImage == null &&
+                                      (_profileImageUrl == null ||
+                                          _profileImageUrl!.isEmpty))
+                                      ? const Icon(Icons.camera_alt,
+                                      size: 36, color: Colors.black45)
+                                      : null,
+                                ),
+
+                                /// ✏️ EDIT ICON OVERLAY
+                                Positioned(
+                                  right: 0,
+                                  bottom: 0,
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: Colors.yellow.shade700,
+                                      shape: BoxShape.circle,
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black.withOpacity(0.2),
+                                          blurRadius: 4,
+                                        ),
+                                      ],
+                                    ),
+                                    padding: const EdgeInsets.all(6),
+                                    child: const Icon(
+                                      Icons.edit,
+                                      size: 16,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
+
                           const SizedBox(width: 16),
                           Expanded(
                             child: Column(
@@ -1236,6 +1269,7 @@ class _NewEditProfileScreenState extends State<NewEditProfileScreen> {
                       padding: const EdgeInsets.all(18),
                       child: Form(
                         key: _formKey,
+                        autovalidateMode: AutovalidateMode.onUserInteraction,
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [

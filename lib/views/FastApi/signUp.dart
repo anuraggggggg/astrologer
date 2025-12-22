@@ -12,8 +12,10 @@ import 'package:path/path.dart' as p;
 // NEW imports
 import 'package:file_picker/file_picker.dart';
 import 'package:mime/mime.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../../country_code.dart';
+import '../Authentication/login_screen.dart';
 
 class AstrologerSignupPage extends StatefulWidget {
   const AstrologerSignupPage({Key? key}) : super(key: key);
@@ -140,12 +142,14 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
   @override
   void initState() {
     super.initState();
+
     _pageController.addListener(() {
       final page = _pageController.page;
       if (page != null) {
         setState(() => _currentPage = page.round());
       }
     });
+
   }
 
   @override
@@ -238,11 +242,81 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
   // New: pick documents for KYC / bank using file_picker
   // accepts images + pdf; blocks txt and other extensions
   // ---------------------------
+
+  Future<File?> _pickFromCamera({bool enforce2MB = false}) async {
+    final XFile? picked =
+    await _picker.pickImage(source: ImageSource.camera, imageQuality: 80);
+
+    if (picked == null) return null;
+
+    final file = File(picked.path);
+
+    if (enforce2MB) {
+      final size = await file.length();
+      if (size > 2 * 1024 * 1024) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Image too large. Max allowed size is 2 MB."),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return null;
+      }
+    }
+
+    return file;
+  }
+
+  Future<File?> _showDocumentPickerWithCamera({
+    required String purpose,
+    bool enforce2MB = false,
+  }) async {
+    return showModalBottomSheet<File?>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.camera_alt),
+                title: const Text("Take Photo"),
+                onTap: () async {
+                  Navigator.pop(
+                    context,
+                    await _pickFromCamera(enforce2MB: enforce2MB),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.upload_file),
+                title: const Text("Choose from Gallery / PDF"),
+                onTap: () async {
+                  Navigator.pop(
+                    context,
+                    await _pickDocument(
+                      purpose: purpose,
+                      enforce2MB: enforce2MB,
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Future<File?> _pickDocument({
     required String purpose,
     bool enforce2MB = false,
   }) async {
     try {
+      _ensureCameraPermission();
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: _allowedDocExtensions,
@@ -299,22 +373,37 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
   }
 
   Future<void> _pickAadhaarFront() async {
-    final file = await _pickDocument(purpose: 'aadhaar_front', enforce2MB: true);
+    final file = await _showDocumentPickerWithCamera(
+      purpose: 'aadhaar_front',
+      enforce2MB: true,
+    );
     if (file != null) setState(() => aadhaarFrontFile = file);
   }
 
+
   Future<void> _pickAadhaarBack() async {
-    final file = await _pickDocument(purpose: 'aadhaar_back', enforce2MB: true);
+    final file = await _showDocumentPickerWithCamera(
+      purpose: 'aadhaar_back',
+      enforce2MB: true,
+    );
     if (file != null) setState(() => aadhaarBackFile = file);
   }
 
+
   Future<void> _pickPanCard() async {
-    final file = await _pickDocument(purpose: 'pan_card', enforce2MB: true);
+    final file = await _showDocumentPickerWithCamera(
+      purpose: 'pan_card',
+      enforce2MB: true,
+    );
     if (file != null) setState(() => panCardFile = file);
   }
 
+
   Future<void> _pickAnyBankDocument() async {
-    final file = await _pickDocument(purpose: 'bank_document', enforce2MB: true);
+    final file = await _showDocumentPickerWithCamera(
+      purpose: 'bank_document',
+      enforce2MB: true,
+    );
     if (file != null) {
       setState(() {
         bankPassbookFile = file;
@@ -763,17 +852,28 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
 
       if (streamedResponse.statusCode == 200 ||
           streamedResponse.statusCode == 201) {
+
+        if (!mounted) return;
+
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             backgroundColor: Colors.green,
             behavior: SnackBarBehavior.floating,
-            content: Text("✅ Astrologer created successfully!"),
+            content: Text("✅ Signup successful! Please login."),
           ),
         );
+
+        // 🔥 Clear form
         _formKey.currentState?.reset();
         _resetControllers();
-        _pageController.jumpToPage(0);
-      } else {
+
+        // 🔥 Navigate to LoginScreen (remove signup from stack)
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const LoginScreen()),
+              (route) => false,
+        );
+      }
+      else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             backgroundColor: Colors.red,
@@ -878,6 +978,20 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
     paymentMethod = 'none';
   }
 
+
+  Future<bool> _ensureCameraPermission() async {
+    final status = await Permission.camera.request();
+    if (!status.isGranted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Camera permission is required."),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return false;
+    }
+    return true;
+  }
   String? _validateConfirmPassword(String? v) {
     if (v == null || v.isEmpty) return "Confirm Password is required";
     if (v != passwordCtrl.text) return "Passwords do not match";
@@ -971,7 +1085,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
               selectedGender = v;
               _genderTouched = true;
             });
-            _formKey.currentState?.validate();
+            // _formKey.currentState?.validate();
           },
 
           validator: (v) {
@@ -1121,7 +1235,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
           onFocusChange: (hasFocus) {
             if (!hasFocus) {
               setLocalState(() => _phoneTouched = true);
-              _formKey.currentState?.validate();
+              // _formKey.currentState?.validate();
             }
           },
           child: InternationalPhoneNumberInput(
@@ -1302,7 +1416,7 @@ class _AstrologerSignupPageState extends State<AstrologerSignupPage> {
             onFocusChange: (hasFocus) {
               if (!hasFocus) {
                 setState(() => _birthDateTouched = true);
-                _formKey.currentState?.validate();
+                // _formKey.currentState?.validate();
               }
             },
             child: TextFormField(

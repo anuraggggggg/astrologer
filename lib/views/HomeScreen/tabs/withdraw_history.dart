@@ -65,52 +65,72 @@ class _WithdrawHistoryPageState extends State<WithdrawHistoryPage> {
   String? _error;
   List<WithdrawItem> _items = [];
 
+  int _page = 1;
+  final int _pageSize = 10;
+  bool _hasMore = true;
+  bool _isFetchingMore = false;
+  final ScrollController _scrollCtrl = ScrollController();
+
+
   @override
   void initState() {
     super.initState();
+
+    _scrollCtrl.addListener(() {
+      if (_scrollCtrl.position.pixels >=
+          _scrollCtrl.position.maxScrollExtent - 120) {
+        _fetch();
+      }
+    });
+
     _fetch();
   }
 
-  Future<void> _fetch() async {
+  Future<void> _fetch({bool refresh = false}) async {
+    if (_isFetchingMore) return;
+
+    if (refresh) {
+      _page = 1;
+      _hasMore = true;
+      _items.clear();
+    }
+
+    if (!_hasMore) return;
+
     setState(() {
-      _loading = true;
+      _loading = _page == 1;
+      _isFetchingMore = true;
       _error = null;
     });
 
     try {
       final svc = FastApiServices();
-      final raw = await svc.getWithdrawHistory();
+      final resp = await svc.getWithdrawHistoryPaged(
+        page: _page,
+        size: _pageSize,
+      );
 
-      debugPrint('WithdrawHistory: raw=${raw?.length ?? 0}');
-
-      if (raw == null) {
-        setState(() {
-          _loading = false;
-          _error = "Failed to fetch history (check network / token)";
-        });
+      if (resp == null) {
+        _error = "Failed to fetch history";
         return;
       }
 
-      try {
-        final items = raw.map((m) => WithdrawItem.fromJson(m)).toList();
-        // Sort by createdAt descending (most recent first)
-        items.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-        setState(() {
-          _items = items;
-          _loading = false;
-        });
-      } catch (e, st) {
-        debugPrint('Parsing withdraw items error: $e\n$st');
-        setState(() {
-          _loading = false;
-          _error = "Parsing error";
-        });
-      }
-    } catch (e, st) {
-      debugPrint('Exception in _fetch withdraw history: $e\n$st');
+      final List raw = resp['data'] ?? [];
+      final int totalPages = resp['total_pages'] ?? 1;
+
+      final newItems = raw.map((m) => WithdrawItem.fromJson(m)).toList();
+
+      setState(() {
+        _items.addAll(newItems);
+        _page++;
+        _hasMore = _page <= totalPages;
+      });
+    } catch (e) {
+      _error = "Unexpected error";
+    } finally {
       setState(() {
         _loading = false;
-        _error = "Unexpected error";
+        _isFetchingMore = false;
       });
     }
   }
@@ -293,7 +313,8 @@ class _WithdrawHistoryPageState extends State<WithdrawHistoryPage> {
         ],
       ),
       body: RefreshIndicator(
-        onRefresh: _fetch,
+        onRefresh: () => _fetch(refresh: true),
+
         child: _loading
             ? const Center(child: CircularProgressIndicator())
             : (_error != null)
@@ -313,6 +334,7 @@ class _WithdrawHistoryPageState extends State<WithdrawHistoryPage> {
           ],
         )
             : ListView.separated(
+          controller: _scrollCtrl,
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.only(bottom: 16),
           itemCount: keys.length,

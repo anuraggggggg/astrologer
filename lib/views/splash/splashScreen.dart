@@ -36,7 +36,7 @@ class SplashScreen extends BaseRoute {
                   children: [
                     CircleAvatar(
                       backgroundColor: Colors.white,
-                      radius: 20.h,
+                      radius: 16.h,
                       backgroundImage: const AssetImage(
                           'assets/images/astrologer_splash.jpeg'),
                     ),
