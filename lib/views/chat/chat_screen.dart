@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -34,6 +35,18 @@ class _AstrologerChatPageState extends State<AstrologerChatPage> {
   WebSocket? _socket;
   bool _isConnected = false;
   bool _isLoading = true;
+
+  // 🔥 Connectivity handshake
+  bool _iAmReady = false;
+  bool _otherIsReady = false;
+  bool _timerStarted = false;
+
+// ⏱ Timer (10 minutes)
+  static const int _totalSessionSeconds = 10 * 60;
+  int _secondsLeft = _totalSessionSeconds;
+  Timer? _sessionTimer;
+
+
 
   final List<Map<String, dynamic>> _messages = [];
 
@@ -187,10 +200,34 @@ class _AstrologerChatPageState extends State<AstrologerChatPage> {
 
       setState(() => _isConnected = true);
 
-      _socket!.listen(_onMessage);
+      _socket!.listen(
+        _onMessage,
+        onDone: _handleDisconnect,
+        onError: (_) => _handleDisconnect(),
+      );
+
+
+
+
+// 🔥 SEND READY SIGNAL
+      _iAmReady = true;
+      _socket!.add(jsonEncode({
+        "type": "connectivity",
+        "status": "ready",
+        "user_id": _myUserIdFromPrefs,
+        "room_id": _roomId,
+      }));
+
     } catch (e) {
       debugPrint('❌ WebSocket connection error: $e');
     }
+  }
+
+
+  void _handleDisconnect() {
+    _otherIsReady = false;
+    _stopSessionTimer();
+    setState(() => _isConnected = false);
   }
 
   void _onMessage(dynamic data) async {
@@ -198,19 +235,33 @@ class _AstrologerChatPageState extends State<AstrologerChatPage> {
       final raw = data is String ? data : utf8.decode(data);
       final parsed = jsonDecode(raw);
 
-      if (parsed is! Map || parsed['type'] != 'message') return;
+      // 🔥 CONNECTIVITY HANDSHAKE
+      if (parsed['type'] == 'connectivity') {
+        final senderId = parsed['user_id'];
+
+        if (senderId == _myUserIdFromPrefs) return;
+
+        if (parsed['status'] == 'ready') {
+          _otherIsReady = true;
+          _tryStartTimer();
+        } else if (parsed['status'] == 'offline') {
+          _otherIsReady = false;
+          _stopSessionTimer();
+        }
+        return;
+      }
+
+      // 🔥 NORMAL MESSAGE
+      if (parsed['type'] != 'message') return;
 
       final msg = parsed['message'];
       if (msg is! Map) return;
 
-      final String senderId = msg['sender_user_id']?.toString() ?? '';
+      final senderId = msg['sender_user_id']?.toString() ?? '';
+      if (senderId == _myUserIdFromPrefs) return;
 
-      // 🔥 get user_id from SharedPreferences
-      final prefs = await SharedPreferences.getInstance();
-      final String useridforastro = prefs.getString('user_id') ?? '';
-
-      // 🔥 ignore self WS echo (duplicate prevention)
-      if (senderId == useridforastro) return;
+      _otherIsReady = true;
+      _tryStartTimer();
 
       setState(() {
         _messages.add({
@@ -222,9 +273,39 @@ class _AstrologerChatPageState extends State<AstrologerChatPage> {
 
       _scrollToBottom();
     } catch (e) {
-      debugPrint('❌ WS onMessage error: $e');
+      debugPrint('❌ WS error: $e');
     }
   }
+
+
+  void _tryStartTimer() {
+    if (_timerStarted) return;
+
+    if (_iAmReady && _otherIsReady && _isConnected) {
+      _startSessionTimer();
+    }
+  }
+
+  void _startSessionTimer() {
+    _timerStarted = true;
+
+    _sessionTimer = Timer.periodic(
+      const Duration(seconds: 1),
+          (_) {
+        if (_secondsLeft <= 0) {
+          _stopSessionTimer();
+          return;
+        }
+        setState(() => _secondsLeft--);
+      },
+    );
+  }
+
+  void _stopSessionTimer() {
+    _sessionTimer?.cancel();
+    _timerStarted = false;
+  }
+
 
   // ---------------------------------------------------------------------------
   // SEND MESSAGE
@@ -280,6 +361,14 @@ class _AstrologerChatPageState extends State<AstrologerChatPage> {
 
   @override
   void dispose() {
+    _socket?.add(jsonEncode({
+      "type": "connectivity",
+      "status": "offline",
+      "user_id": _myUserIdFromPrefs,
+      "room_id": _roomId,
+    }));
+
+    _stopSessionTimer();
     _socket?.close();
     _controller.dispose();
     _scrollController.dispose();
@@ -305,7 +394,24 @@ class _AstrologerChatPageState extends State<AstrologerChatPage> {
             fontWeight: FontWeight.w600,
           ),
         ),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Center(
+              child: Text(
+                "${(_secondsLeft ~/ 60).toString().padLeft(2, '0')}:"
+                    "${(_secondsLeft % 60).toString().padLeft(2, '0')}",
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
+
       body: _isLoading
           ? const Center(
         child: CircularProgressIndicator(color: appYellow),

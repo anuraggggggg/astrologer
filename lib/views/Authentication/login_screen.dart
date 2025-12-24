@@ -196,19 +196,28 @@ class _LoginScreenState extends State<LoginScreen> {
                                   }
 
                                   // Navigate only if OTP request succeeded
-                                  if (success && context.mounted) {
-                                    Future.microtask(() {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (context) => LoginOtpScreen(
-                                            mobileNumber: phoneNumber,
-                                            countryCode: countryCode,
-                                          ),
+                                  if (_formKey.currentState!.validate()) {
+                                    final phoneNumber = loginOtpController.cMobileNumber.text.trim();
+                                    final countryCode = loginOtpController.countryCode;
+
+                                    // 🚀 Navigate immediately
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => LoginOtpScreen(
+                                          mobileNumber: phoneNumber,
+                                          countryCode: countryCode,
                                         ),
-                                      );
-                                    });
+                                      ),
+                                    );
+
+                                    // 🔄 Send OTP in background
+                                    // authProvider.requestOtp(
+                                    //   contactNo: phoneNumber,
+                                    //   countryCode: countryCode,
+                                    // );
                                   }
+
                                 }
                               },
                               child: Container(

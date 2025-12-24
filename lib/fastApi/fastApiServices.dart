@@ -193,19 +193,20 @@ class FastApiServices {
   }) async {
     final url = Uri.parse("$baseUrl/auth/astro-login");
 
-    // ✅ Remove '+' sign if present
+    // ✅ Remove '+' if present
     final formattedCountryCode =
-        countryCode.startsWith('+') ? countryCode.substring(1) : countryCode;
+    countryCode.startsWith('+') ? countryCode.substring(1) : countryCode;
 
-    final sendWhatsapp = true;
-    final sendSms = true;
+    // ✅ SMS ONLY
+    const bool sendWhatsapp = false;
+    const bool sendSms = true;
 
-    print("➡️ Sending OTP request to $url");
-    print(
-        "📦 Body: contactNo=$contactNo, countryCode=$formattedCountryCode, send_whatsapp=$sendWhatsapp, send_sms=$sendSms");
+    print("➡️ Sending OTP (SMS only)");
+    print("📦 contactNo=$contactNo, countryCode=$formattedCountryCode");
 
     try {
-      final response = await http.post(
+      final response = await http
+          .post(
         url,
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
@@ -214,13 +215,11 @@ class FastApiServices {
         body: {
           "contactNo": contactNo,
           "countryCode": formattedCountryCode,
-          "send_whatsapp": sendWhatsapp.toString(),
-          "send_sms": sendSms.toString(),
+          "send_whatsapp": sendWhatsapp.toString(), // "false"
+          "send_sms": sendSms.toString(),           // "true"
         },
-      );
-
-      print("⬅️ Response status: ${response.statusCode}");
-      print("⬅️ Response body: ${response.body}");
+      )
+          .timeout(const Duration(seconds: 10)); // ✅ prevent hanging
 
       if (response.statusCode == 200) {
         return jsonDecode(response.body);
@@ -229,7 +228,7 @@ class FastApiServices {
         throw Exception(decoded['detail'] ?? 'Failed to request OTP');
       }
     } catch (e) {
-      print("🚨 Exception occurred: $e");
+      print("🚨 OTP SMS Error: $e");
       rethrow;
     }
   }
@@ -250,7 +249,7 @@ class FastApiServices {
 
     // Build URL exactly like the docs: https://fastapi.jyotishionline.com/api/v1/{id}
     final String baseUrl = "https://fastapi.jyotishionline.com/api/v1";
-    final url = Uri.parse("$baseUrl/$requestId");
+    final url = Uri.parse("$baseUrl/res_accept/$requestId");
 
     final headers = <String, String>{
       "accept": "application/json",
