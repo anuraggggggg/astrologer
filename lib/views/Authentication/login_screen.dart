@@ -196,7 +196,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                   }
 
                                   // Navigate only if OTP request succeeded
-                                  if (_formKey.currentState!.validate()) {
+                                  if (success) {
                                     final phoneNumber = loginOtpController.cMobileNumber.text.trim();
                                     final countryCode = loginOtpController.countryCode;
 
