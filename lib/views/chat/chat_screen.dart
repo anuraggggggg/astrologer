@@ -32,6 +32,8 @@ class _AstrologerChatPageState extends State<AstrologerChatPage> {
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
 
+
+
   WebSocket? _socket;
   bool _isConnected = false;
   bool _isLoading = true;

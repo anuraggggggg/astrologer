@@ -5,15 +5,9 @@ import 'package:astrowaypartner/controllers/Authentication/login_controller.dart
 import 'package:astrowaypartner/controllers/Authentication/login_otp_controller.dart';
 import 'package:astrowaypartner/controllers/Authentication/signup_controller.dart';
 import 'package:astrowaypartner/controllers/Provider/loginProvider.dart';
-import 'package:astrowaypartner/models/time_availability_model.dart';
-import 'package:astrowaypartner/models/week_model.dart';
 import 'package:astrowaypartner/views/Authentication/OtpScreens/login_otp_screen.dart';
-import 'package:astrowaypartner/views/Authentication/signup_screen.dart';
 import 'package:astrowaypartner/views/FastApi/signUp.dart';
-import 'package:astrowaypartner/views/HomeScreen/Drawer/Setting/privacy_policy_screen.dart';
-import 'package:astrowaypartner/views/HomeScreen/Drawer/Setting/term_and_condition_screen.dart';
 import 'package:easy_localization/easy_localization.dart';
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
@@ -42,308 +36,258 @@ class _LoginScreenState extends State<LoginScreen> {
     return PopScope(
       canPop: true,
       onPopInvoked: (didPop) async {
-        Get.back();
         SystemNavigator.pop();
       },
       child: Scaffold(
-        resizeToAvoidBottomInset: false,
-        body: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                Colors.white,
-                COLORS().primaryColor.withOpacity(0.1),
-                COLORS().primaryColor.withOpacity(0.3),
-              ],
+        resizeToAvoidBottomInset: false, // 🔥 IMPORTANT
+        body: Stack(
+          children: [
+            /// BACKGROUND
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.white,
+                    COLORS().primaryColor.withOpacity(0.1),
+                    COLORS().primaryColor.withOpacity(0.3),
+                  ],
+                ),
+              ),
             ),
-          ),
-          child: Column(
-            children: [
-              /// TOP SECTION
-              Expanded(
-                flex: 2,
+
+            /// CONTENT
+            SafeArea(
+              child: SingleChildScrollView(
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.of(context).viewInsets.bottom,
+                ),
                 child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    CircleAvatar(
-                      radius: 10.h,
-                      backgroundColor: Colors.white,
-                      backgroundImage:
-                          AssetImage('assets/images/astrologer_splash.jpeg'),
-                    ),
-                    SizedBox(height: 3.h),
-                    Text(
-                      global.appName,
-                      style: Get.textTheme.headlineSmall!.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: COLORS().primaryColor,
-                        shadows: [
-                          Shadow(
-                            blurRadius: 2,
-                            color: Colors.black.withOpacity(0.1),
-                            offset: Offset(1, 1),
-                          )
+                    /// TOP SECTION
+                    SizedBox(
+                      height: 40.h,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          ClipOval(
+                            child: Image.asset(
+                              'assets/images/astrologer_splash.png',
+                              width: 23.h,
+                              height: 23.h,
+                              fit: BoxFit.contain,
+                            ),
+                          ),
+
+                          // SizedBox(height: 1.h),
+                          Text(
+                            global.appName,
+                            style: Get.textTheme.headlineSmall!.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: COLORS().primaryColor,
+                            ),
+                          ),
+                          // SizedBox(height: 1.h),
+                          Text(
+                            'Welcome Back!',
+                            style: TextStyle(
+                              fontSize: 14.sp,
+                              color: Colors.grey[700],
+                            ),
+                          ),
                         ],
                       ),
                     ),
-                    SizedBox(height: 1.h),
-                    Text(
-                      'Welcome Back!',
-                      style: TextStyle(
-                        fontSize: 14.sp,
-                        color: Colors.grey[700],
-                        fontWeight: FontWeight.w500,
+
+                    /// LOGIN FORM
+                    Container(
+                      width: double.infinity,
+                      padding: EdgeInsets.symmetric(horizontal: 5.w),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius:
+                        BorderRadius.vertical(top: Radius.circular(30)),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.1),
+                            blurRadius: 15,
+                            offset: Offset(0, -5),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        children: [
+                          SizedBox(height: 3.h),
+                          Text(
+                            'Login to continue',
+                            style: TextStyle(
+                              fontSize: 16.sp,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          SizedBox(height: 2.h),
+
+                          /// PHONE FIELD
+                          Form(
+                            key: _formKey,
+                            child:
+                            _buildPhoneNumberWidget(loginOtpController),
+                          ),
+
+                          SizedBox(height: 2.h),
+
+                          /// SEND OTP BUTTON
+                          _sendOtpButton(),
+
+                          SizedBox(height: 3.h),
+                          Text(
+                            'OR',
+                            style: TextStyle(
+                              fontSize: 10.sp,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          SizedBox(height: 2.h),
+
+
+
+                          /// SIGN UP
+                          InkWell(
+                            onTap: () {
+                              signupController.clearAstrologer();
+                              Get.to(() => AstrologerSignupPage());
+                            },
+                            child: RichText(
+                              text: TextSpan(
+                                text: loginController.notaAccountText,
+                                style: Theme.of(context)
+                                    .primaryTextTheme
+                                    .titleMedium,
+                                children: [
+
+                                  TextSpan(
+                                    text: " ${tr("Sign Up")}",
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: COLORS().primaryColor,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          SizedBox(height: 30.h),
+                        ],
                       ),
                     ),
                   ],
                 ),
               ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
-              /// LOGIN FORM
-              Expanded(
-                flex: 3,
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius:
-                        BorderRadius.vertical(top: Radius.circular(30)),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.1),
-                        blurRadius: 15,
-                        offset: Offset(0, -5),
-                      )
-                    ],
-                  ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 5.w),
-                        child: Column(
-                          children: [
-                            SizedBox(height: 3.h),
-                            Text(
-                              'Login to continue',
-                              style: TextStyle(
-                                fontSize: 16.sp,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.black87,
-                              ),
-                            ),
-                            SizedBox(height: 2.h),
+  /// SEND OTP BUTTON
+  Widget _sendOtpButton() {
+    return GestureDetector(
+      onTap: () async {
+        FocusScope.of(context).unfocus();
 
-                            /// PHONE NUMBER FIELD
-                            Form(
-                              key: _formKey,
-                              child:
-                                  _buildPhoneNumberWidget(loginOtpController),
-                            ),
-                            SizedBox(height: 2.h),
+        final authProvider =
+        Provider.of<AuthProvider>(context, listen: false);
 
-                            /// SEND OTP BUTTON
-                            GestureDetector(
-                              onTap: () async {
-                                // Prevent tap while loading
-                                final authProvider =
-                                Provider.of<AuthProvider>(context, listen: false);
+        if (authProvider.isLoading) return;
 
-                                if (authProvider.isLoading) return;
+        if (_formKey.currentState!.validate()) {
+          final phone =
+          loginOtpController.cMobileNumber.text.trim();
+          final code = loginOtpController.countryCode;
 
-                                if (_formKey.currentState!.validate()) {
-                                  FocusScope.of(context).unfocus();
+          final success = await authProvider.requestOtp(
+            contactNo: phone,
+            countryCode: code,
+          );
 
-                                  final String phoneNumber =
-                                  loginOtpController.cMobileNumber.text.trim();
-                                  final String countryCode =
-                                      loginOtpController.countryCode;
+          if (!mounted) return;
 
-                                  final bool success = await authProvider.requestOtp(
-                                    contactNo: phoneNumber,
-                                    countryCode: countryCode,
-                                  );
-
-                                  // Build clean message
-                                  final String message = success
-                                      ? "OTP sent successfully"
-                                      : (authProvider.errorMessage?.trim().isNotEmpty == true
-                                      ? authProvider.errorMessage!
-                                      : "Failed to send OTP");
-
-                                  // Remove previous snackbar & show new one
-                                  if (context.mounted) {
-                                    ScaffoldMessenger.of(context)
-                                      ..removeCurrentSnackBar()
-                                      ..showSnackBar(
-                                        SnackBar(
-                                          content: Row(
-                                            children: [
-                                              Icon(
-                                                success ? Icons.check_circle : Icons.error,
-                                                color: Colors.white,
-                                              ),
-                                              const SizedBox(width: 10),
-                                              Expanded(child: Text(message)),
-                                            ],
-                                          ),
-                                          backgroundColor: success ? Colors.green : Colors.red,
-                                          behavior: SnackBarBehavior.floating,
-                                          duration: const Duration(seconds: 3),
-                                        ),
-                                      );
-                                  }
-
-                                  // Navigate only if OTP request succeeded
-                                  if (success) {
-                                    final phoneNumber = loginOtpController.cMobileNumber.text.trim();
-                                    final countryCode = loginOtpController.countryCode;
-
-                                    // 🚀 Navigate immediately
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (_) => LoginOtpScreen(
-                                          mobileNumber: phoneNumber,
-                                          countryCode: countryCode,
-                                        ),
-                                      ),
-                                    );
-
-                                    // 🔄 Send OTP in background
-                                    // authProvider.requestOtp(
-                                    //   contactNo: phoneNumber,
-                                    //   countryCode: countryCode,
-                                    // );
-                                  }
-
-                                }
-                              },
-                              child: Container(
-                                margin: EdgeInsets.symmetric(horizontal: 2.w),
-                                height: 6.h,
-                                width: double.infinity,
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(
-                                    colors: [
-                                      COLORS().primaryColor,
-                                      COLORS().primaryColor.withOpacity(0.8),
-                                    ],
-                                  ),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Center(
-                                  child: Consumer<AuthProvider>(
-                                    builder: (_, authProvider, __) {
-                                      return authProvider.isLoading
-                                          ? const CircularProgressIndicator(color: Colors.white)
-                                          : Row(
-                                        mainAxisAlignment: MainAxisAlignment.center,
-                                        children: [
-                                          Text(
-                                            'SEND_OTP',
-                                            style: TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 12.sp,
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                          ).tr(),
-                                          const SizedBox(width: 10),
-                                          Icon(
-                                            Icons.arrow_forward,
-                                            color: Colors.white,
-                                            size: 18.sp,
-                                          ),
-                                        ],
-                                      );
-                                    },
-                                  ),
-                                ),
-                              ),
-                            ),
-
-
-                            SizedBox(height: 3.h),
-                          ],
-                        ),
-                      ),
-
-                      /// SIGN UP FOOTER
-                      Container(
-                        width: double.infinity,
-                        padding: EdgeInsets.symmetric(vertical: 2.h),
-                        decoration: BoxDecoration(
-                          color: Colors.grey[50],
-                          borderRadius:
-                              BorderRadius.vertical(top: Radius.circular(20)),
-                        ),
-                        child: InkWell(
-                          onTap: () {
-                            signupController.week = [];
-                            for (var day in [
-                              "Sunday",
-                              "Monday",
-                              "Tuesday",
-                              "Wednesday",
-                              "Thursday",
-                              "Friday",
-                              "Saturday"
-                            ]) {
-                              signupController.week!.add(
-                                Week(day: day, timeAvailabilityList: [
-                                  TimeAvailabilityModel(
-                                      fromTime: "", toTime: "")
-                                ]),
-                              );
-                            }
-                            signupController.clearAstrologer();
-                            Get.to(() => AstrologerSignupPage(),
-                                routeName: "Sign up Screen");
-                          },
-                          child: GetBuilder<LoginController>(builder: (_) {
-                            return Center(
-                              child: RichText(
-                                text: TextSpan(
-                                  text: loginController.notaAccountText,
-                                  style: Theme.of(context)
-                                      .primaryTextTheme
-                                      .titleMedium!
-                                      .copyWith(fontSize: 11.sp),
-                                  children: [
-                                    TextSpan(
-                                      text: " ${tr("Sign Up")}",
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                        color: COLORS().primaryColor,
-                                        fontSize: 12.sp,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          }),
-                        ),
-                      )
-                    ],
-                  ),
+          ScaffoldMessenger.of(context)
+            ..removeCurrentSnackBar()
+            ..showSnackBar(
+              SnackBar(
+                content: Text(
+                  success
+                      ? "OTP sent successfully"
+                      : authProvider.errorMessage ??
+                      "Failed to send OTP",
                 ),
-              )
+                backgroundColor:
+                success ? Colors.green : Colors.red,
+              ),
+            );
+
+          if (success) {
+            Get.to(
+                  () => LoginOtpScreen(
+                mobileNumber: phone,
+                countryCode: code,
+              ),
+            );
+          }
+        }
+      },
+      child: Container(
+        height: 6.h,
+        width: double.infinity,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              COLORS().primaryColor,
+              COLORS().primaryColor.withOpacity(0.8),
             ],
+          ),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Center(
+          child: Consumer<AuthProvider>(
+            builder: (_, auth, __) {
+              return auth.isLoading
+                  ? CircularProgressIndicator(color: Colors.white)
+                  : Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    'SEND_OTP',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 12.sp,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ).tr(),
+                  SizedBox(width: 10),
+                  Icon(
+                    Icons.arrow_forward,
+                    color: Colors.white,
+                    size: 18.sp,
+                  ),
+                ],
+              );
+            },
           ),
         ),
       ),
     );
   }
 
-  /// PHONE NUMBER WIDGET
-  Container _buildPhoneNumberWidget(LoginOtpController loginController) {
+  /// PHONE INPUT
+  Widget _buildPhoneNumberWidget(LoginOtpController controller) {
     return Container(
-      margin: EdgeInsets.symmetric(horizontal: 2.w),
       decoration: BoxDecoration(
         color: Colors.grey[50],
-        borderRadius: BorderRadius.all(Radius.circular(12)),
+        borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.05),
@@ -354,21 +298,18 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
       child: InternationalPhoneNumberInput(
         maxLength: 10,
-        textFieldController: loginController.cMobileNumber,
+        textFieldController: controller.cMobileNumber,
         initialValue: initialPhone,
         formatInput: false,
         autoValidateMode: AutovalidateMode.onUserInteraction,
-        autofillHints: [], // disables autofill
         inputDecoration: InputDecoration(
           border: InputBorder.none,
           hintText: 'Enter your phone number',
-          contentPadding: EdgeInsets.symmetric(horizontal: 15, vertical: 15),
-          prefixIcon: Padding(
-            padding: EdgeInsets.only(left: 10, right: 5),
-            child: Icon(
-              Icons.phone_android,
-              color: COLORS().primaryColor,
-            ),
+          contentPadding:
+          EdgeInsets.symmetric(horizontal: 15, vertical: 15),
+          prefixIcon: Icon(
+            Icons.phone_android,
+            color: COLORS().primaryColor,
           ),
         ),
         selectorConfig: SelectorConfig(
@@ -376,15 +317,15 @@ class _LoginScreenState extends State<LoginScreen> {
           setSelectorButtonAsPrefixIcon: true,
         ),
         onInputChanged: (PhoneNumber number) {
-          loginController.updateCountryCode(number.dialCode);
-        },
-        onSaved: (PhoneNumber number) {
-          loginController.updateCountryCode(number.dialCode);
+          controller.updateCountryCode(number.dialCode);
         },
         validator: (value) {
-          if (value == null || value.isEmpty)
+          if (value == null || value.isEmpty) {
             return 'Please enter your phone number';
-          if (value.length < 10) return 'Please enter a valid phone number';
+          }
+          if (value.length < 10) {
+            return 'Please enter a valid phone number';
+          }
           return null;
         },
         keyboardType: TextInputType.number,

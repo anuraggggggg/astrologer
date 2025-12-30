@@ -5,7 +5,8 @@
   import 'package:shared_preferences/shared_preferences.dart';
 
   import 'package:astrowaypartner/fastApi/fastApiServices.dart';
-  import '../../../chat/chat_screen.dart';
+  import '../../../chat/chat_history.dart';
+import '../../../chat/chat_screen.dart';
 
   class ChatRequests extends StatefulWidget {
     const ChatRequests({super.key});
@@ -347,24 +348,29 @@
                     ),
                   ],
                 ),
-              ] else if (status == "accepted") ...[
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: null,
-                    icon: const Icon(Icons.lock),
-                    label: const Text("Session Over"),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.grey,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                  ),
-                )
-              ] else ...[
+              ]
+
+    else if (status == "accepted") ...[
+    Align(
+    alignment: Alignment.centerRight,
+    child: IconButton(
+    tooltip: "View Chat History",
+    icon: const Icon(Icons.history, color: Colors.orange),
+    onPressed: () {
+    Navigator.push(
+    context,
+    MaterialPageRoute(
+    builder: (_) => AstrologerChatHistoryPage(
+    otherUserId: _getUserId(req)!,
+    userName: _getUserName(req),
+    ),
+    ),
+    );
+    },
+    ),
+    ),
+    ]
+    else ...[
                 Text(
                   "This request is $status.",
                   style: TextStyle(
