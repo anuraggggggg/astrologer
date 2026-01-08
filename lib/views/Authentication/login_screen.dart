@@ -73,7 +73,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         children: [
                           ClipOval(
                             child: Image.asset(
-                              'assets/images/astrologer_splash.png',
+                              'assets/images/astrologer_splash.jpeg',
                               width: 23.h,
                               height: 23.h,
                               fit: BoxFit.contain,
