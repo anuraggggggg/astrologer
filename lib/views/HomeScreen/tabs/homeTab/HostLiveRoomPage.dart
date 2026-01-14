@@ -25,14 +25,16 @@ class HostLiveRoomPage extends StatefulWidget {
   State<HostLiveRoomPage> createState() => _HostLiveRoomPageState();
 }
 
-class _HostLiveRoomPageState extends State<HostLiveRoomPage> {
+class _HostLiveRoomPageState extends State<HostLiveRoomPage>
+    with WidgetsBindingObserver {
   late final RtcEngine _engine;
   bool _joined = false;
   int _fps = 15;
   int? _dataStreamId;
   late final int _myUid;
 
-  String _displayName = ''; // <-- will be replaced by real name if fetch succeeds
+  String _displayName =
+      ''; // <-- will be replaced by real name if fetch succeeds
 
   final List<_Comment> _comments = [];
   final TextEditingController _commentCtrl = TextEditingController();
@@ -45,11 +47,22 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage> {
   final Map<String, int> _recvTotal = {};
 
   String _tag(String s) => '[HostLiveRoom] $s';
-  void _log(String msg) => debugPrint('$_tag ${DateTime.now().toIso8601String()} -> $msg');
+  void _log(String msg) =>
+      debugPrint('$_tag ${DateTime.now().toIso8601String()} -> $msg');
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.detached) {
+      _endLive();
+    }
+  }
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _myUid = Random().nextInt(900000) + 1000;
     _init();
   }
@@ -72,7 +85,8 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage> {
     // Register events
     _engine.registerEventHandler(RtcEngineEventHandler(
       onJoinChannelSuccess: (RtcConnection connection, int elapsed) async {
-        _log('onJoinChannelSuccess channel=${connection.channelId} uid=${connection.localUid}');
+        _log(
+            'onJoinChannelSuccess channel=${connection.channelId} uid=${connection.localUid}');
         if (!mounted) return;
         setState(() => _joined = true);
 
@@ -80,8 +94,10 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage> {
         (() async {
           try {
             final api = FastApiServices();
-            final fetched = await api.getAstrologerById(); // your existing method
-            final name = (fetched?['name'] ?? fetched?['displayName'] ?? '').toString();
+            final fetched =
+                await api.getAstrologerById(); // your existing method
+            final name =
+                (fetched?['name'] ?? fetched?['displayName'] ?? '').toString();
             if (name.isNotEmpty && mounted) {
               setState(() => _displayName = name);
               _log('Display name loaded: $_displayName');
@@ -105,7 +121,8 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage> {
         _log('onUserJoined uid=$remoteUid');
       },
 
-      onUserOffline: (RtcConnection connection, int remoteUid, UserOfflineReasonType reason) {
+      onUserOffline: (RtcConnection connection, int remoteUid,
+          UserOfflineReasonType reason) {
         _log('onUserOffline uid=$remoteUid reason=$reason');
       },
 
@@ -117,13 +134,15 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage> {
             ? 'Invalid/expired RTC token.'
             : 'Agora error $err: $msg';
 
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(text)));
       },
 
       // -----------------------------------------------------------------------
       // RECEIVE STREAM MESSAGE (chunk-based)
       // -----------------------------------------------------------------------
-      onStreamMessage: (RtcConnection connection, int uid, int streamId, Uint8List data, int offset, int length) {
+      onStreamMessage: (RtcConnection connection, int uid, int streamId,
+          Uint8List data, int offset, int length) {
         try {
           final trimmed = _trimNulls(Uint8List.fromList(data));
           final text = utf8.decode(trimmed);
@@ -198,13 +217,15 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage> {
         }
       },
 
-      onConnectionStateChanged: (RtcConnection connection, ConnectionStateType state, ConnectionChangedReasonType reason) {
+      onConnectionStateChanged: (RtcConnection connection,
+          ConnectionStateType state, ConnectionChangedReasonType reason) {
         _log('Connection changed state=$state reason=$reason');
       },
     ));
 
     // Video config
-    await _engine.setChannelProfile(ChannelProfileType.channelProfileLiveBroadcasting);
+    await _engine
+        .setChannelProfile(ChannelProfileType.channelProfileLiveBroadcasting);
     await _engine.setClientRole(role: ClientRoleType.clientRoleBroadcaster);
     await _engine.enableVideo();
 
@@ -275,9 +296,9 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage> {
       "ts": DateTime.now().toIso8601String(),
     };
 
-
     final payloadBytes = utf8.encode(jsonEncode(payloadMap));
-    final id = '${DateTime.now().millisecondsSinceEpoch}-${Random().nextInt(9999)}';
+    final id =
+        '${DateTime.now().millisecondsSinceEpoch}-${Random().nextInt(9999)}';
 
     const chunkSize = 900;
     final total = ((payloadBytes.length + chunkSize - 1) / chunkSize).floor();
@@ -311,7 +332,8 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage> {
       }
 
       if (mounted) {
-        setState(() => _comments.add(_Comment('$_displayName (You)', text.trim(), DateTime.now())));
+        setState(() => _comments
+            .add(_Comment('$_displayName (You)', text.trim(), DateTime.now())));
 
         _commentCtrl.clear();
 
@@ -333,39 +355,52 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage> {
   // ---------------------------------------------------------------------------
   // END LIVE
   // ---------------------------------------------------------------------------
-  Future<void> _endLive() async {
+  Future<void> _endLive({bool pop = true}) async {
     if (_ending) return;
-    setState(() => _ending = true);
+    _ending = true;
 
+    // stop live on server
     try {
       await FastApiServices().endAgoraLive();
     } catch (_) {}
 
+    // cleanup agora
     try {
       await _engine.leaveChannel();
       await _engine.release();
     } catch (_) {}
 
-    if (mounted) Navigator.pop(context);
+    // pop screen only if requested and still mounted
+    if (pop && mounted) {
+      Navigator.pop(context);
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _commentCtrl.dispose();
     _commentScroll.dispose();
-
-    () async {
-      try {
-        await FastApiServices().endAgoraLive();
-      } catch (_) {}
-
-      try {
-        await _engine.leaveChannel();
-        await _engine.release();
-      } catch (_) {}
-    }();
-
+    _engine.leaveChannel();
+    _engine.release();
     super.dispose();
+    // WidgetsBinding.instance.removeObserver(this);
+    // _endLive();
+    // _commentCtrl.dispose();
+    // _commentScroll.dispose();
+
+    // () async {
+    //   try {
+    //     await FastApiServices().endAgoraLive();
+    //   } catch (_) {}
+
+    //   try {
+    //     await _engine.leaveChannel();
+    //     await _engine.release();
+    //   } catch (_) {}
+    // }();
+
+    // super.dispose();
   }
 
   void _onSendPressed() => _sendChat(_commentCtrl.text);
@@ -375,143 +410,150 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage> {
   // ---------------------------------------------------------------------------
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        leading: Padding(
-          padding: const EdgeInsets.only(left: 8),
-          child: Container(
-            decoration: BoxDecoration(
-                  // BLOCK COLOR
-              borderRadius: BorderRadius.circular(10), // ROUND CORNERS
-            ),
-            child: IconButton(
-              icon: const Icon(Icons.arrow_back, color: Colors.white),
-              onPressed: _endLive,
+    return WillPopScope(
+      onWillPop: () async {
+        await _endLive();
+        return true;
+      },
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        appBar: AppBar(
+          leading: Padding(
+            padding: const EdgeInsets.only(left: 8),
+            child: Container(
+              decoration: BoxDecoration(
+                // BLOCK COLOR
+                borderRadius: BorderRadius.circular(10), // ROUND CORNERS
+              ),
+              child: IconButton(
+                icon: const Icon(Icons.arrow_back, color: Colors.white),
+                onPressed: _endLive,
+              ),
             ),
           ),
+          title: Text(_joined ? 'Live: ${_displayName}' : 'Connecting…'),
+          actions: [
+            // PopupMenuButton<int>(
+            //   onSelected: (v) async {
+            //     setState(() => _fps = v);
+            //     await _engine.setVideoEncoderConfiguration(
+            //       VideoEncoderConfiguration(
+            //         dimensions: const VideoDimensions(width: 720, height: 1280),
+            //         frameRate: v,
+            //         bitrate: 1130,
+            //         orientationMode: OrientationMode.orientationModeFixedPortrait,
+            //       ),
+            //     );
+            //   },
+            //   itemBuilder: (_) => const [
+            //     PopupMenuItem(value: 15, child: Text('FPS: 15')),
+            //     PopupMenuItem(value: 24, child: Text('FPS: 24')),
+            //     PopupMenuItem(value: 30, child: Text('FPS: 30')),
+            //   ],
+            //   child: Padding(
+            //     padding: const EdgeInsets.symmetric(horizontal: 12),
+            //     child: Center(child: Text('$_fps FPS')),
+            //   ),
+            // ),
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: _ending
+                  ? const Center(
+                      child: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    )
+                  : IconButton(
+                      icon: const Icon(Icons.stop_circle_outlined,
+                          color: Colors.redAccent, size: 30),
+                      tooltip: 'End Live',
+                      onPressed: _endLive,
+                    ),
+            ),
+          ],
         ),
 
-        title: Text(_joined ? 'Live: ${_displayName}' : 'Connecting…'),
-        actions: [
-          // PopupMenuButton<int>(
-          //   onSelected: (v) async {
-          //     setState(() => _fps = v);
-          //     await _engine.setVideoEncoderConfiguration(
-          //       VideoEncoderConfiguration(
-          //         dimensions: const VideoDimensions(width: 720, height: 1280),
-          //         frameRate: v,
-          //         bitrate: 1130,
-          //         orientationMode: OrientationMode.orientationModeFixedPortrait,
-          //       ),
-          //     );
-          //   },
-          //   itemBuilder: (_) => const [
-          //     PopupMenuItem(value: 15, child: Text('FPS: 15')),
-          //     PopupMenuItem(value: 24, child: Text('FPS: 24')),
-          //     PopupMenuItem(value: 30, child: Text('FPS: 30')),
-          //   ],
-          //   child: Padding(
-          //     padding: const EdgeInsets.symmetric(horizontal: 12),
-          //     child: Center(child: Text('$_fps FPS')),
-          //   ),
-          // ),
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: _ending
-                ? const Center(
-              child: SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-            )
-                : IconButton(
-              icon: const Icon(Icons.stop_circle_outlined, color: Colors.redAccent, size: 30),
-              tooltip: 'End Live',
-              onPressed: _endLive,
+        // -----------------------------------------------------------------------
+        // BODY
+        // -----------------------------------------------------------------------
+        body: Stack(
+          children: [
+            // VIDEO VIEW
+            Positioned.fill(
+              child: _joined
+                  ? AgoraVideoView(
+                      controller: VideoViewController(
+                        rtcEngine: _engine,
+                        canvas: const VideoCanvas(uid: 0),
+                      ),
+                    )
+                  : const Center(child: CircularProgressIndicator()),
             ),
-          ),
-        ],
-      ),
 
-      // -----------------------------------------------------------------------
-      // BODY
-      // -----------------------------------------------------------------------
-      body: Stack(
-        children: [
-          // VIDEO VIEW
-          Positioned.fill(
-            child: _joined
-                ? AgoraVideoView(
-              controller: VideoViewController(
-                rtcEngine: _engine,
-                canvas: const VideoCanvas(uid: 0),
-              ),
-            )
-                : const Center(child: CircularProgressIndicator()),
-          ),
-
-          // COMMENTS + INPUT
-          Align(
-            alignment: Alignment.bottomCenter,
-            child: SafeArea(
-              minimum: const EdgeInsets.all(8),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // COMMENT LIST
-                  Container(
-                    height: 160,
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.35),
-                      borderRadius: BorderRadius.circular(12),
+            // COMMENTS + INPUT
+            Align(
+              alignment: Alignment.bottomCenter,
+              child: SafeArea(
+                minimum: const EdgeInsets.all(8),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // COMMENT LIST
+                    Container(
+                      height: 160,
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.35),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: ListView.builder(
+                        controller: _commentScroll,
+                        itemCount: _comments.length,
+                        itemBuilder: (_, i) => _CommentTile(c: _comments[i]),
+                      ),
                     ),
-                    child: ListView.builder(
-                      controller: _commentScroll,
-                      itemCount: _comments.length,
-                      itemBuilder: (_, i) => _CommentTile(c: _comments[i]),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
+                    const SizedBox(height: 6),
 
-                  // INPUT FIELD
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _commentCtrl,
-                          style: const TextStyle(color: Colors.white),
-                          decoration: InputDecoration(
-                            hintText: 'Say something…',
-                            hintStyle: const TextStyle(color: Colors.white70),
-                            filled: true,
-                            fillColor: Colors.black.withOpacity(0.35),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(24),
-                              borderSide: BorderSide.none,
+                    // INPUT FIELD
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _commentCtrl,
+                            style: const TextStyle(color: Colors.white),
+                            decoration: InputDecoration(
+                              hintText: 'Say something…',
+                              hintStyle: const TextStyle(color: Colors.white70),
+                              filled: true,
+                              fillColor: Colors.black.withOpacity(0.35),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(24),
+                                borderSide: BorderSide.none,
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 16, vertical: 12),
                             ),
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                            onSubmitted: (_) => _onSendPressed(),
                           ),
-                          onSubmitted: (_) => _onSendPressed(),
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      CircleAvatar(
-                        backgroundColor: Colors.purple,
-                        child: IconButton(
-                          icon: const Icon(Icons.send, color: Colors.white),
-                          onPressed: _onSendPressed,
+                        const SizedBox(width: 8),
+                        CircleAvatar(
+                          backgroundColor: Colors.purple,
+                          child: IconButton(
+                            icon: const Icon(Icons.send, color: Colors.white),
+                            onPressed: _onSendPressed,
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                ],
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
