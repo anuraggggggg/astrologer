@@ -30,7 +30,9 @@ if (keystorePropertiesFile.exists()) {
 }
 android {
     compileSdk 35
-     ndkVersion "27.0.12077973"
+    ndkVersion "27.0.12077973"
+    //  ndkVersion "27.0.12077973" Use this , this original 
+    
   packagingOptions {
     pickFirst 'lib/**/libaosl.so'
     }
@@ -48,8 +50,8 @@ android {
         applicationId "com.jyotishi.astro"
         minSdkVersion 24
         targetSdkVersion 35
-        versionCode 6
-        versionName "1.0"
+      versionCode flutterVersionCode.toInteger()
+versionName flutterVersionName
         multiDexEnabled true
       
        ndk {

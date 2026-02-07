@@ -7,6 +7,10 @@ import 'dart:io';
 import 'package:astrowaypartner/controllers/Provider/loginProvider.dart';
 import 'package:astrowaypartner/fastApi/fastApiServices.dart';
 import 'package:astrowaypartner/fastApi/sessionController.dart';
+import 'package:astrowaypartner/views/HomeScreen/chat/chat_screen.dart';
+import 'package:astrowaypartner/views/HomeScreen/tabs/homeTab/newAudioPage.dart';
+import 'package:astrowaypartner/views/HomeScreen/tabs/homeTab/videoCallPage.dart';
+import 'package:astrowaypartner/views/chat/chat_screen.dart';
 import 'package:provider/provider.dart';
 import 'package:sizer/sizer.dart';
 import 'package:astrowaypartner/controllers/Authentication/signup_controller.dart';
@@ -52,191 +56,164 @@ final localNotifications = FlutterLocalNotificationsPlugin();
 //my
 
 @pragma('vm:entry-point')
-Future<void> handleBackgroundMessage(
-  RemoteMessage message,
-) async {
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  final liveAstrologerController = Get.put(LiveAstrologerController());
+void notificationActionHandler(NotificationResponse response) async {
+  if (response.payload == null) return;
+
+  final data = jsonDecode(response.payload!);
+  final prefs = await SharedPreferences.getInstance();
+
+  final callController = Get.put(CallController());
+
+  if (response.actionId == 'ACCEPT_CALL') {
+    print("📞 ACCEPT tapped");
+
+    // 🔹 Call accept API (KEEP THIS)
+    await callController.acceptCallRequest(
+      data['callId'],
+      data['profile'],
+      data['name'],
+      data['id'],
+      data['fcmToken'],
+      data['call_duration'].toString(),
+    );
+
+    // 🔹 SAVE call intent (DO NOT NAVIGATE HERE)
+    await prefs.setString('PENDING_CALL', response.payload!);
+  }
+
+  if (response.actionId == 'REJECT_CALL') {
+    print("❌ REJECT tapped");
+
+    await callController.rejectCallRequest(data['callId']);
+
+    // 🔹 Clear any pending call
+    await prefs.remove('PENDING_CALL');
+  }
+}
+
+@pragma('vm:entry-point')
+Future<void> handleBackgroundMessage(RemoteMessage message) async {
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+
+  // ❗ IMPORTANT: Do NOT rely heavily on controllers in background
   final walletController = Get.put(WalletController());
   final chatController = Get.put(ChatController());
   final callController = Get.put(CallController());
-  final timerController = Get.put(TimerController());
   final reportController = Get.put(ReportController());
-  Get.put(NetworkController());
-  Get.put(FollowingController());
-  Get.put(CallAvailabilityController());
-  Get.put(ChatAvailabilityController());
-  Get.put(HomeController());
-  Get.put(SignupController());
-  Get.put(HomeCheckController());
-  log('firebase background msg called..');
-  log('notification message -> ${message.data}');
 
   global.sp = await SharedPreferences.getInstance();
-  if (global.sp != null && global.sp!.getString("currentUser") != null) {
-    if (message.data["title"] == "For Live Streaming Chat") {
-      Future.delayed(const Duration(milliseconds: 500)).then((value) async {
-        await localNotifications.cancelAll();
-      });
-      log('notification sessionType -> ${message.data["sessionType"]}');
-      String sessionType = message.data["sessionType"];
-      if (sessionType == "start") {
-        String? liveChatUserName2 = message.data['liveChatSUserName'];
-        if (liveChatUserName2 != null) {
-          liveAstrologerController.liveChatUserName = liveChatUserName2;
-          liveAstrologerController.update();
-        }
-        String chatId = message.data["chatId"];
-        liveAstrologerController.isUserJoinAsChat = true;
-        liveAstrologerController.update();
-        liveAstrologerController.chatId = chatId;
-        int waitListId = int.parse(message.data["waitListId"].toString());
-        String time = liveAstrologerController.waitList
-            .where((element) => element.id == waitListId)
-            .first
-            .time;
-        liveAstrologerController.endTime =
-            DateTime.now().millisecondsSinceEpoch +
-                1000 * int.parse(time.toString());
-        liveAstrologerController.update();
-      } else {
-        if (liveAstrologerController.isOpenPersonalChatDialog) {
-          Get.back(); //if chat dialog opended
-          liveAstrologerController.isOpenPersonalChatDialog = false;
-        }
-        liveAstrologerController.isUserJoinAsChat = false;
-        liveAstrologerController.chatId = null;
-        liveAstrologerController.update();
-      }
-    } else if (message.data["title"] ==
-        "For timer and session start for live") {
-      Future.delayed(const Duration(milliseconds: 500)).then((value) async {
-        await localNotifications.cancelAll();
-      });
-      int waitListId = int.parse(message.data["waitListId"].toString());
-      liveAstrologerController.joinedUserName = message.data["name"] ?? "User";
-      liveAstrologerController.joinedUserProfile =
-          message.data["profile"] ?? "";
-      String time = liveAstrologerController.waitList
-          .where((element) => element.id == waitListId)
-          .first
-          .time;
-      liveAstrologerController.endTime = DateTime.now().millisecondsSinceEpoch +
-          1000 * int.parse(time.toString());
-      liveAstrologerController.update();
-    } else if (message.data["title"] == "Start simple chat timer") {
-      Future.delayed(const Duration(milliseconds: 500)).then((value) async {
-        await localNotifications.cancelAll();
-      });
-      log('started time for chat joined now');
-      callController.newIsStartTimer = true;
-      callController.update();
-      log('time set to true 2');
+  if (global.sp == null || global.sp!.getString("currentUser") == null) {
+    log("❌ No logged-in user, ignoring background notification");
+    return;
+  }
 
-      timerController.endTime =
-          DateTime.now().millisecondsSinceEpoch + 1000 * 300;
-      timerController.update();
-    } else if (message.data["title"] == "End chat from customer") {
-      Future.delayed(const Duration(milliseconds: 500)).then((value) async {
-        await localNotifications.cancelAll();
-      });
+  log('🔥 BG RAW FCM DATA: ${message.data}');
 
-      if (chatController.isInChatScreen) {
-        chatController.isInChatScreen = false;
-        chatController.update();
-        Get.back();
-      }
-    } else if (message.data["title"] == "Reject call request from astrologer") {
-      Future.delayed(const Duration(milliseconds: 500)).then((value) async {
-        await localNotifications.cancelAll();
-      });
+  try {
+    if (message.data.isEmpty) return;
 
-      debugPrint('user Rejected call request:-');
-      callController.isRejectCall = true;
-      callController.update();
+    /// -------------------------------
+    /// 1️⃣ SAFE PAYLOAD PARSING
+    /// -------------------------------
+    Map<String, dynamic> messageData;
+
+    if (message.data.containsKey('body') && message.data['body'] != null) {
+      messageData = jsonDecode(message.data['body']);
     } else {
-      try {
-        if (message.data.isNotEmpty) {
-          var messageData = json.decode((message.data['body']));
-          debugPrint('notification body background ->  $messageData');
-          if (messageData['notificationType'] != null) {
-            switch (messageData['notificationType']) {
-              case 7:
-                // get wallet api call
-                debugPrint('call in background');
-
-                await walletController.getAmountList(isLoading: 0);
-                break;
-
-              case 8:
-                // get Chat api call
-
-                await chatController.getChatList(true, isLoading: 0);
-                chatController.update();
-
-                debugPrint('chat resp -> $messageData');
-                NotificationHandler()
-                    .foregroundNotificatioCustomAuddio(message);
-                await FirebaseMessaging.instance
-                    .setForegroundNotificationPresentationOptions(
-                        alert: true, badge: true, sound: true);
-                break;
-
-              case 2:
-                // in background
-                debugPrint('calling from :- 2');
-                await callController.getCallList(true, isLoading: 0);
-                callController.update();
-                // NotificationHandler()
-                //     .foregroundNotificatioCustomAuddio(message);
-                // await FirebaseMessaging.instance
-                //     .setForegroundNotificationPresentationOptions(
-                //         alert: true, badge: true, sound: true);
-                CallUtils.showIncomingCall(messageData);
-                initforbackground();
-
-                // audio call
-                break;
-
-              case 9:
-                reportController.reportList.clear();
-                reportController.update();
-                await reportController.getReportList(false);
-                reportController.update();
-                NotificationHandler().foregroundNotification(message);
-                await FirebaseMessaging.instance
-                    .setForegroundNotificationPresentationOptions(
-                        alert: true, badge: true, sound: true);
-                break;
-
-              case 10:
-              case 11:
-              case 12:
-                debugPrint('calling type :- 10, 11, 12');
-
-                liveAstrologerController.isUserJoinWaitList = true;
-                liveAstrologerController.update();
-                NotificationHandler().foregroundNotification(message);
-                await FirebaseMessaging.instance
-                    .setForegroundNotificationPresentationOptions(
-                        alert: true, badge: true, sound: true);
-                break;
-
-              default:
-                log('Unknown notification type');
-                NotificationHandler().foregroundNotification(message);
-                await FirebaseMessaging.instance
-                    .setForegroundNotificationPresentationOptions(
-                        alert: true, badge: true, sound: true);
-            }
-          }
-        }
-      } catch (e) {
-        log("Exception in _firebaseMessagingBackgroundHandler else $e");
-      }
+      messageData = message.data;
     }
-  } else {
-    log("else Current_user not found in bg message");
+
+    log('🔥 BG PARSED DATA: $messageData');
+
+    /// -------------------------------
+    /// 2️⃣ NORMALIZE notificationType
+    /// -------------------------------
+    int? notificationType;
+
+    // TEMP mapping for your current backend payload
+    if (messageData['call_type'] == 'Audio') {
+      notificationType = 10;
+    } else if (messageData['call_type'] == 'Video') {
+      notificationType = 11;
+    } else if (messageData['call_type'] == 'Chat') {
+      notificationType = 12;
+    } else {
+      notificationType = messageData['notificationType'] ?? messageData['type'];
+    }
+
+    if (notificationType == null) {
+      log('⚠️ BG: No notificationType found → ignoring');
+      return;
+    }
+
+    /// -------------------------------
+    /// 3️⃣ HANDLE NOTIFICATION TYPES
+    /// -------------------------------
+    switch (notificationType) {
+      case 7:
+        // Wallet update
+        await walletController.getAmountList(isLoading: 0);
+        break;
+
+      case 8:
+        // Chat list refresh
+        await chatController.getChatList(true, isLoading: 0);
+        break;
+
+      case 10: // AUDIO CALL
+      case 11: // VIDEO CALL
+        log('📞 BG Incoming Call');
+
+        await localNotifications.show(
+          DateTime.now().millisecondsSinceEpoch ~/ 1000,
+          "${messageData['name'] ?? 'User'} is calling…",
+          "Tap to respond",
+          NotificationDetails(
+            android: AndroidNotificationDetails(
+              'incoming_call_channel_v2', // 🔥 NEW CHANNEL
+              'Incoming Calls',
+              importance: Importance.max,
+              priority: Priority.high,
+              category: AndroidNotificationCategory.call,
+              fullScreenIntent: true,
+              playSound: true,
+              actions: const [
+                AndroidNotificationAction(
+                  'ACCEPT_CALL',
+                  'Accept',
+                  showsUserInterface: true,
+                ),
+                AndroidNotificationAction(
+                  'REJECT_CALL',
+                  'Reject',
+                  showsUserInterface: true,
+                ),
+              ],
+            ),
+          ),
+          payload: jsonEncode(messageData),
+        );
+        break;
+
+      case 12:
+        // Chat notification → NO accept/reject
+        log('💬 BG Chat notification');
+        break;
+
+      case 9:
+        // Report update
+        reportController.reportList.clear();
+        await reportController.getReportList(false);
+        break;
+
+      default:
+        log('⚠️ BG Unknown notificationType: $notificationType');
+    }
+  } catch (e, s) {
+    log("❌ BG handler exception: $e");
+    log("❌ STACK: $s");
   }
 }
 
@@ -312,6 +289,17 @@ void main() async {
     name: 'Astroway',
     options: DefaultFirebaseOptions.currentPlatform,
   );
+  // 🔔 Local Notification Setup For Android Only
+  const AndroidInitializationSettings initializationSettingsAndroid =
+      AndroidInitializationSettings('@mipmap/ic_launcher');
+
+  const InitializationSettings initializationSettings =
+      InitializationSettings(android: initializationSettingsAndroid);
+
+  await localNotifications.initialize(
+    initializationSettings,
+    onDidReceiveNotificationResponse: notificationActionHandler,
+  );
 
   FirebaseMessaging messaging = FirebaseMessaging.instance;
   FirebaseMessaging.onBackgroundMessage(handleBackgroundMessage);
@@ -384,6 +372,7 @@ class _MyAppState extends State<MyApp> {
   void initState() {
     super.initState();
     FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
+      _showAndroidNotification(message);
       if (message.data["title"] == "For Live Streaming Chat") {
         String sessionType = message.data["sessionType"];
         if (sessionType == "start") {
@@ -459,8 +448,33 @@ class _MyAppState extends State<MyApp> {
       } else {
         try {
           if (message.data.isNotEmpty) {
-            var messageData = json.decode((message.data['body']));
+            Map<String, dynamic> messageData;
+
+            if (message.data.containsKey('body') &&
+                message.data['body'] != null) {
+              messageData = jsonDecode(message.data['body']);
+            } else {
+              messageData = message.data;
+            }
+
+            print("🔥 RAW BG FCM DATA: $messageData");
+
+            int? notificationType;
+
+// 🔥 TEMP mapping for current backend payload
+            if (messageData['call_type'] == 'Audio') {
+              notificationType = 10;
+            } else if (messageData['call_type'] == 'Video') {
+              notificationType = 11;
+            } else if (messageData['call_type'] == 'Chat') {
+              notificationType = 12;
+            } else {
+              notificationType =
+                  messageData['notificationType'] ?? messageData['type'];
+            }
+
             debugPrint('set msg type foreground');
+            print("🔥 RAW FCM DATA: $messageData");
 
             log('noti body $messageData');
             global.userID = messageData['id'];
@@ -492,12 +506,27 @@ class _MyAppState extends State<MyApp> {
                   break;
 
                 case 2:
-                  global.userID = messageData['id'];
-                  print('new id is ${global.userID}');
-                  await callController.getCallList(true);
-                  callController.update();
-                  CallUtils.showIncomingCall(messageData);
-
+                  await localNotifications.show(
+                    DateTime.now().millisecondsSinceEpoch ~/ 1000,
+                    "${messageData['name']} is calling…",
+                    "Tap to respond",
+                    const NotificationDetails(
+                      android: AndroidNotificationDetails(
+                        'incoming_call_channel',
+                        'Incoming Calls',
+                        importance: Importance.max,
+                        priority: Priority.high,
+                        playSound: true,
+                        actions: [
+                          AndroidNotificationAction('ACCEPT_CALL', 'Accept',
+                              showsUserInterface: false),
+                          AndroidNotificationAction('REJECT_CALL', 'Reject',
+                              showsUserInterface: false),
+                        ],
+                      ),
+                    ),
+                    payload: json.encode(messageData),
+                  );
                   break;
 
                 case 9:
@@ -669,4 +698,45 @@ class _MyAppState extends State<MyApp> {
       //may be chat
     }
   }
+}
+
+Future<void> _showAndroidNotification(RemoteMessage message) async {
+  final notification = message.notification;
+  final android = message.notification?.android;
+
+  if (notification == null || android == null) return;
+
+  final String payload = json.encode(message.data);
+
+  const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
+    'incoming_call_channel', // change id
+    'Incoming Calls', // channel name
+    importance: Importance.max,
+    priority: Priority.high,
+    playSound: true,
+    ticker: 'Incoming Call',
+    // actions: [
+    //   AndroidNotificationAction(
+    //     'ACCEPT_CALL',
+    //     'Accept',
+    //     showsUserInterface: false,
+    //   ),
+    //   AndroidNotificationAction(
+    //     'REJECT_CALL',
+    //     'Reject',
+    //     showsUserInterface: false,
+    //   ),
+    // ],
+  );
+
+  final NotificationDetails platformDetails =
+      NotificationDetails(android: androidDetails);
+
+  await localNotifications.show(
+    DateTime.now().millisecondsSinceEpoch ~/ 1000,
+    notification.title,
+    notification.body,
+    platformDetails,
+    payload: payload,
+  );
 }

@@ -29,7 +29,7 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage>
     with WidgetsBindingObserver {
   late final RtcEngine _engine;
   bool _joined = false;
-  int _fps = 15;
+  int _fps = 15; 
   int? _dataStreamId;
   late final int _myUid;
 
