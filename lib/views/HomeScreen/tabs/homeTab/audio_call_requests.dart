@@ -46,6 +46,7 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
   // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
+
   String _pick(dynamic v) => (v ?? "").toString().trim();
 
   String _extractUserId(Map<String, dynamic> req) {
@@ -75,8 +76,9 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
   }
 
   // ---------------------------------------------------------------------------
-  // Navigation → EXACT SAME AS VIDEO CALL
+  // Navigation
   // ---------------------------------------------------------------------------
+
   Future<void> _goToCall({
     required String overrideRoomId,
     required String overrideToken,
@@ -101,8 +103,9 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
   }
 
   // ---------------------------------------------------------------------------
-  // Handle "Accept" / "Reject"
+  // Handle Accept / Reject
   // ---------------------------------------------------------------------------
+
   Future<void> _respond({
     required Map<String, dynamic> req,
     required String status,
@@ -129,57 +132,13 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
         return;
       }
 
-      // Accepted → Join & Notify customer
+      // ---------------- ACCEPTED ----------------
       if (status == "accepted") {
-        final userId = _extractUserId(req);
-        final astroId = _extractAstroId(req);
-
-        debugPrint("📌 USER = $userId | ASTRO = $astroId");
-
-        // Fetch unified Agora token
-        final auth = await AgoraService.getTokens(astroId);
-
-        final astroJoin = AgoraService.buildJoinParams(
-          auth: auth,
-          isAstrologer: true,
-        );
-
-        final customerJoin = AgoraService.buildJoinParams(
-          auth: auth,
-          isAstrologer: false,
-        );
-
-        // SEND FCM to customer
-        await FastApiServices().sendCustomerNotification(
-          userId: userId,
-          title: "Audio Call Accepted",
-          body: "Your audio call request has been accepted",
-          type: "audio_accept",
-          screen: "AudioCallPage",
-          data: {
-            "request_id": requestId,
-            "session_type": "audio_call",
-            "astro_id": astroId,
-
-            // Customer JOIN data
-            "agora_channel": customerJoin.channel,
-            "agora_token": customerJoin.token,
-            "agora_account": customerJoin.account,
-            "app_id": auth.appId,
-            "expireIn": auth.expireIn,
-          },
-        );
-
-        // Navigate astrologer into call
-        return await _goToCall(
-          overrideRoomId: astroJoin.channel,
-          overrideToken: astroJoin.token,
-          overrideAccount: astroJoin.account,
-          overrideAppId: auth.appId,
-        );
+        await _joinCall(req);
+        return;
       }
 
-      // Declined
+      // ---------------- DECLINED ----------------
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Request $status")),
       );
@@ -193,7 +152,63 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
   }
 
   // ---------------------------------------------------------------------------
+  // Join / Rejoin Call
+  // ---------------------------------------------------------------------------
+
+  Future<void> _joinCall(Map<String, dynamic> req) async {
+    try {
+      final userId = _extractUserId(req);
+      final astroId = _extractAstroId(req);
+
+      debugPrint("📌 JOIN CALL → USER=$userId ASTRO=$astroId");
+
+      final auth = await AgoraService.getTokens(astroId);
+
+      final astroJoin = AgoraService.buildJoinParams(
+        auth: auth,
+        isAstrologer: true,
+      );
+
+      final customerJoin = AgoraService.buildJoinParams(
+        auth: auth,
+        isAstrologer: false,
+      );
+
+      /// notify customer again (rejoin safe)
+      await FastApiServices().sendCustomerNotification(
+        userId: userId,
+        title: "Audio Call Ready",
+        body: "Astrologer joined the call",
+        type: "audio_accept",
+        screen: "AudioCallPage",
+        data: {
+          "session_type": "audio_call",
+          "astro_id": astroId,
+          "agora_channel": customerJoin.channel,
+          "agora_token": customerJoin.token,
+          "agora_account": customerJoin.account,
+          "app_id": auth.appId,
+          "expireIn": auth.expireIn,
+        },
+      );
+
+      await _goToCall(
+        overrideRoomId: astroJoin.channel,
+        overrideToken: astroJoin.token,
+        overrideAccount: astroJoin.account,
+        overrideAppId: auth.appId,
+      );
+    } catch (e) {
+      debugPrint("❌ Join call error: $e");
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text("Join failed: $e")));
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // UI
+  // ---------------------------------------------------------------------------
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<Map<String, dynamic>>>(
@@ -213,7 +228,7 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
 
         final audioRequests = snapshot.data!
             .where((req) =>
-        (_pick(req['session_type'])).toLowerCase() == 'audio_call')
+                (_pick(req['session_type'])).toLowerCase() == 'audio_call')
             .toList();
 
         if (audioRequests.isEmpty) return const _EmptyState();
@@ -226,12 +241,12 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
             final status = (_pick(req['status'])).toLowerCase();
 
             final userName = req['user'] is Map
-                ? (_pick((req['user'] as Map)['name']) == ''
-                ? 'Unknown User'
-                : _pick((req['user'] as Map)['name']))
-                : (_pick(req['user_name']) == ''
-                ? 'Unknown User'
-                : _pick(req['user_name']));
+                ? (_pick((req['user'] as Map)['name']).isEmpty
+                    ? 'Unknown User'
+                    : _pick((req['user'] as Map)['name']))
+                : (_pick(req['user_name']).isEmpty
+                    ? 'Unknown User'
+                    : _pick(req['user_name']));
 
             return Card(
               margin: const EdgeInsets.symmetric(vertical: 8),
@@ -267,9 +282,7 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
                             Text(
                               userName,
                               style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                              ),
+                                  fontSize: 16, fontWeight: FontWeight.w600),
                             ),
                           ],
                         ),
@@ -279,7 +292,7 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
 
                     const SizedBox(height: 16),
 
-                    // SESSION TYPE
+                    // TYPE
                     Row(
                       children: [
                         Icon(Icons.call,
@@ -288,10 +301,9 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
                         Text(
                           "Audio Call Session",
                           style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey.shade700,
-                            fontWeight: FontWeight.w500,
-                          ),
+                              fontSize: 14,
+                              color: Colors.grey.shade700,
+                              fontWeight: FontWeight.w500),
                         ),
                       ],
                     ),
@@ -307,9 +319,9 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
                               onPressed: _actBusy
                                   ? null
                                   : () => _respond(
-                                req: req,
-                                status: "declined",
-                              ),
+                                        req: req,
+                                        status: "declined",
+                                      ),
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: Colors.red,
                                 side: const BorderSide(color: Colors.red),
@@ -323,9 +335,9 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
                               onPressed: _actBusy
                                   ? null
                                   : () => _respond(
-                                req: req,
-                                status: "accepted",
-                              ),
+                                        req: req,
+                                        status: "accepted",
+                                      ),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.green,
                                 foregroundColor: Colors.white,
@@ -335,21 +347,19 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
                           ),
                         ],
                       ),
-                    ] else if (status == 'accepted') ...[
+                    ]
+
+                    // ---------- ACCEPTED → JOIN AGAIN ----------
+                    else if (status == 'accepted') ...[
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton.icon(
-                          onPressed: null,
-                          icon: const Icon(Icons.lock),
-                          label: const Text('Session over'),
+                          onPressed: _actBusy ? null : () => _joinCall(req),
+                          icon: const Icon(Icons.refresh),
+                          label: const Text("Join Again"),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.grey,
+                            backgroundColor: Colors.blue,
                             foregroundColor: Colors.white,
-                            padding:
-                            const EdgeInsets.symmetric(vertical: 12),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
                           ),
                         ),
                       )
@@ -357,9 +367,7 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
                       Text(
                         "This request is $status.",
                         style: TextStyle(
-                          color: Colors.grey.shade600,
-                          fontSize: 12,
-                        ),
+                            color: Colors.grey.shade600, fontSize: 12),
                       ),
                     ],
                   ],
@@ -371,7 +379,6 @@ class _AudioCallRequestsState extends State<AudioCallRequests> {
       },
     );
   }
-
 
   Widget _chip(String status) {
     Color c;
