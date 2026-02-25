@@ -94,6 +94,49 @@ class FastApiServices {
     }
   }
 
+  /// ---------------- SESSION TIMER CHECK ----------------
+/// Returns:
+/// {
+///   request_id: int,
+///   status: String,
+///   remaining_seconds: int,
+///   is_expired: bool
+/// }
+Future<Map<String, dynamic>?> checkSessionTimer(int requestId) async {
+  try {
+    final url = Uri.parse(
+      "$baseUrl/session-request/$requestId/start-timer",
+    );
+
+    print("⏱ Checking session timer → $url");
+
+    final response = await http.get(
+      url,
+      headers: {
+        "accept": "application/json",
+      },
+    );
+
+    print("⬅️ Timer Status: ${response.statusCode}");
+    print("⬅️ Timer Body: ${response.body}");
+
+    if (response.statusCode == 200) {
+      final decoded = jsonDecode(response.body);
+
+      if (decoded is Map<String, dynamic>) {
+        return decoded;
+      }
+      return null;
+    } else {
+      print("❌ Timer API failed");
+      return null;
+    }
+  } catch (e) {
+    print("🔥 checkSessionTimer error: $e");
+    return null;
+  }
+}
+
 
   // ---------------- FETCH ASTROLOGER REQUESTS ----------------
   Future<List<Map<String, dynamic>>> getAstrologerRequests(

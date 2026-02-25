@@ -14,6 +14,7 @@ class AstrologerChatPage extends StatefulWidget {
   final String receiverName;
   final String? authToken;
   final String? receiverProfileImage;
+  final int requestId; // Added requestId
 
   const AstrologerChatPage({
     super.key,
@@ -23,6 +24,7 @@ class AstrologerChatPage extends StatefulWidget {
     required this.receiverName,
     this.authToken,
     this.receiverProfileImage,
+    required this.requestId, // Make it required
   });
 
   @override
@@ -39,13 +41,15 @@ class _AstrologerChatPageState extends State<AstrologerChatPage>
   bool _isConnected = false;
   bool _isLoading = true;
   bool _manuallyClosed = false;
-  bool _greetingSent = false; // Flag to ensure greeting is sent only once
+  bool _greetingSent = false;
 
-  // Timer (10 minutes)
-  static const int _totalSessionSeconds = 10 * 60;
-  int _secondsLeft = _totalSessionSeconds;
+  // Timer - Now fetched from API
+  int _totalSessionSeconds = 10 * 60; // Default fallback (10 minutes)
+  int _secondsLeft = 10 * 60; // Default fallback
   Timer? _sessionTimer;
   bool _timerStarted = false;
+  bool _timerFetched = false; // Flag to track if timer is fetched
+  bool _isSessionExpired = false; // Track if session is expired
 
   final List<Map<String, dynamic>> _messages = [];
 
@@ -174,6 +178,175 @@ class _AstrologerChatPageState extends State<AstrologerChatPage>
           _hasMoreHistory) {
         _loadOlderMessages();
       }
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // TIMER API METHODS
+  // ---------------------------------------------------------------------------
+
+  Future<void> _fetchTimerFromApi() async {
+    try {
+      debugPrint("⏱ Fetching timer for request: ${widget.requestId}");
+
+      // First API call
+      final timerData = await _api.checkSessionTimer(widget.requestId);
+
+      if (timerData != null) {
+        debugPrint("✅ Timer data received: $timerData");
+
+        setState(() {
+          if (timerData['remaining_seconds'] != null) {
+            _secondsLeft = timerData['remaining_seconds'];
+            _totalSessionSeconds =
+                _secondsLeft; // Store initial value for progress
+            _timerFetched = true;
+
+            // Check if session is expired
+            if (timerData['is_expired'] == true) {
+              _isSessionExpired = true;
+            }
+          }
+        });
+
+        // Second API call after 2 seconds to verify (optional)
+        Future.delayed(const Duration(seconds: 2), () {
+          if (mounted) {
+            _verifyTimerWithApi();
+          }
+        });
+      } else {
+        debugPrint("⚠️ Failed to fetch timer, using default");
+        setState(() {
+          _timerFetched = true;
+          _isSessionExpired = false;
+        });
+      }
+    } catch (e) {
+      debugPrint("🔥 Error fetching timer: $e");
+      setState(() {
+        _timerFetched = true;
+        _isSessionExpired = false;
+      });
+    }
+  }
+
+  Future<void> _verifyTimerWithApi() async {
+    try {
+      debugPrint("⏱ Verifying timer for request: ${widget.requestId}");
+      final timerData = await _api.checkSessionTimer(widget.requestId);
+
+      if (timerData != null && timerData['remaining_seconds'] != null) {
+        final serverSeconds = timerData['remaining_seconds'];
+
+        setState(() {
+          // If server time is different, update local time
+          if ((serverSeconds - _secondsLeft).abs() > 2) {
+            debugPrint(
+                "⏱ Timer adjusted: local=$_secondsLeft → server=$serverSeconds");
+            _secondsLeft = serverSeconds;
+
+            // Check if session expired on server
+            if (timerData['is_expired'] == true) {
+              _isSessionExpired = true;
+            }
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint("🔥 Error verifying timer: $e");
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // INIT
+  // ---------------------------------------------------------------------------
+
+  Future<void> _init() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    _roomId = widget.roomId.trim();
+    _myUserId = widget.myUserId.trim();
+    _token = widget.authToken ?? prefs.getString('access_token') ?? '';
+    _myUserIdFromPrefs = prefs.getString('user_id') ?? '';
+
+    debugPrint("🧠 MY USER ID (ASTRO): $_myUserIdFromPrefs");
+    debugPrint("📝 REQUEST ID: ${widget.requestId}");
+
+    await _fetchCustomerProfile();
+
+    // Fetch timer from API first
+    await _fetchTimerFromApi();
+
+    // Only load history and connect if session is valid
+    if (!_isSessionExpired) {
+      await _loadFullChatHistory();
+
+      if (!mounted) return;
+
+      setState(() => _isLoading = false);
+      _scrollToBottom(force: true);
+      _connectWebSocket();
+    } else {
+      setState(() => _isLoading = false);
+      _showSessionExpiredDialog();
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // SESSION EXPIRED DIALOG
+  // ---------------------------------------------------------------------------
+
+  void _showSessionExpiredDialog() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            title: Column(
+              children: [
+                Icon(Icons.timer_off, color: Colors.red, size: 60),
+                const SizedBox(height: 16),
+                const Text(
+                  'Session Expired',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
+                ),
+              ],
+            ),
+            content: const Text(
+              'This chat session has already expired.',
+              textAlign: TextAlign.center,
+            ),
+            actions: [
+              Center(
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    Navigator.of(context).pop();
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: primaryYellow,
+                    foregroundColor: primaryDark,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 40, vertical: 15),
+                  ),
+                  child: const Text('OK',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ],
+          );
+        },
+      );
     });
   }
 
@@ -453,30 +626,6 @@ class _AstrologerChatPageState extends State<AstrologerChatPage>
   }
 
   // ---------------------------------------------------------------------------
-  // INIT
-  // ---------------------------------------------------------------------------
-
-  Future<void> _init() async {
-    final prefs = await SharedPreferences.getInstance();
-
-    _roomId = widget.roomId.trim();
-    _myUserId = widget.myUserId.trim();
-    _token = widget.authToken ?? prefs.getString('access_token') ?? '';
-    _myUserIdFromPrefs = prefs.getString('user_id') ?? '';
-
-    debugPrint("🧠 MY USER ID (ASTRO): $_myUserIdFromPrefs");
-
-    await _fetchCustomerProfile();
-    await _loadFullChatHistory();
-
-    if (!mounted) return;
-
-    setState(() => _isLoading = false);
-    _scrollToBottom(force: true);
-    _connectWebSocket();
-  }
-
-  // ---------------------------------------------------------------------------
   // HISTORY - FULL LOAD WITH PAGINATION
   // ---------------------------------------------------------------------------
 
@@ -573,7 +722,7 @@ class _AstrologerChatPageState extends State<AstrologerChatPage>
   // ---------------------------------------------------------------------------
 
   Future<void> _connectWebSocket() async {
-    if (_socket != null || _manuallyClosed) return;
+    if (_socket != null || _manuallyClosed || _isSessionExpired) return;
 
     final uri = Uri(
       scheme: 'wss',
@@ -598,7 +747,6 @@ class _AstrologerChatPageState extends State<AstrologerChatPage>
       _startSessionTimer();
 
       // Send automatic greeting after connection is established
-      // Add a small delay to ensure the connection is fully ready
       Future.delayed(const Duration(milliseconds: 500), () {
         if (mounted && _isConnected) {
           _sendAutomaticGreeting();
@@ -681,7 +829,7 @@ class _AstrologerChatPageState extends State<AstrologerChatPage>
   }
 
   void _startSessionTimer() {
-    if (_timerStarted) return;
+    if (_timerStarted || _isSessionExpired) return;
     _timerStarted = true;
 
     _sessionTimer = Timer.periodic(
@@ -693,11 +841,21 @@ class _AstrologerChatPageState extends State<AstrologerChatPage>
           return;
         }
         setState(() => _secondsLeft--);
+
+        // Sync with server every 30 seconds
+        if (_secondsLeft % 30 == 0 && mounted) {
+          _verifyTimerWithApi();
+        }
       },
     );
   }
 
   void _showTimeUpDialog() {
+    // Mark session as expired
+    setState(() {
+      _isSessionExpired = true;
+    });
+
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -716,7 +874,7 @@ class _AstrologerChatPageState extends State<AstrologerChatPage>
             ],
           ),
           content: const Text(
-            'Your 10-minute chat session has ended.',
+            'Your chat session has ended.',
             textAlign: TextAlign.center,
           ),
           actions: [
@@ -756,7 +914,8 @@ class _AstrologerChatPageState extends State<AstrologerChatPage>
 
   void _sendMessage() {
     final text = _controller.text.trim();
-    if (text.isEmpty || !_isConnected || _socket == null) return;
+    if (text.isEmpty || !_isConnected || _socket == null || _isSessionExpired)
+      return;
 
     // Check for personal contact info
     if (_containsPersonalContact(text)) {
@@ -835,26 +994,69 @@ class _AstrologerChatPageState extends State<AstrologerChatPage>
       appBar: _buildAppBar(),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: primaryYellow))
-          : Column(
-              children: [
-                _buildConnectionStatus(),
-                Expanded(
-                  child: GestureDetector(
-                    onTap: () => FocusScope.of(context).unfocus(),
-                    child: _buildMessageList(),
+          : !_timerFetched
+              ? const Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      CircularProgressIndicator(color: primaryYellow),
+                      SizedBox(height: 16),
+                      Text("Fetching session details..."),
+                    ],
                   ),
-                ),
-                if (_isCustomerTyping) _buildTypingIndicator(),
-                _buildInputArea(),
-              ],
-            ),
+                )
+              : _isSessionExpired
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.timer_off, size: 80, color: Colors.grey),
+                          const SizedBox(height: 16),
+                          const Text(
+                            "Session Expired",
+                            style: TextStyle(
+                                fontSize: 20, fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 8),
+                          const Text("This chat session is no longer active"),
+                          const SizedBox(height: 24),
+                          ElevatedButton(
+                            onPressed: () => Navigator.pop(context),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: primaryYellow,
+                              foregroundColor: primaryDark,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(30),
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 40, vertical: 15),
+                            ),
+                            child: const Text("Go Back"),
+                          ),
+                        ],
+                      ),
+                    )
+                  : Column(
+                      children: [
+                        _buildConnectionStatus(),
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () => FocusScope.of(context).unfocus(),
+                            child: _buildMessageList(),
+                          ),
+                        ),
+                        if (_isCustomerTyping) _buildTypingIndicator(),
+                        _buildInputArea(),
+                      ],
+                    ),
     );
   }
 
   PreferredSizeWidget _buildAppBar() {
     final minutes = (_secondsLeft ~/ 60).toString().padLeft(2, '0');
     final seconds = (_secondsLeft % 60).toString().padLeft(2, '0');
-    final progress = _secondsLeft / _totalSessionSeconds;
+    final progress =
+        _totalSessionSeconds > 0 ? _secondsLeft / _totalSessionSeconds : 0.0;
 
     return PreferredSize(
       preferredSize: const Size.fromHeight(100),
@@ -1274,17 +1476,25 @@ class _AstrologerChatPageState extends State<AstrologerChatPage>
                 controller: _controller,
                 textCapitalization: TextCapitalization.sentences,
                 maxLines: null,
+                enabled: !_isSessionExpired, // Disable if session expired
                 onChanged: (text) {
-                  _sendTypingIndicator(text.isNotEmpty);
+                  if (!_isSessionExpired) {
+                    _sendTypingIndicator(text.isNotEmpty);
+                  }
                 },
                 onSubmitted: (_) => _sendMessage(),
                 decoration: InputDecoration(
-                  hintText: 'Type your message...',
-                  hintStyle: TextStyle(color: Colors.grey[500]),
+                  hintText: _isSessionExpired
+                      ? 'Session expired'
+                      : 'Type your message...',
+                  hintStyle: TextStyle(
+                    color:
+                        _isSessionExpired ? Colors.grey[400] : Colors.grey[500],
+                  ),
                   border: InputBorder.none,
                   contentPadding:
                       const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
-                  suffixIcon: _controller.text.isNotEmpty
+                  suffixIcon: _controller.text.isNotEmpty && !_isSessionExpired
                       ? IconButton(
                           icon: const Icon(Icons.emoji_emotions_outlined,
                               color: primaryYellow),
@@ -1301,14 +1511,19 @@ class _AstrologerChatPageState extends State<AstrologerChatPage>
           Container(
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: _isConnected ? primaryYellow : Colors.grey[400],
+              color: (_isConnected && !_isSessionExpired)
+                  ? primaryYellow
+                  : Colors.grey[400],
             ),
             child: IconButton(
               icon: Icon(
                 Icons.send,
-                color: _isConnected ? primaryDark : Colors.white,
+                color: (_isConnected && !_isSessionExpired)
+                    ? primaryDark
+                    : Colors.white,
               ),
-              onPressed: _isConnected ? _sendMessage : null,
+              onPressed:
+                  (_isConnected && !_isSessionExpired) ? _sendMessage : null,
             ),
           ),
         ],

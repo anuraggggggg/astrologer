@@ -15,120 +15,92 @@ class ChatRequests extends StatefulWidget {
 class _ChatRequestsState extends State<ChatRequests> {
   Future<List<Map<String, dynamic>>>? _requestsFuture;
 
-  String? _myAstroId;
-  String? _myAstroName;
+  String? _astroId;
+  String? _astroName;
   bool _busy = false;
+
+  /// cache session timer responses
+  final Map<int, bool> _sessionActiveCache = {};
 
   @override
   void initState() {
     super.initState();
-    _bootstrap();
+    _init();
   }
 
-  Future<void> _bootstrap() async {
+  Future<void> _init() async {
     final prefs = await SharedPreferences.getInstance();
 
-    _myAstroId = prefs.getString('astro_id') ?? '';
-    _myAstroName = prefs.getString('name') ??
-        prefs.getString('astro_name') ??
-        prefs.getString('full_name') ??
-        'Astrologer';
+    _astroId = prefs.getString("astro_id");
+    _astroName = prefs.getString("name") ?? "Astrologer";
 
     _loadRequests();
     setState(() {});
   }
 
   void _loadRequests() {
+    if (_astroId == null || _astroId!.isEmpty) return;
     _requestsFuture = FastApiServices().fetchAstrologerRequests();
   }
 
   Future<void> _refresh() async {
+    _sessionActiveCache.clear();
     _loadRequests();
     setState(() {});
   }
 
-  // ================= HELPERS =================
+  // ---------------- HELPERS ----------------
 
-  String _getUserName(Map<String, dynamic> r) {
-    try {
-      final u = r['user'];
-      if (u is Map && u['name'] != null) return u['name'].toString();
-      if (r['user_name'] != null) return r['user_name'].toString();
-      return 'User';
-    } catch (_) {
-      return 'User';
-    }
-  }
+  String _name(Map<String, dynamic> r) =>
+      r["user"]?["name"]?.toString() ?? "User";
 
-  String? _getUserId(Map<String, dynamic> r) {
-    return (r['user']?['id'] ??
-            r['user_id'] ??
-            r['customer_id'] ??
-            r['sender']?['id'])
-        ?.toString();
-  }
+  String? _userId(Map<String, dynamic> r) => r["user"]?["id"]?.toString();
 
-  String? _getRoomId(Map<String, dynamic> r) {
-    return r['room_id']?.toString();
-  }
+  String? _room(Map<String, dynamic> r) => r["room_id"]?.toString();
 
-  String _getStatus(Map<String, dynamic> r) =>
-      (r['status'] ?? '').toString().toLowerCase();
+  String _status(Map<String, dynamic> r) =>
+      (r["status"] ?? "").toString().toLowerCase();
 
-  String _extractChatRate(Map<String, dynamic> r) {
-    final dynamic rate = r['chatCharge'] ??
-        r['chat_charge'] ??
-        r['chat_rate'] ??
-        r['rate'] ??
-        r['price'] ??
-        r['astrologer']?['chatCharge'];
+  // ---------------- ACCEPT CHAT ----------------
 
-    return rate?.toString() ?? "0";
-  }
-
-  // ================= ACCEPT CHAT =================
-
-  Future<void> _acceptChat(Map<String, dynamic> req) async {
+  Future<void> _accept(Map<String, dynamic> req) async {
     if (_busy) return;
     setState(() => _busy = true);
 
-    final roomId = _getRoomId(req);
-    final userId = _getUserId(req);
-    final userName = _getUserName(req);
-    final requestId = req['id'];
-    final chatRate = _extractChatRate(req);
+    final roomId = _room(req);
+    final userId = _userId(req);
+    final name = _name(req);
+    final requestId = req["id"];
 
     if (roomId == null || userId == null || requestId == null) {
       setState(() => _busy = false);
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text("Invalid chat data")));
       return;
     }
 
-    final parsedId =
-        requestId is int ? requestId : int.tryParse("$requestId") ?? 0;
-
+    /// STEP 1 → ACCEPT REQUEST
     final ok = await FastApiServices().respondToRequest(
-      requestId: parsedId,
+      requestId: requestId,
       status: "accepted",
     );
 
     if (!ok) {
       setState(() => _busy = false);
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text("Failed to accept")));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Failed to accept request")),
+      );
       return;
     }
 
+    /// STEP 2 → GET ASTRO USER ID
     final prefs = await SharedPreferences.getInstance();
     final myId = prefs.getString("user_id");
 
-    if (myId == null || myId.isEmpty) {
+    if (myId == null) {
       setState(() => _busy = false);
       return;
     }
 
-    /// notify customer
+    /// STEP 3 → NOTIFY CUSTOMER
     try {
       await FastApiServices().sendCustomerNotification(
         userId: userId,
@@ -140,14 +112,15 @@ class _ChatRequestsState extends State<ChatRequests> {
           "roomId": roomId,
           "astrologerUid": myId,
           "myUserId": userId,
-          "astro_id": _myAstroId,
-          "astrologerName": _myAstroName ?? "Astrologer",
-          "chatRate": chatRate,
+          "astro_id": _astroId,
+          "astrologerName": _astroName ?? "Astrologer",
         },
       );
-    } catch (_) {}
+    } catch (e) {
+      debugPrint("Notification error: $e");
+    }
 
-    /// open chat
+    /// STEP 4 → OPEN CHAT
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -155,7 +128,8 @@ class _ChatRequestsState extends State<ChatRequests> {
           roomId: roomId,
           myUserId: myId,
           receiverId: userId,
-          receiverName: userName,
+          receiverName: name,
+          requestId: requestId,
         ),
       ),
     ).then((_) => _refresh());
@@ -163,197 +137,220 @@ class _ChatRequestsState extends State<ChatRequests> {
     setState(() => _busy = false);
   }
 
-  // ================= UI =================
+  // ---------------- SESSION TIMER CHECK ----------------
+
+  Future<bool> _isActive(int id) async {
+    if (_sessionActiveCache.containsKey(id)) {
+      return _sessionActiveCache[id]!;
+    }
+
+    final res = await FastApiServices().checkSessionTimer(id);
+
+    final active = res != null && res["is_expired"] == false;
+
+    _sessionActiveCache[id] = active;
+    return active;
+  }
+
+  // ---------------- UI ----------------
 
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<Map<String, dynamic>>>(
       future: _requestsFuture,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
+      builder: (_, snap) {
+        if (snap.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
 
-        if (snapshot.hasError) {
-          return Center(child: Text("Error: ${snapshot.error}"));
+        if (snap.hasError) {
+          return Center(child: Text("Error: ${snap.error}"));
         }
 
-        if (!snapshot.hasData || snapshot.data!.isEmpty) {
-          return const _EmptyState();
+        if (!snap.hasData || snap.data!.isEmpty) {
+          return const _Empty();
         }
 
-        final chats = snapshot.data!
-            .where((r) => (r['session_type'] ?? '') == 'chat')
+        final list = snap.data!
+            .where((e) => e["session_type"] == "chat")
             .toList()
-          ..sort((a, b) {
-            final aTime = DateTime.tryParse(a["created_at"] ?? "");
-            final bTime = DateTime.tryParse(b["created_at"] ?? "");
-            return (bTime ?? DateTime.now()).compareTo(aTime ?? DateTime.now());
-          });
-
-        if (chats.isEmpty) return const _EmptyState();
+          ..sort((a, b) => DateTime.parse(b["created_at"])
+              .compareTo(DateTime.parse(a["created_at"])));
 
         return RefreshIndicator(
           onRefresh: _refresh,
           child: ListView.builder(
             padding: const EdgeInsets.all(16),
-            itemCount: chats.length,
-            itemBuilder: (_, i) => _buildChatCard(chats[i]),
+            itemCount: list.length,
+            itemBuilder: (_, i) => _card(list[i]),
           ),
         );
       },
     );
   }
 
-  // ================= CARD =================
+  // ---------------- CARD ----------------
 
-  Widget _buildChatCard(Map<String, dynamic> req) {
-    final userName = _getUserName(req);
-    final status = _getStatus(req);
+  Widget _card(Map<String, dynamic> r) {
+    final name = _name(r);
+    final status = _status(r);
+    final id = r["id"];
 
-    return Card(
-      margin: const EdgeInsets.symmetric(vertical: 8),
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            /// HEADER
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.person,
-                            size: 16, color: Theme.of(context).primaryColor),
-                        const SizedBox(width: 6),
-                        Text("User",
-                            style: TextStyle(
-                                fontSize: 12, color: Colors.grey.shade600)),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(userName,
-                        style: const TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.w600)),
-                  ],
-                ),
-                _statusChip(status),
-              ],
-            ),
-
-            const SizedBox(height: 16),
-
-            Row(
-              children: [
-                Icon(Icons.chat, size: 16, color: Colors.blue.shade700),
-                const SizedBox(width: 6),
-                const Text("Chat Session"),
-              ],
-            ),
-
-            const SizedBox(height: 14),
-
-            /// ACTION BUTTONS
-            if (status == "pending") ...[
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: _busy
-                          ? null
-                          : () async {
-                              await FastApiServices().respondToRequest(
-                                requestId: req['id'],
-                                status: "declined",
-                              );
-                              _refresh();
-                            },
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.red,
-                        side: const BorderSide(color: Colors.red),
-                      ),
-                      child: const Text("Reject"),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: _busy ? null : () => _acceptChat(req),
-                      style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
-                          foregroundColor: Colors.white),
-                      child: const Text("Accept & Chat"),
-                    ),
-                  ),
-                ],
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(.05),
+            blurRadius: 12,
+            offset: const Offset(0, 6),
+          )
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          /// HEADER
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 20,
+                backgroundColor: Theme.of(context).primaryColor,
+                child: Text(name[0].toUpperCase(),
+                    style: const TextStyle(color: Colors.white)),
               ),
-            ] else if (status == "accepted") ...[
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  icon: const Icon(Icons.chat),
-                  label: const Text("Open Chat"),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
-                    foregroundColor: Colors.white,
-                  ),
-                  onPressed: () async {
-                    final prefs = await SharedPreferences.getInstance();
-                    final myId = prefs.getString("user_id");
-
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => AstrologerChatPage(
-                          roomId: _getRoomId(req)!,
-                          myUserId: myId!,
-                          receiverId: _getUserId(req)!,
-                          receiverName: _getUserName(req),
-                        ),
-                      ),
-                    );
-                  },
-                ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(name,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w600, fontSize: 16)),
               ),
-            ] else ...[
-              Text("This request is $status.",
-                  style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+              _chip(status)
             ],
-          ],
-        ),
+          ),
+
+          const SizedBox(height: 18),
+
+          /// BUTTON STATES
+
+          if (status == "pending")
+            _pendingButtons(r)
+          else if (status == "accepted")
+            _acceptedButton(r, id)
+          else
+            Text("This request is $status",
+                style: const TextStyle(color: Colors.grey))
+        ],
       ),
     );
   }
 
-  Widget _statusChip(String s) {
+  // ---------------- PENDING BUTTONS ----------------
+
+  Widget _pendingButtons(Map<String, dynamic> r) {
+    return Row(
+      children: [
+        Expanded(
+          child: OutlinedButton(
+            onPressed: _busy
+                ? null
+                : () async {
+                    await FastApiServices().respondToRequest(
+                      requestId: r["id"],
+                      status: "declined",
+                    );
+                    _refresh();
+                  },
+            style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text("Reject"),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: ElevatedButton(
+            onPressed: _busy ? null : () => _accept(r),
+            child: const Text("Accept & Chat"),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ---------------- ACCEPTED BUTTON ----------------
+
+  Widget _acceptedButton(Map<String, dynamic> r, int id) {
+    return FutureBuilder<bool>(
+      future: _isActive(id),
+      builder: (_, s) {
+        if (!s.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        if (!s.data!) {
+          return const Text("Session expired",
+              style: TextStyle(color: Colors.grey));
+        }
+
+        return SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            icon: const Icon(Icons.chat),
+            label: const Text("Open Chat"),
+            onPressed: () async {
+              final prefs = await SharedPreferences.getInstance();
+              final myId = prefs.getString("user_id");
+
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => AstrologerChatPage(
+                    roomId: _room(r)!,
+                    myUserId: myId!,
+                    receiverId: _userId(r)!,
+                    receiverName: _name(r),
+                    requestId: id,
+                  ),
+                ),
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  // ---------------- STATUS CHIP ----------------
+
+  Widget _chip(String s) {
     Color c = {
           "pending": Colors.orange,
           "accepted": Colors.green,
           "declined": Colors.red,
+          "completed": Colors.grey
         }[s] ??
         Colors.grey;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       decoration: BoxDecoration(
         color: c.withOpacity(.15),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(30),
       ),
-      child: Text(s.toUpperCase(),
-          style:
-              TextStyle(color: c, fontWeight: FontWeight.bold, fontSize: 12)),
+      child: Text(
+        s.toUpperCase(),
+        style: TextStyle(color: c, fontSize: 12, fontWeight: FontWeight.bold),
+      ),
     );
   }
 }
 
-class _EmptyState extends StatelessWidget {
-  const _EmptyState();
+// ---------------- EMPTY STATE ----------------
+
+class _Empty extends StatelessWidget {
+  const _Empty();
 
   @override
   Widget build(BuildContext context) {
@@ -361,8 +358,8 @@ class _EmptyState extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.chat_bubble_outline, size: 64, color: Colors.grey),
-          SizedBox(height: 16),
+          Icon(Icons.chat_bubble_outline, size: 70, color: Colors.grey),
+          SizedBox(height: 12),
           Text("No Chat Requests",
               style: TextStyle(fontSize: 18, color: Colors.grey)),
         ],

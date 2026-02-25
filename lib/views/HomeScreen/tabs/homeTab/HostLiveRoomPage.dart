@@ -13,12 +13,14 @@ class HostLiveRoomPage extends StatefulWidget {
   final String appId;
   final String channelName;
   final String? rtcToken;
+  final bool initialMute;
 
   const HostLiveRoomPage({
     super.key,
     required this.appId,
     required this.channelName,
     this.rtcToken,
+    required this.initialMute,
   });
 
   @override
@@ -26,21 +28,36 @@ class HostLiveRoomPage extends StatefulWidget {
 }
 
 class _HostLiveRoomPageState extends State<HostLiveRoomPage>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, TickerProviderStateMixin {
   late final RtcEngine _engine;
   bool _joined = false;
-  int _fps = 15; 
+  int _fps = 15;
   int? _dataStreamId;
   late final int _myUid;
 
-  String _displayName =
-      ''; // <-- will be replaced by real name if fetch succeeds
+  // Audio/Video states
+  bool _isMuted = false;
+  bool _isVideoEnabled = true;
+  bool _isSpeakerEnabled = true;
+
+  String _displayName = 'Host';
 
   final List<_Comment> _comments = [];
   final TextEditingController _commentCtrl = TextEditingController();
   final ScrollController _commentScroll = ScrollController();
 
   bool _ending = false;
+
+  // 🔴 REAL VIEWER COUNT - Store from stats callback
+  int _realViewerCount = 0;
+  RtcStats? _latestStats; // Store latest stats for debugging
+
+  Duration _streamDuration = Duration.zero;
+  Timer? _durationTimer;
+
+  // Animation controllers
+  late AnimationController _pulseAnimation;
+  late AnimationController _liveBadgeAnimation;
 
   /// Message reassembly buffer
   final Map<String, List<String?>> _recvParts = {};
@@ -64,7 +81,45 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _myUid = Random().nextInt(900000) + 1000;
+
+    // Set initial mute state from widget
+    _isMuted = widget.initialMute;
+
+    // Initialize animations
+    _pulseAnimation = AnimationController(
+      duration: const Duration(seconds: 2),
+      vsync: this,
+    )..repeat(reverse: true);
+
+    _liveBadgeAnimation = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    )..repeat(reverse: true);
+
+    // Start duration timer
+    _startDurationTimer();
+
     _init();
+  }
+
+  void _startDurationTimer() {
+    _durationTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted && _joined) {
+        setState(() {
+          _streamDuration = _streamDuration + const Duration(seconds: 1);
+        });
+      }
+    });
+  }
+
+  String _formatDuration(Duration d) {
+    final hours = d.inHours;
+    final minutes = d.inMinutes.remainder(60);
+    final seconds = d.inSeconds.remainder(60);
+    if (hours > 0) {
+      return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+    }
+    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
 
   // ---------------------------------------------------------------------------
@@ -90,14 +145,18 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage>
         if (!mounted) return;
         setState(() => _joined = true);
 
-        // Try to fetch profile name (non-blocking)
+        // Apply initial mute state if needed
+        if (_isMuted) {
+          await _engine.muteLocalAudioStream(true);
+        }
+
+        // Try to fetch profile name
         (() async {
           try {
             final api = FastApiServices();
-            final fetched =
-                await api.getAstrologerById(); // your existing method
-            final name =
-                (fetched?['name'] ?? fetched?['displayName'] ?? '').toString();
+            final fetched = await api.getAstrologerById();
+            final name = (fetched?['name'] ?? fetched?['displayName'] ?? 'Host')
+                .toString();
             if (name.isNotEmpty && mounted) {
               setState(() => _displayName = name);
               _log('Display name loaded: $_displayName');
@@ -106,6 +165,7 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage>
             _log('Could not fetch profile name: $e');
           }
         })();
+
         try {
           final id = await _engine.createDataStream(
             const DataStreamConfig(syncWithAudio: false, ordered: true),
@@ -124,6 +184,22 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage>
       onUserOffline: (RtcConnection connection, int remoteUid,
           UserOfflineReasonType reason) {
         _log('onUserOffline uid=$remoteUid reason=$reason');
+      },
+
+      // 🔴 NEW: Get stats every 2 seconds with real user count
+      onRtcStats: (RtcConnection connection, RtcStats stats) {
+        if (mounted) {
+          setState(() {
+            _latestStats = stats;
+            // In live broadcast mode for host:
+            // userCount = total number of users (host + viewers)
+            // So viewers = userCount - 1 (subtract yourself)
+            _realViewerCount =
+                (stats.userCount ?? 0) > 0 ? (stats.userCount ?? 0) - 1 : 0;
+          });
+          _log(
+              'Stats updated: total users=${stats.userCount}, viewers=$_realViewerCount');
+        }
       },
 
       onError: (ErrorCodeType err, String msg) {
@@ -276,6 +352,42 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage>
   }
 
   // ---------------------------------------------------------------------------
+  // AUDIO/VIDEO CONTROLS
+  // ---------------------------------------------------------------------------
+
+  Future<void> _toggleMute() async {
+    _isMuted = !_isMuted;
+    await _engine.muteLocalAudioStream(_isMuted);
+    setState(() {});
+
+    // Show feedback
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(_isMuted ? 'Microphone muted' : 'Microphone unmuted'),
+        duration: const Duration(seconds: 1),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: _isMuted ? Colors.orange : Colors.green,
+      ),
+    );
+  }
+
+  Future<void> _toggleVideo() async {
+    _isVideoEnabled = !_isVideoEnabled;
+    await _engine.muteLocalVideoStream(!_isVideoEnabled);
+    setState(() {});
+  }
+
+  Future<void> _toggleSpeaker() async {
+    _isSpeakerEnabled = !_isSpeakerEnabled;
+    await _engine.setEnableSpeakerphone(_isSpeakerEnabled);
+    setState(() {});
+  }
+
+  Future<void> _switchCamera() async {
+    await _engine.switchCamera();
+  }
+
+  // ---------------------------------------------------------------------------
   // SEND CHAT (Chunked)
   // ---------------------------------------------------------------------------
   Future<void> _sendChat(String text) async {
@@ -359,6 +471,9 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage>
     if (_ending) return;
     _ending = true;
 
+    // Stop timers
+    _durationTimer?.cancel();
+
     // stop live on server
     try {
       await FastApiServices().endAgoraLive();
@@ -378,29 +493,15 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage>
 
   @override
   void dispose() {
+    _durationTimer?.cancel();
+    _pulseAnimation.dispose();
+    _liveBadgeAnimation.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _commentCtrl.dispose();
     _commentScroll.dispose();
     _engine.leaveChannel();
     _engine.release();
     super.dispose();
-    // WidgetsBinding.instance.removeObserver(this);
-    // _endLive();
-    // _commentCtrl.dispose();
-    // _commentScroll.dispose();
-
-    // () async {
-    //   try {
-    //     await FastApiServices().endAgoraLive();
-    //   } catch (_) {}
-
-    //   try {
-    //     await _engine.leaveChannel();
-    //     await _engine.release();
-    //   } catch (_) {}
-    // }();
-
-    // super.dispose();
   }
 
   void _onSendPressed() => _sendChat(_commentCtrl.text);
@@ -417,82 +518,100 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage>
       },
       child: Scaffold(
         backgroundColor: Colors.black,
-        appBar: AppBar(
-          leading: Padding(
-            padding: const EdgeInsets.only(left: 8),
-            child: Container(
-              decoration: BoxDecoration(
-                // BLOCK COLOR
-                borderRadius: BorderRadius.circular(10), // ROUND CORNERS
-              ),
-              child: IconButton(
-                icon: const Icon(Icons.arrow_back, color: Colors.white),
-                onPressed: _endLive,
-              ),
-            ),
-          ),
-          title: Text(_joined ? 'Live: ${_displayName}' : 'Connecting…'),
-          actions: [
-            // PopupMenuButton<int>(
-            //   onSelected: (v) async {
-            //     setState(() => _fps = v);
-            //     await _engine.setVideoEncoderConfiguration(
-            //       VideoEncoderConfiguration(
-            //         dimensions: const VideoDimensions(width: 720, height: 1280),
-            //         frameRate: v,
-            //         bitrate: 1130,
-            //         orientationMode: OrientationMode.orientationModeFixedPortrait,
-            //       ),
-            //     );
-            //   },
-            //   itemBuilder: (_) => const [
-            //     PopupMenuItem(value: 15, child: Text('FPS: 15')),
-            //     PopupMenuItem(value: 24, child: Text('FPS: 24')),
-            //     PopupMenuItem(value: 30, child: Text('FPS: 30')),
-            //   ],
-            //   child: Padding(
-            //     padding: const EdgeInsets.symmetric(horizontal: 12),
-            //     child: Center(child: Text('$_fps FPS')),
-            //   ),
-            // ),
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: _ending
-                  ? const Center(
-                      child: SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    )
-                  : IconButton(
-                      icon: const Icon(Icons.stop_circle_outlined,
-                          color: Colors.redAccent, size: 30),
-                      tooltip: 'End Live',
-                      onPressed: _endLive,
-                    ),
-            ),
-          ],
-        ),
-
-        // -----------------------------------------------------------------------
-        // BODY
-        // -----------------------------------------------------------------------
+        appBar: _buildAppBar(),
         body: Stack(
           children: [
             // VIDEO VIEW
             Positioned.fill(
               child: _joined
-                  ? AgoraVideoView(
-                      controller: VideoViewController(
-                        rtcEngine: _engine,
-                        canvas: const VideoCanvas(uid: 0),
-                      ),
-                    )
-                  : const Center(child: CircularProgressIndicator()),
+                  ? (_isVideoEnabled
+                      ? AgoraVideoView(
+                          controller: VideoViewController(
+                            rtcEngine: _engine,
+                            canvas: const VideoCanvas(uid: 0),
+                          ),
+                        )
+                      : Container(
+                          color: Colors.black,
+                          child: Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.videocam_off,
+                                  size: 80,
+                                  color: Colors.white.withOpacity(0.3),
+                                ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  'Camera is off',
+                                  style: TextStyle(
+                                    color: Colors.white.withOpacity(0.5),
+                                    fontSize: 18,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ))
+                  : const Center(
+                      child: CircularProgressIndicator(color: Colors.purple),
+                    ),
             ),
 
-            // COMMENTS + INPUT
+            // 🔴 REAL VIEWER COUNT - Now gets real data from rtcStats callback
+            // Positioned(
+            //   top: 16,
+            //   left: 16,
+            //   child: Container(
+            //     padding:
+            //         const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            //     decoration: BoxDecoration(
+            //       color: Colors.black.withOpacity(0.6),
+            //       borderRadius: BorderRadius.circular(20),
+            //       border: Border.all(color: Colors.white24),
+            //     ),
+            //     child: Row(
+            //       children: [
+            //         Icon(Icons.visibility, size: 16, color: Colors.white70),
+            //         const SizedBox(width: 6),
+            //         Text(
+            //           '$_realViewerCount ${_realViewerCount == 1 ? 'viewer' : 'viewers'}',
+            //           style:
+            //               const TextStyle(color: Colors.white70, fontSize: 12),
+            //         ),
+            //       ],
+            //     ),
+            //   ),
+            // ),
+
+            // Duration overlay
+            Positioned(
+              top: 16,
+              right: 16,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.6),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.white24),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.timer, size: 16, color: Colors.white70),
+                    const SizedBox(width: 6),
+                    Text(
+                      _formatDuration(_streamDuration),
+                      style:
+                          const TextStyle(color: Colors.white70, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            // COMMENTS + INPUT + CONTROLS
             Align(
               alignment: Alignment.bottomCenter,
               child: SafeArea(
@@ -507,6 +626,7 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage>
                       decoration: BoxDecoration(
                         color: Colors.black.withOpacity(0.35),
                         borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.white24),
                       ),
                       child: ListView.builder(
                         controller: _commentScroll,
@@ -516,31 +636,98 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage>
                     ),
                     const SizedBox(height: 6),
 
+                    // CONTROL BUTTONS
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.6),
+                        borderRadius: BorderRadius.circular(30),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          _buildControlButton(
+                            icon: _isMuted ? Icons.mic_off : Icons.mic,
+                            label: _isMuted ? 'Unmute' : 'Mute',
+                            color: _isMuted ? Colors.orange : Colors.white,
+                            onTap: _toggleMute,
+                          ),
+                          _buildControlButton(
+                            icon: _isVideoEnabled
+                                ? Icons.videocam
+                                : Icons.videocam_off,
+                            label:
+                                _isVideoEnabled ? 'Stop Video' : 'Start Video',
+                            color: _isVideoEnabled ? Colors.green : Colors.red,
+                            onTap: _toggleVideo,
+                          ),
+                          _buildControlButton(
+                            icon: Icons.cameraswitch,
+                            label: 'Flip',
+                            color: Colors.blue,
+                            onTap: _switchCamera,
+                          ),
+                          _buildControlButton(
+                            icon: _isSpeakerEnabled
+                                ? Icons.volume_up
+                                : Icons.volume_off,
+                            label: _isSpeakerEnabled ? 'Speaker' : 'Mute',
+                            color: _isSpeakerEnabled
+                                ? Colors.purple
+                                : Colors.orange,
+                            onTap: _toggleSpeaker,
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(height: 6),
+
                     // INPUT FIELD
+                    // INPUT FIELD - Replace your existing TextField with this
                     Row(
                       children: [
                         Expanded(
-                          child: TextField(
-                            controller: _commentCtrl,
-                            style: const TextStyle(color: Colors.white),
-                            decoration: InputDecoration(
-                              hintText: 'Say something…',
-                              hintStyle: const TextStyle(color: Colors.white70),
-                              filled: true,
-                              fillColor: Colors.black.withOpacity(0.35),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(24),
-                                borderSide: BorderSide.none,
-                              ),
-                              contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 16, vertical: 12),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: Colors.white, // Change to white background
+                              borderRadius: BorderRadius.circular(24),
+                              border: Border.all(color: Colors.purple.shade200),
                             ),
-                            onSubmitted: (_) => _onSendPressed(),
+                            child: TextField(
+                              controller: _commentCtrl,
+                              style: const TextStyle(
+                                  color:
+                                      Colors.black87), // Black text for typing
+                              decoration: InputDecoration(
+                                hintText: 'Say something…',
+                                hintStyle:
+                                    TextStyle(color: Colors.grey.shade500),
+                                border: InputBorder.none,
+                                contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 16, vertical: 12),
+                                suffixIcon: IconButton(
+                                  icon: const Icon(
+                                      Icons.emoji_emotions_outlined,
+                                      color: Colors.purple),
+                                  onPressed: () {
+                                    // Emoji picker could be added here
+                                  },
+                                ),
+                              ),
+                              onSubmitted: (_) => _onSendPressed(),
+                            ),
                           ),
                         ),
                         const SizedBox(width: 8),
-                        CircleAvatar(
-                          backgroundColor: Colors.purple,
+                        Container(
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: const LinearGradient(
+                              colors: [Colors.purple, Colors.purpleAccent],
+                            ),
+                          ),
                           child: IconButton(
                             icon: const Icon(Icons.send, color: Colors.white),
                             onPressed: _onSendPressed,
@@ -552,9 +739,147 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage>
                 ),
               ),
             ),
+
+            // Live badge (animated)
+            if (_joined)
+              Positioned(
+                top: 70,
+                left: 16,
+                child: FadeTransition(
+                  opacity: _liveBadgeAnimation,
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.red,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.fiber_manual_record,
+                            color: Colors.white, size: 12),
+                        SizedBox(width: 4),
+                        Text(
+                          'LIVE',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildControlButton({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: color.withOpacity(0.2),
+              border: Border.all(color: color.withOpacity(0.5), width: 1.5),
+            ),
+            child: Icon(icon, color: color, size: 20),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: TextStyle(
+              color: Colors.white70,
+              fontSize: 10,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  PreferredSizeWidget _buildAppBar() {
+    return AppBar(
+      leading: Padding(
+        padding: const EdgeInsets.only(left: 8),
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.black.withOpacity(0.3),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: IconButton(
+            icon: const Icon(Icons.arrow_back, color: Colors.white),
+            onPressed: _endLive,
+          ),
+        ),
+      ),
+      title: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            _joined ? _displayName : 'Connecting…',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          if (_joined)
+            Text(
+              widget.channelName.length > 20
+                  ? '${widget.channelName.substring(0, 20)}...'
+                  : widget.channelName,
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 12,
+              ),
+            ),
+        ],
+      ),
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      actions: [
+        Padding(
+          padding: const EdgeInsets.only(right: 8),
+          child: _ending
+              ? const Center(
+                  child: SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  ),
+                )
+              : Container(
+                  decoration: BoxDecoration(
+                    color: Colors.red.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: IconButton(
+                    icon: const Icon(Icons.stop_circle_outlined,
+                        color: Colors.redAccent, size: 28),
+                    tooltip: 'End Live',
+                    onPressed: _endLive,
+                  ),
+                ),
+        ),
+      ],
     );
   }
 }
@@ -582,25 +907,37 @@ class _CommentTile extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const CircleAvatar(
-            radius: 10,
-            child: Icon(Icons.person, size: 12),
+          CircleAvatar(
+            radius: 12,
+            backgroundColor: Colors.purple.shade300,
+            child: Text(
+              c.user.isNotEmpty ? c.user[0].toUpperCase() : '?',
+              style: const TextStyle(color: Colors.white, fontSize: 10),
+            ),
           ),
-          const SizedBox(width: 6),
+          const SizedBox(width: 8),
           Expanded(
-            child: RichText(
-              text: TextSpan(
+            child: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  TextSpan(
-                    text: '${c.user}: ',
+                  Text(
+                    c.user,
                     style: const TextStyle(
-                      color: Colors.white,
+                      color: Colors.purple,
                       fontWeight: FontWeight.w600,
+                      fontSize: 12,
                     ),
                   ),
-                  TextSpan(
-                    text: c.text,
-                    style: const TextStyle(color: Colors.white),
+                  const SizedBox(height: 2),
+                  Text(
+                    c.text,
+                    style: const TextStyle(color: Colors.white, fontSize: 13),
                   ),
                 ],
               ),
