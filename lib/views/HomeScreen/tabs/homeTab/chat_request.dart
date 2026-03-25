@@ -255,15 +255,13 @@ class _ChatRequestsState extends State<ChatRequests> {
       children: [
         Expanded(
           child: OutlinedButton(
-            onPressed: _busy
-                ? null
-                : () async {
-                    await FastApiServices().respondToRequest(
-                      requestId: r["id"],
-                      status: "declined",
-                    );
-                    _refresh();
-                  },
+            onPressed: () async {
+              await FastApiServices().respondToRequest(
+                requestId: r["id"],
+                status: "rejected",
+              );
+              _refresh();
+            },
             style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
             child: const Text("Reject"),
           ),

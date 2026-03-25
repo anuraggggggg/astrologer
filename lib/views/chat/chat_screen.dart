@@ -367,11 +367,17 @@ class _AstrologerChatPageState extends State<AstrologerChatPage>
   }
 
   // Send automatic greeting when chat starts
+  // Send automatic greeting when chat starts
   void _sendAutomaticGreeting() {
     if (_greetingSent || !_isConnected || _socket == null) return;
 
     final greeting = _getTimeBasedGreeting();
     final message = "$greeting How can I help you today?";
+
+    // REMOVE THIS BLOCK - DO NOT START TIMER FOR AUTO GREETING
+    // if (!_timerStarted && !_isSessionExpired) {
+    //   _startSessionTimer();
+    // }
 
     // Add to local messages
     setState(() {
@@ -743,8 +749,7 @@ class _AstrologerChatPageState extends State<AstrologerChatPage>
         onError: (_) => _handleDisconnect(),
       );
 
-      // Start timer immediately when connected
-      _startSessionTimer();
+      // REMOVED: _startSessionTimer();
 
       // Send automatic greeting after connection is established
       Future.delayed(const Duration(milliseconds: 500), () {
@@ -774,7 +779,7 @@ class _AstrologerChatPageState extends State<AstrologerChatPage>
         if (parsed['status'] == 'typing') {
           _handleTypingIndicator(parsed['is_typing'] ?? false);
         }
-        return;
+        return; // Don't start timer for connectivity messages
       }
 
       // Normal message
@@ -785,6 +790,11 @@ class _AstrologerChatPageState extends State<AstrologerChatPage>
 
       final senderId = msg['sender_user_id']?.toString() ?? '';
       if (senderId == _myUserIdFromPrefs) return;
+
+      // Start timer when first REAL message is received from customer
+      if (!_timerStarted && !_isSessionExpired) {
+        _startSessionTimer();
+      }
 
       setState(() {
         _messages.add({
@@ -922,6 +932,11 @@ class _AstrologerChatPageState extends State<AstrologerChatPage>
       _logSuspiciousMessage(text);
       _showContactWarningDialog();
       return;
+    }
+
+    // Start timer when first REAL message is sent
+    if (!_timerStarted && !_isSessionExpired) {
+      _startSessionTimer();
     }
 
     setState(() {

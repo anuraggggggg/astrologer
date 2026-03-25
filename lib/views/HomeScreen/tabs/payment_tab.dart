@@ -399,7 +399,41 @@ class _PaymentHistoryTabState extends State<PaymentHistoryTab> {
                   ),
                 ],
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
+              // Platform fee information
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.8),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.blue.shade200),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.info_outline,
+                        size: 14, color: Colors.blue.shade700),
+                    const SizedBox(width: 6),
+                    Text(
+                      "Platform Fee: 30% + TDS: 10%",
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.blue.shade700,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Tooltip(
+                      message:
+                          "30% platform fee + 10% TDS will be deducted from each withdrawal",
+                      child: Icon(Icons.help_outline,
+                          size: 12, color: Colors.blue.shade700),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
@@ -416,6 +450,17 @@ class _PaymentHistoryTabState extends State<PaymentHistoryTab> {
                   ),
                 ),
               ),
+              if (_availableBalance < 500)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    "Minimum withdrawal amount: ₹500",
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                ),
             ],
           ),
         ),
@@ -687,6 +732,8 @@ class _WithdrawalDialogState extends State<WithdrawalDialog> {
   String _selectedMethod = '';
   bool _submitting = false;
   double? _calculatedPayout;
+  double? _platformFee;
+  double? _tds;
 
   @override
   void initState() {
@@ -706,7 +753,11 @@ class _WithdrawalDialogState extends State<WithdrawalDialog> {
 
   void _calculatePayout() {
     if (_amountController.text.isEmpty) {
-      setState(() => _calculatedPayout = null);
+      setState(() {
+        _calculatedPayout = null;
+        _platformFee = null;
+        _tds = null;
+      });
       return;
     }
 
@@ -715,17 +766,38 @@ class _WithdrawalDialogState extends State<WithdrawalDialog> {
       print('💰 Calculating payout for amount: $amount');
 
       if (amount >= 500 && amount <= widget.availableBalance) {
-        final afterPlatformFee = amount * 0.70; // After 30% fee
-        final payout = afterPlatformFee * 0.90; // After 10% TDS
-        setState(() => _calculatedPayout = payout);
-        print('✅ Calculated payout: $payout');
+        // Platform fee calculation (30%)
+        final platformFee = amount * 0.30;
+        final afterPlatformFee = amount - platformFee;
+
+        // TDS calculation (10% on remaining amount after platform fee)
+        final tds = afterPlatformFee * 0.10;
+        final finalPayout = afterPlatformFee - tds;
+
+        setState(() {
+          _platformFee = platformFee;
+          _tds = tds;
+          _calculatedPayout = finalPayout;
+        });
+
+        print('✅ Platform Fee: $platformFee');
+        print('✅ TDS: $tds');
+        print('✅ Final Payout: $finalPayout');
       } else {
         print('⚠️ Amount invalid or out of range');
-        setState(() => _calculatedPayout = null);
+        setState(() {
+          _calculatedPayout = null;
+          _platformFee = null;
+          _tds = null;
+        });
       }
     } catch (e) {
       print('❌ Error calculating payout: $e');
-      setState(() => _calculatedPayout = null);
+      setState(() {
+        _calculatedPayout = null;
+        _platformFee = null;
+        _tds = null;
+      });
     }
   }
 
@@ -870,67 +942,169 @@ class _WithdrawalDialogState extends State<WithdrawalDialog> {
                       ),
                     ),
 
-                    // Payout Info - Always shown when valid amount entered
-                    if (_calculatedPayout != null) ...[
+                    // Detailed Fee Breakdown - Always shown when valid amount entered
+                    if (_calculatedPayout != null &&
+                        _platformFee != null &&
+                        _tds != null) ...[
                       const SizedBox(height: 16),
                       Container(
                         width: double.infinity,
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
-                          color: Colors.green.shade50,
-                          borderRadius: BorderRadius.circular(8),
+                          gradient: LinearGradient(
+                            colors: [Colors.green.shade50, Colors.blue.shade50],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.circular(12),
                           border: Border.all(color: Colors.green.shade200),
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             const Text(
-                              'You will receive:',
-                              style:
-                                  TextStyle(fontSize: 12, color: Colors.grey),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              '₹${_calculatedPayout!.toStringAsFixed(2)}',
+                              '💰 Withdrawal Breakdown',
                               style: TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.green.shade700),
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.black87,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+
+                            // Original Amount
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'Withdrawal Amount:',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: Colors.grey.shade700,
+                                  ),
+                                ),
+                                Text(
+                                  '₹${double.parse(_amountController.text).toStringAsFixed(2)}',
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
                             ),
                             const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    'Platform Fee (30%)',
-                                    style: TextStyle(
-                                        fontSize: 11,
-                                        color: Colors.grey.shade600),
+
+                            // Platform Fee (30%)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.orange.shade50,
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Icon(Icons.receipt,
+                                          size: 14,
+                                          color: Colors.purple.shade700),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        'Platform Fee (30%):',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w500,
+                                          color: Colors.orange.shade700,
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                ),
-                                Text(
-                                  '-₹${(double.parse(_amountController.text) * 0.30).toStringAsFixed(2)}',
-                                  style: const TextStyle(
-                                      fontSize: 11, color: Colors.red),
-                                ),
-                              ],
+                                  Text(
+                                    '-₹${_platformFee!.toStringAsFixed(2)}',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.orange.shade700,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    'TDS (10% on remaining)',
-                                    style: TextStyle(
-                                        fontSize: 11,
-                                        color: Colors.grey.shade600),
+                            const SizedBox(height: 8),
+
+                            // TDS (10% on remaining)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.purple.shade50,
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Icon(Icons.description,
+                                          size: 14,
+                                          color: Colors.purple.shade700),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        'TDS (10% on remaining):',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w500,
+                                          color: Colors.purple.shade700,
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                ),
-                                Text(
-                                  '-₹${(double.parse(_amountController.text) * 0.70 * 0.10).toStringAsFixed(2)}',
-                                  style: const TextStyle(
-                                      fontSize: 11, color: Colors.orange),
-                                ),
-                              ],
+                                  Text(
+                                    '-₹${_tds!.toStringAsFixed(2)}',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.purple.shade700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+
+                            const Divider(height: 16),
+
+                            // Final Payout
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: Colors.green.shade100,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text(
+                                    'You will receive:',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  Text(
+                                    '₹${_calculatedPayout!.toStringAsFixed(2)}',
+                                    style: TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.green.shade700,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ],
                         ),

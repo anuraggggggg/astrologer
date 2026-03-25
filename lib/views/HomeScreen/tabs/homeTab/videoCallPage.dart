@@ -6,6 +6,7 @@ import 'package:astrowaypartner/fastApi/fastApiServices.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 /// Astrologer usage: VideoCallPage(astroId: astroId, isAstrologer: true)
 /// Customer usage from FCM: VideoCallPage(astroId: astroId, isAstrologer: false,
@@ -82,6 +83,8 @@ class _VideoCallPageState extends State<VideoCallPage>
   @override
   void initState() {
     super.initState();
+
+    WakelockPlus.enable();
 
     // Initialize animations
     _pulseAnimation = AnimationController(
@@ -577,6 +580,7 @@ class _VideoCallPageState extends State<VideoCallPage>
   Future<void> _leave() async {
     debugPrint('↩️ [VC] Leaving channel…');
     try {
+      await WakelockPlus.disable();
       _callTimer?.cancel();
       _serverSyncTimer?.cancel();
       if (_engineReady && _engine != null) {

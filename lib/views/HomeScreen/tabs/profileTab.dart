@@ -2,15 +2,13 @@ import 'package:astrowaypartner/fastApi/fastApiServices.dart';
 import 'package:astrowaypartner/fastApi/sessionController.dart';
 import 'package:astrowaypartner/views/HomeScreen/Profile/edit_profile_screen.dart';
 import 'package:astrowaypartner/views/HomeScreen/tabs/withdraw_history.dart';
+import 'package:astrowaypartner/views/reviewPage.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:get/get_core/src/get_main.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'editprofile/editprofile.dart';
-
-
-
 
 class ProfileTabScreen extends StatefulWidget {
   const ProfileTabScreen({super.key});
@@ -23,13 +21,14 @@ class _ProfileTabScreenState extends State<ProfileTabScreen> {
   Map<String, dynamic>? profile;
   bool isLoading = true;
   String? errorMessage;
-
-
+  double _averageRating = 0.0;
+  int _totalReviews = 0;
 
   @override
   void initState() {
     super.initState();
     fetchProfile();
+    fetchReviewStats();
   }
 
   Future<void> fetchProfile() async {
@@ -40,8 +39,6 @@ class _ProfileTabScreenState extends State<ProfileTabScreen> {
 
     try {
       final api = FastApiServices();
-
-      // ONLY this call is needed
       final fetchedProfile = await api.getAstrologerById();
 
       setState(() {
@@ -54,6 +51,32 @@ class _ProfileTabScreenState extends State<ProfileTabScreen> {
         isLoading = false;
       });
     }
+  }
+
+  Future<void> fetchReviewStats() async {
+    try {
+      final api = FastApiServices();
+      final stats = await api.getAstrologerReviewsStats();
+      setState(() {
+        _averageRating = stats['averageRating'] ?? 0.0;
+        _totalReviews = stats['totalReviews'] ?? 0;
+      });
+    } catch (e) {
+      print("Error fetching review stats: $e");
+    }
+  }
+
+  Future<void> _onRefresh() async {
+    await Future.wait([fetchProfile(), fetchReviewStats()]);
+  }
+
+  bool _hasValidData(String? value) {
+    return value != null &&
+        value.isNotEmpty &&
+        value.trim().isNotEmpty &&
+        value.trim().toLowerCase() != 'not specified' &&
+        value.trim().toLowerCase() != 'not mentioned' &&
+        value.trim().toLowerCase() != 'null';
   }
 
   Widget _buildInfoCard(
@@ -140,6 +163,113 @@ class _ProfileTabScreenState extends State<ProfileTabScreen> {
     );
   }
 
+  Widget _buildRatingCard() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 24),
+      child: Material(
+        elevation: 3,
+        borderRadius: BorderRadius.circular(20),
+        child: InkWell(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const ReviewsPage(),
+              ),
+            );
+          },
+          borderRadius: BorderRadius.circular(20),
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Colors.amber.shade50, Colors.orange.shade50],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Icon(
+                    Icons.star_rate_rounded,
+                    size: 32,
+                    color: Colors.amber.shade600,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        "Your Reviews",
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black87,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          ...List.generate(5, (index) {
+                            return Icon(
+                              index < _averageRating.floor()
+                                  ? Icons.star
+                                  : index < _averageRating
+                                      ? Icons.star_half
+                                      : Icons.star_border,
+                              size: 16,
+                              color: Colors.amber.shade600,
+                            );
+                          }),
+                          const SizedBox(width: 8),
+                          Text(
+                            "${_averageRating.toStringAsFixed(1)}",
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black87,
+                            ),
+                          ),
+                          Text(
+                            " ($_totalReviews reviews)",
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  Icons.chevron_right,
+                  color: Colors.grey.shade400,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildSectionHeader(String title, String subtitle) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -166,10 +296,10 @@ class _ProfileTabScreenState extends State<ProfileTabScreen> {
   }
 
   Widget _buildProfileImage() {
-    final raw = (profile == null) ? null : (profile!['profileImage'] as String?);
+    final raw =
+        (profile == null) ? null : (profile!['profileImage'] as String?);
     final trimmed = (raw ?? '').trim();
 
-    // Build correct URL
     String? imageUrl;
     if (trimmed.isNotEmpty) {
       if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
@@ -197,21 +327,57 @@ class _ProfileTabScreenState extends State<ProfileTabScreen> {
       child: ClipOval(
         child: imageUrl != null
             ? Image.network(
-          imageUrl,
-          fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => Container(
-            color: Colors.yellow.shade100,
-            child: Icon(Icons.person, size: 50, color: Colors.yellow.shade800),
-          ),
-        )
+                imageUrl,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => Container(
+                  color: Colors.yellow.shade100,
+                  child: Icon(Icons.person,
+                      size: 50, color: Colors.yellow.shade800),
+                ),
+              )
             : Container(
-          color: Colors.yellow.shade100,
-          child: Icon(Icons.person, size: 50, color: Colors.yellow.shade800),
-        ),
+                color: Colors.yellow.shade100,
+                child:
+                    Icon(Icons.person, size: 50, color: Colors.yellow.shade800),
+              ),
       ),
     );
   }
 
+  Widget _buildStatCard(
+      String title, String value, IconData icon, Color color) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, size: 24, color: color),
+            const SizedBox(height: 8),
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.grey.shade600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   Widget buildProfileView() {
     if (profile == null) {
@@ -236,7 +402,14 @@ class _ProfileTabScreenState extends State<ProfileTabScreen> {
       );
     }
 
+    final String? primarySkill = profile!['primarySkill'];
+    final String? city = profile!['currentCity'];
+    final String? languages = profile!['languageKnown'];
+    final String? qualification = profile!['highestQualification'];
+    final int experienceYears = profile!['experienceInYears'] ?? 0;
+
     return SingleChildScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.all(20),
       child: Column(
         children: [
@@ -290,6 +463,25 @@ class _ProfileTabScreenState extends State<ProfileTabScreen> {
             ),
           ),
 
+          // Stats Row
+          Row(
+            children: [
+              _buildStatCard(
+                "Experience",
+                "$experienceYears yrs",
+                Icons.work_history_rounded,
+                Colors.orange.shade700,
+              ),
+              const SizedBox(width: 12),
+              const SizedBox(width: 12),
+            ],
+          ),
+
+          const SizedBox(height: 24),
+
+          // Reviews Card
+          _buildRatingCard(),
+
           // Professional Details Section
           _buildSectionHeader("Professional Details",
               "Your professional information and expertise"),
@@ -299,16 +491,11 @@ class _ProfileTabScreenState extends State<ProfileTabScreen> {
             Icons.work_history_rounded,
             Colors.orange.shade700,
           ),
-          // _buildInfoCard(
-          //   "Consultation Charge",
-          //   "₹${profile!['charge'] ?? 0} per session",
-          //   Icons.attach_money_rounded,
-          //   Colors.yellow.shade700,
-          // ),
-          if (profile!['primarySkill'] != null)
+
+          if (_hasValidData(primarySkill))
             _buildInfoCard(
               "Primary Skill",
-              profile!['primarySkill']!,
+              primarySkill!,
               Icons.star_rounded,
               Colors.amber.shade700,
             ),
@@ -317,25 +504,64 @@ class _ProfileTabScreenState extends State<ProfileTabScreen> {
 
           // Personal Details Section
           _buildSectionHeader("Personal Details", "Your personal information"),
-          _buildInfoCard(
-            "City",
-            profile!['currentCity'] ?? 'Not specified',
-            Icons.location_city_rounded,
-            Colors.orange.shade600,
-          ),
-          if (profile!['languageKnown'] != null)
+
+          if (_hasValidData(city))
+            _buildInfoCard(
+              "City",
+              city!,
+              Icons.location_city_rounded,
+              Colors.orange.shade600,
+            ),
+
+          if (_hasValidData(languages))
             _buildInfoCard(
               "Languages Known",
-              profile!['languageKnown']!,
+              languages!,
               Icons.language_rounded,
               Colors.yellow.shade600,
             ),
-          if (profile!['highestQualification'] != null)
+
+          if (_hasValidData(qualification))
             _buildInfoCard(
               "Highest Qualification",
-              profile!['highestQualification']!,
+              qualification!,
               Icons.school_rounded,
               Colors.amber.shade600,
+            ),
+
+          if (!_hasValidData(city) &&
+              !_hasValidData(languages) &&
+              !_hasValidData(qualification))
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade50,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Column(
+                children: [
+                  Icon(Icons.info_outline,
+                      size: 40, color: Colors.grey.shade400),
+                  const SizedBox(height: 8),
+                  Text(
+                    "No personal details added yet",
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey.shade600,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    "Update your profile to add this information",
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade500,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
             ),
 
           const SizedBox(height: 32),
@@ -344,40 +570,38 @@ class _ProfileTabScreenState extends State<ProfileTabScreen> {
           Row(
             children: [
               Expanded(
-                  child:OutlinedButton(
-                    onPressed: () {
-                      // Navigate to EditProfileScreen
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) =>  NewEditProfileScreen(),
-                        ),
-                      );
-                    },
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
+                child: OutlinedButton(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => NewEditProfileScreen(),
                       ),
-                      side: BorderSide(color: Colors.yellow.shade700),
+                    );
+                  },
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
                     ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.edit, size: 20, color: Colors.yellow.shade700),
-                        const SizedBox(width: 8),
-                        Text(
-                          "Edit Profile",
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.yellow.shade700,
-                          ),
-                        ),
-                      ],
-                    ),
+                    side: BorderSide(color: Colors.yellow.shade700),
                   ),
-
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.edit, size: 20, color: Colors.yellow.shade700),
+                      const SizedBox(width: 8),
+                      Text(
+                        "Edit Profile",
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.yellow.shade700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
               const SizedBox(width: 16),
               Expanded(
@@ -385,7 +609,8 @@ class _ProfileTabScreenState extends State<ProfileTabScreen> {
                   onPressed: () {
                     Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (_) => const WithdrawHistoryPage()),
+                      MaterialPageRoute(
+                          builder: (_) => const WithdrawHistoryPage()),
                     );
                   },
                   style: ElevatedButton.styleFrom(
@@ -414,11 +639,40 @@ class _ProfileTabScreenState extends State<ProfileTabScreen> {
                   ),
                 ),
               ),
-
             ],
           ),
 
-          const SizedBox(height: 20),
+          const SizedBox(height: 12),
+
+          // View All Reviews Button
+          // OutlinedButton.icon(
+          //   onPressed: () {
+          //     Navigator.push(
+          //       context,
+          //       MaterialPageRoute(
+          //         builder: (context) => const ReviewsPage(),
+          //       ),
+          //     );
+          //   },
+          //   icon: Icon(Icons.rate_review, color: Colors.yellow.shade700),
+          //   label: Text(
+          //     "View All Reviews",
+          //     style: TextStyle(
+          //       fontSize: 14,
+          //       fontWeight: FontWeight.w600,
+          //       color: Colors.yellow.shade700,
+          //     ),
+          //   ),
+          //   style: OutlinedButton.styleFrom(
+          //     padding: const EdgeInsets.symmetric(vertical: 12),
+          //     shape: RoundedRectangleBorder(
+          //       borderRadius: BorderRadius.circular(12),
+          //     ),
+          //     side: BorderSide(color: Colors.yellow.shade700),
+          //   ),
+          // ),
+
+          const SizedBox(height: 12),
 
           ElevatedButton(
             onPressed: () {
@@ -430,9 +684,8 @@ class _ProfileTabScreenState extends State<ProfileTabScreen> {
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
               ),
-              backgroundColor: Colors.yellow.shade700,
+              backgroundColor: Colors.red.shade600,
               elevation: 2,
-              shadowColor: Colors.yellow.shade300,
             ),
             child: const Row(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -547,7 +800,16 @@ class _ProfileTabScreenState extends State<ProfileTabScreen> {
                     ),
                   ),
                 )
-              : buildProfileView(),
+              : RefreshIndicator(
+                  onRefresh: _onRefresh,
+                  color: Colors.yellow.shade700,
+                  backgroundColor: Colors.white,
+                  strokeWidth: 2.5,
+                  displacement: 20,
+                  child: buildProfileView(),
+                ),
     );
   }
 }
+
+// Reviews Page

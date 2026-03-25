@@ -137,6 +137,139 @@ Future<Map<String, dynamic>?> checkSessionTimer(int requestId) async {
   }
 }
 
+  // ==================== REVIEW METHODS ====================
+  
+  /// Get astrologer reviews list
+  Future<List<Map<String, dynamic>>> getAstrologerReviewsList() async {
+    print('📱 Fetching astrologer reviews list');
+    
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final astroId = prefs.getString("astro_id");
+      final token = prefs.getString('access_token') ?? '';
+      
+      print('🔑 Astro ID: $astroId');
+      print('🔑 Token present: ${token.isNotEmpty}');
+      
+      if (astroId == null || astroId.isEmpty) {
+        print('❌ Astro ID not found');
+        return [];
+      }
+      
+      final url = Uri.parse('$baseUrl/astro/astrologers/$astroId/reviews');
+      print('🌐 URL: $url');
+      
+      final response = await http.get(
+        url,
+        headers: {
+          'accept': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+      
+      print('📡 Response status: ${response.statusCode}');
+      print('📡 Response body: ${response.body}');
+      
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
+        print('✅ Successfully fetched ${data.length} reviews');
+        return List<Map<String, dynamic>>.from(data);
+      } else if (response.statusCode == 401) {
+        print('❌ Unauthorized - Token expired');
+        return [];
+      } else if (response.statusCode == 404) {
+        print('❌ No reviews found');
+        return [];
+      } else {
+        print('❌ Failed to fetch reviews: ${response.statusCode}');
+        return [];
+      }
+    } catch (e, stackTrace) {
+      print('❌ Error fetching reviews: $e');
+      print('📚 Stack trace: $stackTrace');
+      return [];
+    }
+  }
+
+  /// Get review statistics (average rating and total count)
+  Future<Map<String, dynamic>> getAstrologerReviewsStats() async {
+    print('📊 Fetching review statistics');
+    
+    try {
+      final reviews = await getAstrologerReviewsList();
+      
+      if (reviews.isEmpty) {
+        return {
+          'averageRating': 0.0,
+          'totalReviews': 0,
+        };
+      }
+      
+      // Calculate total rating and average
+      int totalRating = 0;
+      for (var review in reviews) {
+        totalRating += (review['rating'] as int?) ?? 0;
+      }
+      final averageRating = totalRating / reviews.length;
+      
+      return {
+        'averageRating': averageRating,
+        'totalReviews': reviews.length,
+      };
+    } catch (e) {
+      print('❌ Error calculating review stats: $e');
+      return {
+        'averageRating': 0.0,
+        'totalReviews': 0,
+      };
+    }
+  }
+
+  Future<Map<String, dynamic>?> getCustomerDetails(String userId) async {
+  print('👤 Fetching customer details for userId: $userId');
+  
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('access_token') ?? '';
+    
+    if (token.isEmpty) {
+      print('❌ Token not found');
+      return null;
+    }
+    
+    final url = Uri.parse('$baseUrl/customerdetails/get-by-userid/$userId');
+    print('🌐 URL: $url');
+    
+    final response = await http.get(
+      url,
+      headers: {
+        'accept': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+    );
+    
+    print('📡 Response status: ${response.statusCode}');
+    
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      print('✅ Successfully fetched customer details');
+      // Return only needed fields
+      return {
+        'name': data['name'] ?? 'Client',
+        'profileImage': data['profileImage'] ?? data['profileImageUrl'] ?? '',
+      };
+    } else {
+      print('❌ Failed to fetch customer details: ${response.statusCode}');
+      return null;
+    }
+  } catch (e) {
+    print('❌ Error fetching customer details: $e');
+    return null;
+  }
+}
+
+// ==================== END OF REVIEW METHODS ====================
+
 
   // ---------------- FETCH ASTROLOGER REQUESTS ----------------
   Future<List<Map<String, dynamic>>> getAstrologerRequests(

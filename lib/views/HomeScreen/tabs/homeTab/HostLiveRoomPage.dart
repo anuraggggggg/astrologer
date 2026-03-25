@@ -560,30 +560,31 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage>
             ),
 
             // 🔴 REAL VIEWER COUNT - Now gets real data from rtcStats callback
-            // Positioned(
-            //   top: 16,
-            //   left: 16,
-            //   child: Container(
-            //     padding:
-            //         const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            //     decoration: BoxDecoration(
-            //       color: Colors.black.withOpacity(0.6),
-            //       borderRadius: BorderRadius.circular(20),
-            //       border: Border.all(color: Colors.white24),
-            //     ),
-            //     child: Row(
-            //       children: [
-            //         Icon(Icons.visibility, size: 16, color: Colors.white70),
-            //         const SizedBox(width: 6),
-            //         Text(
-            //           '$_realViewerCount ${_realViewerCount == 1 ? 'viewer' : 'viewers'}',
-            //           style:
-            //               const TextStyle(color: Colors.white70, fontSize: 12),
-            //         ),
-            //       ],
-            //     ),
-            //   ),
-            // ),
+
+            Positioned(
+              top: 16,
+              left: 16,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.7),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.white24),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.remove_red_eye,
+                        size: 16, color: Colors.white),
+                    const SizedBox(width: 6),
+                    Text(
+                      '$_realViewerCount watching',
+                      style: const TextStyle(color: Colors.white, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+            ),
 
             // Duration overlay
             Positioned(
@@ -707,14 +708,6 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage>
                                 border: InputBorder.none,
                                 contentPadding: const EdgeInsets.symmetric(
                                     horizontal: 16, vertical: 12),
-                                suffixIcon: IconButton(
-                                  icon: const Icon(
-                                      Icons.emoji_emotions_outlined,
-                                      color: Colors.purple),
-                                  onPressed: () {
-                                    // Emoji picker could be added here
-                                  },
-                                ),
                               ),
                               onSubmitted: (_) => _onSendPressed(),
                             ),
