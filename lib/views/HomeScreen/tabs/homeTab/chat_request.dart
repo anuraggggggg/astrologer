@@ -326,7 +326,7 @@ class _ChatRequestsState extends State<ChatRequests> {
     Color c = {
           "pending": Colors.orange,
           "accepted": Colors.green,
-          "declined": Colors.red,
+          "rejected": Colors.red,
           "completed": Colors.grey
         }[s] ??
         Colors.grey;

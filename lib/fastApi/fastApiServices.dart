@@ -411,57 +411,69 @@ Future<Map<String, dynamic>?> checkSessionTimer(int requestId) async {
 
   Future<bool> respondToRequest({
     required int requestId,
-    required String status, // "accepted" | "declined" | "pending"
+    required String status,
   }) async {
-    // API allows "pending" too per docs; keep a guard to avoid typos
-    const allowed = {'accepted', 'declined', 'pending'};
+    // ✅ FIX 1: Normalize status (avoid typo / case issues)
+    status = status.toLowerCase().trim();
+
+    // ✅ FIX 2: Correct allowed values (NO typo)
+    const allowed = {
+      'accepted',
+      'rejected',
+      'pending',
+      'expired',
+      'completed'
+    };
+
     if (!allowed.contains(status)) {
       throw Exception("Status must be one of: ${allowed.join(', ')}");
     }
 
-    // Load token (your API likely requires it for astrologer routes)
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString("access_token");
 
-    // Build URL exactly like the docs: https://fastapi.jyotishionline.com/api/v1/{id}
     final String baseUrl = "https://fastapi.jyotishionline.com/api/v1";
     final url = Uri.parse("$baseUrl/res_accept/$requestId");
 
     final headers = <String, String>{
       "accept": "application/json",
       "Content-Type": "application/json",
-      if (token != null && token.isNotEmpty) "Authorization": "Bearer $token",
+      if (token != null && token.isNotEmpty)
+        "Authorization": "Bearer $token",
     };
+
     final body = jsonEncode({"status": status});
 
     debugPrint("📤 [PATCH] $url");
-    debugPrint("🧾 Headers: $headers");
-    debugPrint("📦 Body: $body");
+    debugPrint("📦 Sending status: $status");
 
     try {
       final res = await http.patch(url, headers: headers, body: body);
+
       debugPrint("⬅️ Status: ${res.statusCode}");
       debugPrint("⬅️ Body: ${res.body}");
 
-      if (res.statusCode == 200) {
+      // ✅ FIX 3: Handle success properly
+      if (res.statusCode == 200 || res.statusCode == 201) {
         debugPrint("✅ Request $requestId updated to '$status'");
         return true;
       }
 
-      // Helpful diagnostics for 404s/401s
+      // ❌ Better error logs
       if (res.statusCode == 404) {
-        debugPrint(
-            "❌ 404 Not Found — check requestId ($requestId) exists, and URL is exactly /api/v1/{id}");
+        debugPrint("❌ 404 → Request not found: $requestId");
       } else if (res.statusCode == 401) {
-        debugPrint("❌ 401 Unauthorized — missing/invalid token?");
+        debugPrint("❌ 401 → Unauthorized (token issue)");
+      } else if (res.statusCode == 422) {
+        debugPrint("❌ 422 → Validation error (status mismatch?)");
       }
+
       return false;
     } catch (e) {
-      debugPrint("🔥 respondToRequest exception: $e");
+      debugPrint("🔥 Exception in respondToRequest: $e");
       return false;
     }
   }
-
   // FastApiServices.dart
 
   static Future<String?> getAstroId() async {

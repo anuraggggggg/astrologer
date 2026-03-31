@@ -322,7 +322,7 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text("Request $status"),
-            backgroundColor: status == "declined" ? Colors.red : Colors.grey,
+            backgroundColor: status == "rejected" ? Colors.red : Colors.grey,
           ),
         );
         _refresh();
@@ -425,7 +425,7 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
         c = Colors.green;
         icon = Icons.check_circle;
         break;
-      case "declined":
+      case "rejected":
         c = Colors.red;
         icon = Icons.cancel;
         break;
@@ -638,15 +638,15 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
                 child: Row(
                   children: [
                     Icon(
-                      status == "declined" ? Icons.cancel : Icons.info,
-                      color: status == "declined" ? Colors.red : Colors.grey,
+                      status == "rejected" ? Icons.cancel : Icons.info,
+                      color: status == "rejected" ? Colors.red : Colors.grey,
                       size: 20,
                     ),
                     const SizedBox(width: 8),
                     Text(
                       "This request was $status",
                       style: TextStyle(
-                        color: status == "declined" ? Colors.red : Colors.grey,
+                        color: status == "rejected" ? Colors.red : Colors.grey,
                       ),
                     ),
                   ],
@@ -671,7 +671,7 @@ class _VideoCallRequestsState extends State<VideoCallRequests> {
                 ? null
                 : () => _respondToRequest(
                       requestId,
-                      "declined",
+                      "rejected",
                       req,
                     ),
             style: OutlinedButton.styleFrom(

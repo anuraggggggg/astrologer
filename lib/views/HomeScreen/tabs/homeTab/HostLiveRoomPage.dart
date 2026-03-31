@@ -1,4 +1,3 @@
-// lib/views/HomeScreen/tabs/homeTab/HostLiveRoomPage.dart
 
 import 'dart:async';
 import 'dart:convert';
@@ -195,7 +194,7 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage>
             // userCount = total number of users (host + viewers)
             // So viewers = userCount - 1 (subtract yourself)
             _realViewerCount =
-                (stats.userCount ?? 0) > 0 ? (stats.userCount ?? 0) - 1 : 0;
+            (stats.userCount ?? 0) > 0 ? (stats.userCount ?? 0) - 1 : 0;
           });
           _log(
               'Stats updated: total users=${stats.userCount}, viewers=$_realViewerCount');
@@ -525,38 +524,38 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage>
             Positioned.fill(
               child: _joined
                   ? (_isVideoEnabled
-                      ? AgoraVideoView(
-                          controller: VideoViewController(
-                            rtcEngine: _engine,
-                            canvas: const VideoCanvas(uid: 0),
-                          ),
-                        )
-                      : Container(
-                          color: Colors.black,
-                          child: Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.videocam_off,
-                                  size: 80,
-                                  color: Colors.white.withOpacity(0.3),
-                                ),
-                                const SizedBox(height: 16),
-                                Text(
-                                  'Camera is off',
-                                  style: TextStyle(
-                                    color: Colors.white.withOpacity(0.5),
-                                    fontSize: 18,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ))
+                  ? AgoraVideoView(
+                controller: VideoViewController(
+                  rtcEngine: _engine,
+                  canvas: const VideoCanvas(uid: 0),
+                ),
+              )
+                  : Container(
+                color: Colors.black,
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.videocam_off,
+                        size: 80,
+                        color: Colors.white.withOpacity(0.3),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Camera is off',
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.5),
+                          fontSize: 18,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ))
                   : const Center(
-                      child: CircularProgressIndicator(color: Colors.purple),
-                    ),
+                child: CircularProgressIndicator(color: Colors.purple),
+              ),
             ),
 
             // 🔴 REAL VIEWER COUNT - Now gets real data from rtcStats callback
@@ -566,7 +565,7 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage>
               left: 16,
               child: Container(
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
                   color: Colors.black.withOpacity(0.7),
                   borderRadius: BorderRadius.circular(20),
@@ -592,7 +591,7 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage>
               right: 16,
               child: Container(
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
                   color: Colors.black.withOpacity(0.6),
                   borderRadius: BorderRadius.circular(20),
@@ -605,7 +604,7 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage>
                     Text(
                       _formatDuration(_streamDuration),
                       style:
-                          const TextStyle(color: Colors.white70, fontSize: 12),
+                      const TextStyle(color: Colors.white70, fontSize: 12),
                     ),
                   ],
                 ),
@@ -659,7 +658,7 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage>
                                 ? Icons.videocam
                                 : Icons.videocam_off,
                             label:
-                                _isVideoEnabled ? 'Stop Video' : 'Start Video',
+                            _isVideoEnabled ? 'Stop Video' : 'Start Video',
                             color: _isVideoEnabled ? Colors.green : Colors.red,
                             onTap: _toggleVideo,
                           ),
@@ -700,11 +699,11 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage>
                               controller: _commentCtrl,
                               style: const TextStyle(
                                   color:
-                                      Colors.black87), // Black text for typing
+                                  Colors.black87), // Black text for typing
                               decoration: InputDecoration(
                                 hintText: 'Say something…',
                                 hintStyle:
-                                    TextStyle(color: Colors.grey.shade500),
+                                TextStyle(color: Colors.grey.shade500),
                                 border: InputBorder.none,
                                 contentPadding: const EdgeInsets.symmetric(
                                     horizontal: 16, vertical: 12),
@@ -742,7 +741,7 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage>
                   opacity: _liveBadgeAnimation,
                   child: Container(
                     padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
                       color: Colors.red,
                       borderRadius: BorderRadius.circular(12),
@@ -850,27 +849,27 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage>
           padding: const EdgeInsets.only(right: 8),
           child: _ending
               ? const Center(
-                  child: SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
-                    ),
-                  ),
-                )
+            child: SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white,
+              ),
+            ),
+          )
               : Container(
-                  decoration: BoxDecoration(
-                    color: Colors.red.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: IconButton(
-                    icon: const Icon(Icons.stop_circle_outlined,
-                        color: Colors.redAccent, size: 28),
-                    tooltip: 'End Live',
-                    onPressed: _endLive,
-                  ),
-                ),
+            decoration: BoxDecoration(
+              color: Colors.red.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: IconButton(
+              icon: const Icon(Icons.stop_circle_outlined,
+                  color: Colors.redAccent, size: 28),
+              tooltip: 'End Live',
+              onPressed: _endLive,
+            ),
+          ),
         ),
       ],
     );
