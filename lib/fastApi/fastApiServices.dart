@@ -1279,6 +1279,27 @@ Future<bool> sendCustomerNotification({
 
 
 
+  Future<int> getLiveViewerCount(String astroId) async {
+    try {
+      final url =
+          "https://fastapi.jyotishionline.com/agora/live/count?astro_id=$astroId";
+
+      final response = await http.get(Uri.parse(url));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return data["count"] ?? 0;
+      } else {
+        return 0;
+      }
+    } catch (e) {
+      print("Error fetching live count: $e");
+      return 0;
+    }
+  }
+
+
+
 
 
 

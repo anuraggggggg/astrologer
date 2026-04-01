@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:flutter/material.dart';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
@@ -33,6 +34,7 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage>
   int _fps = 15;
   int? _dataStreamId;
   late final int _myUid;
+  Timer? _liveCountTimer;
 
   // Audio/Video states
   bool _isMuted = false;
@@ -143,6 +145,8 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage>
             'onJoinChannelSuccess channel=${connection.channelId} uid=${connection.localUid}');
         if (!mounted) return;
         setState(() => _joined = true);
+        _fetchLiveCount();
+        _startLiveCountPolling();
 
         // Apply initial mute state if needed
         if (_isMuted) {
@@ -186,20 +190,7 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage>
       },
 
       // 🔴 NEW: Get stats every 2 seconds with real user count
-      onRtcStats: (RtcConnection connection, RtcStats stats) {
-        if (mounted) {
-          setState(() {
-            _latestStats = stats;
-            // In live broadcast mode for host:
-            // userCount = total number of users (host + viewers)
-            // So viewers = userCount - 1 (subtract yourself)
-            _realViewerCount =
-            (stats.userCount ?? 0) > 0 ? (stats.userCount ?? 0) - 1 : 0;
-          });
-          _log(
-              'Stats updated: total users=${stats.userCount}, viewers=$_realViewerCount');
-        }
-      },
+
 
       onError: (ErrorCodeType err, String msg) {
         _log('onError $err $msg');
@@ -353,6 +344,42 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage>
   // ---------------------------------------------------------------------------
   // AUDIO/VIDEO CONTROLS
   // ---------------------------------------------------------------------------
+  Future<void> _fetchLiveCount() async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+
+      final astroId = sp.getString("astro_id");
+
+      if (astroId == null || astroId.isEmpty) {
+        print("❌ astro_id not found in SharedPreferences");
+        return;
+      }
+
+      print("🚀 astro_id: $astroId");
+
+      final api = FastApiServices();
+      final count = await api.getLiveViewerCount(astroId);
+
+      print("👁 Live Count: $count");
+
+      if (mounted) {
+        setState(() {
+          _realViewerCount = count;
+        });
+      }
+
+    } catch (e) {
+      print("❌ Live count error: $e");
+    }
+  }
+
+  void _startLiveCountPolling() {
+    _liveCountTimer = Timer.periodic(const Duration(seconds: 7), (_) {
+      print("⏱ Polling live count...");
+      _fetchLiveCount();
+    });
+  }
+
 
   Future<void> _toggleMute() async {
     _isMuted = !_isMuted;
@@ -500,6 +527,8 @@ class _HostLiveRoomPageState extends State<HostLiveRoomPage>
     _commentScroll.dispose();
     _engine.leaveChannel();
     _engine.release();
+    _liveCountTimer?.cancel(); // 🔥 important
+
     super.dispose();
   }
 
