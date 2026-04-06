@@ -2,8 +2,7 @@ name: astrowaypartner
 description: A new Flutter project Started.
 
 publish_to: "none"
-version: 1.0.0+13
-
+version: 1.0.0+18
 
 
 environment:
@@ -101,6 +100,7 @@ dependencies:
   webview_flutter: ^4.4.2
   provider: ^6.1.5+1
   clipboard: ^2.0.2
+  google_fonts: ^6.3.2
 
 dev_dependencies:
   flutter_test:
